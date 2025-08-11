@@ -1,0 +1,76 @@
+# Directrices para el Proyecto Klycs
+
+## Idioma
+- **SIEMPRE** responde en español
+- Toda la documentación, comentarios y comunicación debe ser en español
+
+## Descripción del Proyecto
+Klycs es una plataforma web tipo Linktree con sistema de reservas integrado. Es una aplicación React con Vite que permite a los usuarios crear tarjetas personalizadas y gestionar reservas desde su dashboard.
+
+## Stack Tecnológico
+- **Frontend**: React + Vite + TypeScript
+- **Estilos**: Tailwind CSS
+- **Base de datos**: Firebase (configurado)
+- **Futuro**: Preparado para migración a app móvil
+
+## Principios de Diseño
+- **Estilo**: Minimalista tipo iOS/Ebacons
+- **UI**: Compacto con bordes estilo Wise
+- **Animaciones**: Muy simples y sutiles
+- **Inspiración**: Diseño nivel empresas multimillonarias
+
+## Arquitectura
+- Dashboard principal para gestión
+- Sistema de tarjetas públicas (tipo Linktree)
+- Módulo de reservas integrado
+- Gestión de perfil y configuración
+
+## Estándares de Código
+- TypeScript obligatorio para type safety
+- Componentes reutilizables y modulares
+- Optimización de rendimiento prioritaria
+- Código limpio y mantenible
+- Estructura de carpetas escalable
+
+## Optimizaciones Requeridas
+- Lazy loading de componentes
+- Optimización de imágenes
+- Compresión de assets
+- Tree shaking
+- Code splitting
+- Memorización de componentes costosos
+- Virtual scrolling cuando sea necesario
+
+## Estructura de Funcionalidades
+### Dashboard de Usuario
+- Gestión de reservas
+- Edición de tarjetas
+- Configuración de perfil
+- Analíticas básicas
+
+### Tarjeta Pública
+- Vista optimizada para compartir
+- Enlaces personalizables
+- Botón de reservas integrado
+- Responsive design
+
+## Firebase (YA CONFIGURADO)
+- No instalar dependencias de Firebase
+- Usar configuración existente
+- Implementar autenticación
+- Firestore para datos
+- Storage para imágenes
+
+## Patrones de Desarrollo
+- Hooks personalizados para lógica compleja
+- Context API para estado global
+- Error boundaries
+- Suspense para loading states
+- Progressive Web App (PWA) ready
+
+## Prioridades
+1. Funcionalidad core
+2. Experiencia de usuario
+3. Rendimiento
+4. Escalabilidad
+5. Mantenibilidad

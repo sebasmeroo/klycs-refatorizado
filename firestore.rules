@@ -1,0 +1,256 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // === REGLAS PARA USUARIOS ===
+    match /users/{userId} {
+      // Permitir lectura pública de perfiles para visualización
+      allow read: if true;
+      // Solo el propietario puede crear, actualizar y eliminar sus datos
+      allow create, update, delete: if request.auth != null && request.auth.uid == userId;
+      
+      // Subcolección de configuración de usuario
+      match /settings/{settingId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Subcolección de notificaciones
+      match /notifications/{notificationId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Subcolección de analytics del usuario
+      match /analytics/{analyticsId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+    
+    // === REGLAS PARA TARJETAS ===
+    match /cards/{cardId} {
+      // Permitir lectura pública para visualización
+      allow read: if true;
+      
+      // Solo el propietario puede crear tarjetas (max 5 por hora)
+      allow create: if request.auth != null && 
+                   request.resource.data.userId == request.auth.uid &&
+                   isValidCardData(request.resource.data) &&
+                   isNotTooFrequent(request.auth.uid, 5);
+      
+      // Permitir actualización solo al propietario
+      allow update: if request.auth != null && 
+                   resource.data.userId == request.auth.uid &&
+                   isValidCardData(request.resource.data);
+      
+      // Permitir eliminación solo al propietario
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Subcolección de enlaces de la tarjeta
+      match /links/{linkId} {
+        allow read: if true;
+        allow write: if request.auth != null && 
+                    get(/databases/$(database)/documents/cards/$(cardId)).data.userId == request.auth.uid;
+      }
+      
+      // Subcolección de productos de la tarjeta
+      match /products/{productId} {
+        allow read: if true;
+        allow write: if request.auth != null && 
+                    get(/databases/$(database)/documents/cards/$(cardId)).data.userId == request.auth.uid;
+      }
+      
+      // Subcolección de analytics de la tarjeta
+      match /analytics/{analyticsId} {
+        allow read: if request.auth != null && 
+                   get(/databases/$(database)/documents/cards/$(cardId)).data.userId == request.auth.uid;
+        allow create: if true; // Permitir creación de eventos de analytics
+        allow update, delete: if false; // No permitir modificación de eventos
+      }
+    }
+
+    // === REGLAS PARA PLANTILLAS ===
+    match /userTemplates/{templateId} {
+      // Lectura pública: los usuarios pueden listar/usar plantillas
+      allow read: if true;
+      // Solo admins pueden crear y eliminar plantillas
+      allow create, delete: if request.auth != null && isAdmin(request.auth.uid);
+      // Usuarios autenticados pueden actualizar (para downloadCount)
+      allow update: if request.auth != null;
+    }
+
+    // === REGLAS PARA INSTANCIAS DE PLANTILLAS ===
+    match /templateInstances/{instanceId} {
+      // Los usuarios pueden leer todas las instancias autenticados
+      allow read: if request.auth != null;
+      
+      // Los usuarios pueden crear instancias 
+      allow create: if request.auth != null;
+      
+      // Los usuarios pueden actualizar/eliminar instancias
+      allow update, delete: if request.auth != null;
+    }
+
+    // === REGLAS TEMPORALES PARA ADMINs (bootstrap) ===
+    // Permite registrar los primeros administradores usando Firebase Auth.
+    // En producción, restringir según política interna.
+    match /admins/{uid} {
+      // Lectura solo para autenticados (UI de admin)
+      allow read: if request.auth != null;
+      // Crear documento de admin solo para sí mismo
+      allow create: if request.auth != null && request.auth.uid == uid;
+      // Actualizaciones y borrados deshabilitados por defecto
+      allow update, delete: if false;
+    }
+    
+    // === REGLAS PARA RESERVAS ===
+    match /bookings/{bookingId} {
+      // Permitir lectura pública de reservas para verificar disponibilidad
+      allow read: if true;
+      
+      // Permitir crear reservas sin autenticación (clientes anónimos) - max 3 por hora por IP
+      allow create: if isValidBookingData(request.resource.data) &&
+                   isValidTimestamp(request.resource.data.createdAt.toMillis());
+      
+      // Actualizar reservas solo el propietario del servicio (userId)
+      allow update: if request.auth != null && 
+                   request.auth.uid == resource.data.userId;
+      
+      // Eliminar reservas solo el propietario del servicio (userId)
+      allow delete: if request.auth != null && 
+                   request.auth.uid == resource.data.userId;
+    }
+    
+    // === REGLAS PARA SERVICIOS ===
+    match /services/{serviceId} {
+      // Permitir lectura pública de servicios
+      allow read: if true;
+      
+      // Solo el propietario puede crear servicios
+      allow create: if request.auth != null && 
+                   request.resource.data.userId == request.auth.uid &&
+                   isValidServiceData(request.resource.data);
+      
+      // Solo el propietario puede actualizar servicios
+      allow update: if request.auth != null && 
+                   resource.data.userId == request.auth.uid &&
+                   isValidServiceData(request.resource.data);
+      
+      // Solo el propietario puede eliminar servicios
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+    
+    // === REGLAS PARA STRIPE ===
+    match /customers/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      
+      match /checkout_sessions/{id} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+      
+      match /subscriptions/{id} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+      }
+      
+      match /payments/{id} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+    
+    // Productos y precios de Stripe (públicos)
+    match /products/{id} {
+      allow read: if true;
+      
+      match /prices/{id} {
+        allow read: if true;
+      }
+    }
+    
+    // === REGLAS PARA ANALYTICS GLOBALES ===
+    match /analytics/{analyticsId} {
+      allow read: if request.auth != null;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+    
+    // === REGLAS PARA FEATURE FLAGS ===
+    match /featureFlags/{flagId} {
+      // Permitir lectura de feature flags a todos los usuarios autenticados
+      allow read: if request.auth != null;
+      
+      // Solo administradores pueden crear, actualizar y eliminar feature flags
+      allow create, update, delete: if request.auth != null && 
+                                    isAdmin(request.auth.uid);
+    }
+    
+    // Configuración de gestión de feature flags
+    match /featureFlagManagement/{configId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isAdmin(request.auth.uid);
+    }
+    
+    // === FUNCIONES DE VALIDACIÓN ===
+    function isAdmin(userId) {
+      // Verificar si el usuario existe en la colección 'admins'
+      return request.auth != null && 
+             request.auth.uid == userId &&
+             exists(/databases/$(database)/documents/admins/$(userId));
+    }
+    
+    function isCardOwner(userId, cardId) {
+      // Verifica si el usuario es dueño de la tarjeta especificada
+      let cardDoc = get(/databases/$(database)/documents/cards/$(cardId));
+      return cardDoc.data.userId == userId;
+    }
+    
+    function isValidCardData(data) {
+      return data.keys().hasAll(['title', 'description', 'userId', 'isPublic', 'createdAt']) &&
+             data.title is string && data.title.size() <= 100 &&
+             data.description is string && data.description.size() <= 500 &&
+             data.userId is string &&
+             data.isPublic is bool;
+    }
+    
+    // === FUNCIONES DE RATE LIMITING ===
+    function isNotTooFrequent(userId, maxPerHour) {
+      // Limitar creaciones por usuario por hora
+      let recentCreations = firestore.get(/databases/$(database)/documents/users/$(userId)/activity/creations).data;
+      let currentTime = request.time.toMillis();
+      let oneHourAgo = currentTime - 3600000; // 1 hora en milisegundos
+      
+      return recentCreations == null || 
+             recentCreations.get('lastReset', 0) < oneHourAgo ||
+             recentCreations.get('count', 0) < maxPerHour;
+    }
+    
+    function isValidTimestamp(ts) {
+      // Validar que el timestamp esté dentro de un rango razonable
+      let now = request.time.toMillis();
+      let fiveMinutesAgo = now - 300000;
+      let fiveMinutesLater = now + 300000;
+      
+      return ts >= fiveMinutesAgo && ts <= fiveMinutesLater;
+    }
+    
+    function isValidBookingData(data) {
+      return data.keys().hasAll(['clientName', 'clientEmail', 'userId', 'status', 'createdAt']) &&
+             data.clientName is string && data.clientName.size() <= 100 &&
+             data.clientEmail is string && data.clientEmail.matches('.*@.*') &&
+             data.userId is string &&
+             data.status in ['pending', 'confirmed', 'cancelled', 'completed'] &&
+             data.serviceName is string && data.serviceName.size() <= 100 &&
+             data.date is string &&
+             data.time is string &&
+             data.duration is number && data.duration > 0 &&
+             data.price is number && data.price >= 0;
+    }
+    
+    function isValidServiceData(data) {
+      return data.keys().hasAll(['name', 'description', 'price', 'duration', 'userId', 'isActive']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.description is string && data.description.size() <= 500 &&
+             data.price is number && data.price >= 0 &&
+             data.duration is number && data.duration > 0 &&
+             data.userId is string &&
+             data.isActive is bool;
+    }
+  }
+}

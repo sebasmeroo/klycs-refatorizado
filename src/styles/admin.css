@@ -1,0 +1,55 @@
+@tailwind components;
+
+@layer components {
+  .admin-glass {
+    @apply bg-white/70 dark:bg-gray-800/60 backdrop-blur-xl border border-black/10 dark:border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.08)];
+  }
+
+  .admin-card {
+    @apply bg-white/70 dark:bg-gray-800/60 backdrop-blur-md border border-black/10 dark:border-white/10 shadow-sm;
+  }
+
+  .admin-card-hover {
+    @apply transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5;
+  }
+
+  .admin-pill {
+    @apply bg-blue-50 dark:bg-blue-900/20 border border-blue-200/60 dark:border-blue-800/40;
+  }
+
+  .admin-divider {
+    @apply border-t border-black/10 dark:border-white/10;
+  }
+
+  .admin-focus {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 focus-visible:ring-offset-0;
+  }
+
+  .admin-badge {
+    @apply px-2 py-1 rounded-md text-xs font-semibold;
+  }
+
+  .admin-kbd {
+    @apply inline-block px-1.5 py-0.5 rounded-md bg-black/80 text-white text-[11px] font-mono;
+  }
+
+  .admin-fade {
+    animation: admin-fade 180ms ease-out both;
+  }
+
+  .admin-rise {
+    animation: admin-rise 200ms ease-out both;
+  }
+}
+
+@keyframes admin-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes admin-rise {
+  from { transform: translateY(2px); opacity: 0.85; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+

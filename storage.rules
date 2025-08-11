@@ -1,0 +1,141 @@
+rules_version = '2';
+
+// Firebase Storage security rules
+service firebase.storage {
+  match /b/{bucket}/o {
+    // === REGLAS PARA AVATARES DE USUARIOS ===
+    match /users/{userId}/avatar/{fileName} {
+      // Permitir lectura pública de avatares
+      allow read: if true;
+      
+      // Solo el propietario puede subir/actualizar/eliminar su avatar
+      allow write: if request.auth != null && 
+                   request.auth.uid == userId &&
+                   isValidImageFile(fileName) &&
+                   isValidFileSize(request.resource);
+    }
+    
+    // === REGLAS PARA IMÁGENES DE TARJETAS ===
+    match /cards/{cardId}/images/{fileName} {
+      // Permitir lectura pública de imágenes de tarjetas
+      allow read: if true;
+      
+      // CRÍTICO: Verificar que el usuario es propietario de la tarjeta
+      allow write: if request.auth != null &&
+                   isCardOwner(cardId, request.auth.uid) &&
+                   isValidImageFile(fileName) &&
+                   isValidFileSize(request.resource);
+    }
+    
+    // === REGLAS PARA LOGOS DE TARJETAS ===
+    match /cards/{cardId}/logo/{fileName} {
+      // Permitir lectura pública de logos
+      allow read: if true;
+      
+      // CRÍTICO: Verificar que el usuario es propietario de la tarjeta
+      allow write: if request.auth != null &&
+                   isCardOwner(cardId, request.auth.uid) &&
+                   isValidImageFile(fileName) &&
+                   isValidFileSize(request.resource);
+    }
+    
+    // === REGLAS PARA PORTFOLIO DE TARJETAS ===
+    match /cards/{cardId}/portfolio/{imageId}/{fileName} {
+      // Permitir lectura pública de imágenes del portfolio
+      allow read: if true;
+      
+      // CRÍTICO: Verificar que el usuario es propietario de la tarjeta
+      allow write: if request.auth != null &&
+                   isCardOwner(cardId, request.auth.uid) &&
+                   isValidImageFile(fileName) &&
+                   isValidImageSize(request.resource);
+    }
+    
+    // === REGLAS PARA COVER DE TARJETAS ===
+    match /cards/{cardId}/cover/{fileName} {
+      // Permitir lectura pública de imágenes de cover
+      allow read: if true;
+      
+      // CRÍTICO: Verificar que el usuario es propietario de la tarjeta
+      allow write: if request.auth != null &&
+                   isCardOwner(cardId, request.auth.uid) &&
+                   isValidImageFile(fileName) &&
+                   isValidImageSize(request.resource);
+    }
+    
+    // === REGLAS PARA AVATAR DE TARJETAS ===
+    match /cards/{cardId}/avatar/{fileName} {
+      // Permitir lectura pública de avatares de tarjetas
+      allow read: if true;
+      
+      // CRÍTICO: Verificar que el usuario es propietario de la tarjeta
+      allow write: if request.auth != null &&
+                   isCardOwner(cardId, request.auth.uid) &&
+                   isValidImageFile(fileName) &&
+                   isValidImageSize(request.resource);
+    }
+    
+    // === REGLAS PARA PRODUCTOS ===
+    match /products/{productId}/images/{fileName} {
+      // Permitir lectura pública de imágenes de productos
+      allow read: if true;
+      
+      // REGLA SIMPLIFICADA: Solo verificar que el usuario esté autenticado
+      allow write: if request.auth != null &&
+                   isValidImageFile(fileName) &&
+                   isValidFileSize(request.resource);
+    }
+    
+    // === REGLAS PARA DOCUMENTOS Y ARCHIVOS PRIVADOS ===
+    match /users/{userId}/documents/{fileName} {
+      // Solo el propietario puede leer sus documentos
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Solo el propietario puede subir/actualizar/eliminar documentos
+      allow write: if request.auth != null && 
+                   request.auth.uid == userId &&
+                   isValidDocumentFile(fileName) &&
+                   isValidFileSize(request.resource);
+    }
+    
+    // === REGLAS PARA ARCHIVOS TEMPORALES ===
+    match /temp/{userId}/{fileName} {
+      // Solo el propietario puede leer archivos temporales
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Solo el propietario puede subir archivos temporales
+      allow write: if request.auth != null && 
+                   request.auth.uid == userId &&
+                   isValidFileSize(request.resource);
+    }
+    
+    // === FUNCIONES DE VALIDACIÓN ===
+    
+    // Función crítica: Verificar que el usuario es propietario de la tarjeta
+    function isCardOwner(cardId, userId) {
+      return firestore.get(/databases/(default)/documents/cards/$(cardId)).data.userId == userId;
+    }
+    
+    // Validar tipos de archivos de imagen
+    function isValidImageFile(fileName) {
+      return fileName.matches('.*\\.(jpg|jpeg|png|gif|webp|svg)$') &&
+             fileName.size() <= 255;
+    }
+    
+    // Validar tipos de archivos de documento
+    function isValidDocumentFile(fileName) {
+      return fileName.matches('.*\\.(pdf|doc|docx|txt|csv|xls|xlsx)$') &&
+             fileName.size() <= 255;
+    }
+    
+    // Validar tamaño de archivo
+    function isValidFileSize(resource) {
+      return resource.size < 10 * 1024 * 1024; // 10MB límite
+    }
+    
+    // Validar tamaño de archivo para imágenes
+    function isValidImageSize(resource) {
+      return resource.size < 5 * 1024 * 1024; // 5MB límite para imágenes
+    }
+  }
+}

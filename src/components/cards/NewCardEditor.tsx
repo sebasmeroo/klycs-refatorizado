@@ -1,0 +1,520 @@
+import React, { useState, useCallback } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { CardsService } from '@/services/cards';
+import { Card } from '@/types';
+import { toast } from '@/utils/toast';
+import { 
+  Save, 
+  Eye, 
+  Smartphone, 
+  Monitor, 
+  User, 
+  Link, 
+  Share, 
+  Briefcase, 
+  Calendar, 
+  Image, 
+  Layers, 
+  Palette, 
+  Settings,
+  ArrowLeft,
+  ChevronRight,
+  ChevronDown,
+  Wand2
+} from 'lucide-react';
+
+// Componentes de cada sección
+import { ProfileEditor } from './sections/ProfileEditor';
+import { LinksEditor } from './sections/LinksEditor';
+import { SocialLinksEditor } from './sections/SocialLinksEditor';
+import { ServicesEditor } from './sections/ServicesEditor';
+import { BookingEditor } from './sections/BookingEditor';
+import { PortfolioEditor } from './sections/PortfolioEditor';
+import { ElementsEditor } from './sections/ElementsEditor';
+import { DesignEditor } from './sections/DesignEditor';
+import { SettingsEditor } from './sections/SettingsEditor';
+
+// Preview components
+import { MobilePreview } from './preview/MobilePreview';
+import { DesktopPreview } from './preview/DesktopPreview';
+
+// Template gallery
+import TemplatesGallery from './sections/TemplatesGallery';
+
+interface NewCardEditorProps {
+  card: Card;
+  onSave: (updatedCard: Card) => void;
+  onClose: () => void;
+}
+
+type EditorSection = 
+  | 'profile' 
+  | 'links' 
+  | 'social' 
+  | 'services' 
+  | 'booking' 
+  | 'portfolio' 
+  | 'elements' 
+  | 'design' 
+  | 'settings';
+
+type PreviewMode = 'mobile' | 'desktop';
+
+const sidebarSections = [
+  {
+    id: 'profile' as EditorSection,
+    label: 'Perfil',
+    icon: User,
+    description: 'Información personal y bio',
+    color: 'from-blue-500 to-blue-600'
+  },
+  {
+    id: 'links' as EditorSection,
+    label: 'Enlaces',
+    icon: Link,
+    description: 'Enlaces principales',
+    color: 'from-green-500 to-green-600'
+  },
+  {
+    id: 'social' as EditorSection,
+    label: 'Redes Sociales',
+    icon: Share,
+    description: 'Perfiles de redes sociales',
+    color: 'from-pink-500 to-pink-600'
+  },
+  {
+    id: 'services' as EditorSection,
+    label: 'Servicios',
+    icon: Briefcase,
+    description: 'Servicios profesionales',
+    color: 'from-purple-500 to-purple-600'
+  },
+  {
+    id: 'booking' as EditorSection,
+    label: 'Reservas',
+    icon: Calendar,
+    description: 'Sistema de citas',
+    color: 'from-orange-500 to-orange-600'
+  },
+  {
+    id: 'portfolio' as EditorSection,
+    label: 'Portfolio',
+    icon: Image,
+    description: 'Imágenes y videos',
+    color: 'from-cyan-500 to-cyan-600'
+  },
+  {
+    id: 'elements' as EditorSection,
+    label: 'Elementos',
+    icon: Layers,
+    description: 'Componentes adicionales',
+    color: 'from-teal-500 to-teal-600'
+  },
+  {
+    id: 'design' as EditorSection,
+    label: 'Diseño',
+    icon: Palette,
+    description: 'Temas y estilos',
+    color: 'from-indigo-500 to-indigo-600'
+  },
+  {
+    id: 'settings' as EditorSection,
+    label: 'Configuración',
+    icon: Settings,
+    description: 'SEO, analytics y más',
+    color: 'from-gray-500 to-gray-600'
+  }
+];
+
+export const NewCardEditor: React.FC<NewCardEditorProps> = ({ 
+  card, 
+  onSave, 
+  onClose 
+}) => {
+  const { user, firebaseUser } = useAuth();
+  const [currentCard, setCurrentCard] = useState<Card>(card);
+  const [activeSection, setActiveSection] = useState<EditorSection>('profile');
+  const [previewMode, setPreviewMode] = useState<PreviewMode>('mobile');
+  const [isSaving, setIsSaving] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [unsavedChanges, setUnsavedChanges] = useState(false);
+  const [sidebarQuery, setSidebarQuery] = useState('');
+  const [activeSubsection, setActiveSubsection] = useState<string | null>(null);
+  const [openSubmenus, setOpenSubmenus] = useState<Partial<Record<EditorSection, boolean>>>({});
+  const [showTemplatesGallery, setShowTemplatesGallery] = useState(false);
+
+  const handleCardUpdate = useCallback((updates: Partial<Card>) => {
+    setCurrentCard(prev => ({ ...prev, ...updates }));
+    setUnsavedChanges(true);
+  }, []);
+
+  const handleSave = async () => {
+    if (!firebaseUser) return;
+    
+    const userId = user?.id || firebaseUser.uid;
+    
+    try {
+      setIsSaving(true);
+      await CardsService.updateCard(currentCard.id, userId, currentCard);
+      onSave(currentCard);
+      setUnsavedChanges(false);
+      toast.success('Tarjeta guardada exitosamente');
+    } catch (error) {
+      console.error('Error saving card:', error);
+      toast.error('Error al guardar la tarjeta');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTemplateApplied = useCallback((template: any, data: any) => {
+    // Aquí integraremos los datos de la plantilla con la tarjeta del usuario
+    setCurrentCard(prev => ({
+      ...prev,
+      templateData: {
+        templateId: template.id,
+        data: data
+      }
+    }));
+    setUnsavedChanges(true);
+    toast.success(`Plantilla "${template.name}" aplicada exitosamente`);
+  }, []);
+
+  const renderActiveSection = () => {
+    const commonProps = {
+      card: currentCard,
+      onUpdate: handleCardUpdate
+    };
+
+    switch (activeSection) {
+      case 'profile':
+        return <ProfileEditor {...commonProps} />;
+      case 'links':
+        return <LinksEditor {...commonProps} />;
+      case 'social':
+        return <SocialLinksEditor {...commonProps} />;
+      case 'services':
+        return <ServicesEditor {...commonProps} />;
+      case 'booking':
+        return <BookingEditor {...commonProps} />;
+      case 'portfolio':
+        return <PortfolioEditor {...commonProps} />;
+      case 'elements':
+        return <ElementsEditor {...commonProps} />;
+      case 'design':
+        return <DesignEditor {...commonProps} />;
+      case 'settings':
+        return <SettingsEditor {...commonProps} />;
+      default:
+        return <ProfileEditor {...commonProps} />;
+    }
+  };
+
+  const currentSection = sidebarSections.find(s => s.id === activeSection);
+  const sectionSubmenus: Partial<Record<EditorSection, { id: string; label: string }[]>> = {
+    profile: [
+      { id: 'profile-info', label: 'Información del Perfil' },
+      { id: 'basic-info', label: 'Información Básica' },
+      { id: 'design-templates', label: 'Plantillas de Diseño' },
+      { id: 'profile-background', label: 'Fondo de Perfil' },
+    ],
+    links: [{ id: 'links-main', label: 'Enlaces principales' }],
+    social: [{ id: 'social-main', label: 'Redes sociales' }],
+    services: [{ id: 'services-main', label: 'Servicios profesionales' }],
+    booking: [{ id: 'booking-main', label: 'Sistema de citas' }],
+  };
+
+  const filteredSidebarSections = sidebarSections.filter(s =>
+    s.label.toLowerCase().includes(sidebarQuery.toLowerCase()) ||
+    s.description.toLowerCase().includes(sidebarQuery.toLowerCase())
+  );
+
+  const getSectionBadge = (id: EditorSection): number | undefined => {
+    try {
+      switch (id) {
+        case 'links':
+          return currentCard.links?.length || 0;
+        case 'social':
+          return currentCard.socialLinks?.length || 0;
+        case 'services':
+          return currentCard.services?.length || 0;
+        case 'portfolio':
+          return currentCard.portfolio?.items?.length || 0;
+        case 'booking':
+          return currentCard.booking?.enabled ? 1 : 0;
+        case 'elements':
+          return currentCard.elements?.length || 0;
+        default:
+          return undefined;
+      }
+    } catch {
+      return undefined;
+    }
+  };
+
+  return (
+      <div className="h-screen bg-[#0b0b0f] flex overflow-hidden">
+      {/* Sidebar */}
+      <div className={`bg-[#0f1116] text-white border-r border-black/30 flex flex-col transition-all duration-300 ${
+        sidebarCollapsed ? 'w-16' : 'w-64'
+      }`}>
+        {/* Header */}
+        <div className="p-3 border-b border-white/10 bg-[#0b0d12]/80 backdrop-blur">
+          <div className="flex items-center justify-between mb-2">
+            <button
+              onClick={onClose}
+              className="flex items-center text-white/60 hover:text-white transition-colors"
+              title="Volver al dashboard"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              {!sidebarCollapsed && 'Volver'}
+            </button>
+            
+            <button
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="p-1 text-white/40 hover:text-white/80 transition-colors"
+            >
+              <ChevronRight className={`w-4 h-4 transition-transform ${sidebarCollapsed ? '' : 'rotate-180'}`} />
+            </button>
+          </div>
+          
+          {!sidebarCollapsed && (
+            <>
+              <h1 className="text-lg font-semibold text-white truncate">
+                {currentCard.title}
+              </h1>
+              <p className="text-sm text-white/50 truncate">
+                /{currentCard.slug}
+              </p>
+              <div className="mt-2">
+                <input
+                  type="text"
+                  placeholder="Buscar sección..."
+                  value={sidebarQuery}
+                  onChange={(e)=>setSidebarQuery(e.target.value)}
+                  className="w-full rounded-md bg-white/5 border border-white/10 px-2.5 py-1.5 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Navigation */}
+        <div className="flex-1 overflow-y-auto py-4">
+          <nav className={`space-y-1 ${sidebarCollapsed ? 'px-1' : 'px-2.5'}`}>
+            {filteredSidebarSections.map((section) => {
+              const Icon = section.icon;
+              const isActive = activeSection === section.id;
+              const badge = getSectionBadge(section.id);
+              
+              const submenuItems = sectionSubmenus[section.id] || [];
+              const hasSubmenu = submenuItems.length > 0;
+              const isOpenSub = !!openSubmenus[section.id];
+              return (
+                <div key={section.id}>
+                  <button
+                    onClick={() => {
+                      if (activeSection !== section.id) {
+                        setActiveSection(section.id);
+                        if (hasSubmenu) setOpenSubmenus((s)=>({ ...s, [section.id]: true }));
+                      } else if (hasSubmenu) {
+                        setOpenSubmenus((s)=>({ ...s, [section.id]: !isOpenSub }));
+                      }
+                    }}
+                    className={`w-full flex items-center px-2.5 py-2 rounded-md text-left transition-all duration-200 relative overflow-hidden group ${
+                      isActive
+                        ? 'bg-white/5 text-white shadow-[inset_0_0_0_1px_rgba(59,130,246,0.35)]'
+                        : 'text-white/70 hover:bg-white/5'
+                    }`}
+                    title={sidebarCollapsed ? section.label : undefined}
+                  >
+                    <div className={`w-7 h-7 rounded-md flex items-center justify-center mr-2 bg-gradient-to-br ${section.color} ${isActive ? 'shadow-lg' : 'opacity-80'}`}>
+                      <Icon className="w-3.5 h-3.5 text-white"/>
+                    </div>
+                    {!sidebarCollapsed && (
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate text-[13px]">{section.label}</div>
+                        <div className="text-[11px] text-white/50 truncate">
+                          {section.description}
+                        </div>
+                      </div>
+                    )}
+                    {!sidebarCollapsed && (
+                      <div className="ml-2 flex items-center gap-2">
+                        {typeof badge === 'number' && (
+                          <span className={`text-[10px] px-1 py-0.5 rounded ${isActive ? 'bg-blue-500/20 text-blue-300' : 'bg-white/10 text-white/70'}`}>{badge}</span>
+                        )}
+                        {hasSubmenu && (
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpenSub ? 'rotate-180 text-blue-400' : 'text-white/50'}`} />
+                        )}
+                      </div>
+                    )}
+                    {isActive && (<span className="absolute left-0 top-0 bottom-0 w-[3px] bg-blue-500"/>) }
+                  </button>
+
+                  {/* Submenu debajo de la sección activa */}
+                  {!sidebarCollapsed && isActive && hasSubmenu && isOpenSub && (
+                    <div className="mt-1 ml-9 space-y-1">
+                      {submenuItems.map((sub) => (
+                        <button
+                          key={sub.id}
+                          onClick={() => {
+                            setActiveSubsection(sub.id);
+                            // Abre la sección correspondiente en el editor
+                            // @ts-ignore
+                            window.dispatchEvent(new CustomEvent('open-section', { detail: sub.id }));
+                          }}
+                          className={`w-full text-left text-[11px] px-2 py-1 rounded-md transition-colors ${
+                            activeSubsection === sub.id ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Footer - Save Button */}
+        <div className="p-4 border-t border-white/10 bg-[#0b0d12]/80 backdrop-blur">
+          <button
+            onClick={handleSave}
+            disabled={isSaving || !unsavedChanges}
+            className={`w-full flex items-center justify-center px-4 py-3 rounded-lg font-medium transition-all ${
+              !sidebarCollapsed ? 'text-sm' : 'text-xs'
+            } ${
+              unsavedChanges 
+                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
+                : 'bg-white/5 text-white/40 cursor-not-allowed'
+            }`}
+            title={sidebarCollapsed ? 'Guardar cambios' : undefined}
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {!sidebarCollapsed && (isSaving ? 'Guardando...' : 'Guardar cambios')}
+          </button>
+          
+          {!sidebarCollapsed && unsavedChanges && (
+            <p className="text-xs text-orange-300 mt-2 text-center">
+              Tienes cambios sin guardar
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex min-w-0">
+        {/* Editor Content */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Content Header */}
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  {currentSection?.label}
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {currentSection?.description}
+                </p>
+              </div>
+
+              {/* Botón de Plantillas */}
+              {activeSection !== 'settings' && (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowTemplatesGallery(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
+                  >
+                    <Wand2 className="w-4 h-4" />
+                    Plantillas
+                  </button>
+                </div>
+              )}
+              
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => window.open(`/c/${currentCard.slug}`, '_blank')}
+                  className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  Vista previa
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Editor Content Area */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-4xl mx-auto">
+              {renderActiveSection()}
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Preview */}
+        <div className="w-[420px] bg-[#121218] border-l border-black/20 flex flex-col">
+          {/* Preview Header */}
+          <div className="bg-[#1b1b22] border-b border-black/20 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-medium text-white">Vista Previa</h3>
+              <div className="flex items-center space-x-1 bg-[#262631] rounded-lg p-1">
+                <button
+                  onClick={() => setPreviewMode('mobile')}
+                   className={`p-2 rounded-md transition-colors ${
+                    previewMode === 'mobile'
+                      ? 'bg-[#2f2f3b] text-blue-400 shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                  title="Vista móvil"
+                >
+                  <Smartphone className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setPreviewMode('desktop')}
+                   className={`p-2 rounded-md transition-colors ${
+                    previewMode === 'desktop'
+                      ? 'bg-[#2f2f3b] text-blue-400 shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                  title="Vista escritorio"
+                >
+                  <Monitor className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Los cambios se reflejan en tiempo real
+            </p>
+          </div>
+
+          {/* Preview Content */}
+          <div className="flex-1 p-4 overflow-hidden bg-[#0b0b0f]">
+            <div className="h-full flex items-center justify-center">
+              {previewMode === 'mobile' ? (
+                <MobilePreview card={currentCard} />
+              ) : (
+                <DesktopPreview card={currentCard} />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Templates Gallery Modal */}
+      {showTemplatesGallery && user && (
+        <TemplatesGallery
+          section={activeSection}
+          cardId={currentCard.id}
+          userId={user.uid}
+          onTemplateApplied={handleTemplateApplied}
+          onClose={() => setShowTemplatesGallery(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+export default NewCardEditor;
