@@ -13,6 +13,7 @@ import {
   setDoc 
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
+import { secureLogger } from '@/utils/secureLogger';
 import type { TemplateArtifact } from '@/services/templateCompiler';
 
 export interface TemplateStats {
@@ -91,7 +92,7 @@ class TemplateDistributionService {
     while (attempts < maxAttempts) {
       try {
         attempts++;
-        console.log(`🔄 Intento ${attempts}/${maxAttempts} de guardar plantilla...`);
+        secureLogger.devOnly(`Intento ${attempts}/${maxAttempts} de guardar plantilla`);
         
         // Eliminar campos undefined y el id del payload a Firestore
         const { id: _omitId, ...rest } = templateData as any;
@@ -114,19 +115,19 @@ class TemplateDistributionService {
           // Actualizar plantilla existente
           const templateRef = doc(db, this.collectionName, templateData.id);
           await updateDoc(templateRef, template);
-          console.log('✅ Plantilla actualizada exitosamente');
+          // Operación exitosa - sin log
           return templateData.id;
         } else {
           // Crear nueva plantilla
           const templateRef = await addDoc(collection(db, this.collectionName), template);
-          console.log('✅ Plantilla creada exitosamente:', templateRef.id);
+          // Plantilla creada exitosamente - sin log
           return templateRef.id;
         }
       } catch (error: any) {
-        console.error(`❌ Error en intento ${attempts}:`, error);
+        secureLogger.error(`Error en intento ${attempts}`, error);
         
         if (attempts === maxAttempts) {
-          console.error('🚨 Todos los intentos fallaron');
+          secureLogger.error('Todos los intentos fallaron al guardar plantilla');
           return null;
         }
         
@@ -164,7 +165,7 @@ class TemplateDistributionService {
         averageRating
       };
     } catch (error) {
-      console.error('Error getting stats:', error);
+      secureLogger.error('Error obteniendo estadísticas', error);
       return {
         totalTemplates: 0,
         publicTemplates: 0,
@@ -198,7 +199,7 @@ class TemplateDistributionService {
       
       return templates;
     } catch (error) {
-      console.error('Error getting templates:', error);
+      secureLogger.error('Error obteniendo plantillas', error);
       return [];
     }
   }
@@ -218,7 +219,7 @@ class TemplateDistributionService {
       
       return null;
     } catch (error) {
-      console.error('Error fetching template by ID:', error);
+      secureLogger.error('Error obteniendo plantilla por ID', error);
       return null;
     }
   }
@@ -243,10 +244,10 @@ class TemplateDistributionService {
       const templateRef = doc(db, this.collectionName, templateId);
       await updateDoc(templateRef, updateData);
       
-      console.log('✅ Plantilla actualizada exitosamente:', templateId);
+      // Plantilla actualizada - sin log
       return true;
     } catch (error) {
-      console.error('Error updating template:', error);
+      secureLogger.error('Error actualizando plantilla', error);
       return false;
     }
   }
@@ -258,10 +259,10 @@ class TemplateDistributionService {
       const templateRef = doc(db, this.collectionName, templateId);
       await deleteDoc(templateRef);
       
-      console.log('✅ Plantilla eliminada exitosamente:', templateId);
+      // Plantilla eliminada - sin log
       return true;
     } catch (error) {
-      console.error('Error deleting template:', error);
+      secureLogger.error('Error eliminando plantilla', error);
       return false;
     }
   }
@@ -289,12 +290,12 @@ class TemplateDistributionService {
       const newTemplateId = await this.saveTemplate(duplicatedTemplate);
       
       if (newTemplateId) {
-        console.log('✅ Plantilla duplicada exitosamente:', newTemplateId);
+        // Plantilla duplicada - sin log
       }
       
       return newTemplateId;
     } catch (error) {
-      console.error('Error duplicating template:', error);
+      secureLogger.error('Error duplicando plantilla', error);
       return null;
     }
   }
@@ -304,7 +305,7 @@ class TemplateDistributionService {
     try {
       return await this.updateTemplate(templateId, { isPublic });
     } catch (error) {
-      console.error('Error toggling publish status:', error);
+      secureLogger.error('Error cambiando estado de publicación', error);
       return false;
     }
   }
@@ -335,10 +336,10 @@ class TemplateDistributionService {
         }
       };
 
-      console.log('✅ Plantilla exportada exitosamente:', templateId);
+      // Plantilla exportada - sin log
       return exportData;
     } catch (error) {
-      console.error('Error exporting template:', error);
+      secureLogger.error('Error exportando plantilla', error);
       return null;
     }
   }

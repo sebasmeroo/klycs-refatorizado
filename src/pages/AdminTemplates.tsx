@@ -280,9 +280,16 @@ export const AdminTemplates: React.FC = () => {
     
     if (confirm(confirmMessage)) {
       try {
-        await deleteTemplate(template.id);
+        setLoading(true);
+        const success = await deleteTemplate(template.id);
+        if (success) {
+          alert(`✅ Plantilla "${template.meta.name}" eliminada exitosamente`);
+        }
       } catch (error) {
         console.error('Error deleting template:', error);
+        alert('❌ Error al eliminar la plantilla');
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -338,7 +345,7 @@ export const AdminTemplates: React.FC = () => {
                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
                   : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
               }`}>
-                {template.isPublic ? 'Published' : 'Draft'}
+                {template.isPublic ? 'Publicada' : 'Borrador'}
               </span>
             </div>
           </div>
@@ -353,57 +360,67 @@ export const AdminTemplates: React.FC = () => {
             </Button>
             
             {showActionMenu === template.id && (
-              <div className="absolute right-0 top-8 admin-card rounded-lg shadow-lg py-1 z-10 min-w-48">
+              <div className="absolute right-0 top-8 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-50 min-w-48">
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     navigate(`/admin/creator?edit=${template.id}`);
                     setShowActionMenu(null);
                   }}
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 cursor-pointer"
                 >
                   <Edit3 className="w-4 h-4" />
-                  Edit
+                  Editar
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     handleDuplicate(template);
                     setShowActionMenu(null);
                   }}
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 cursor-pointer"
                 >
                   <Copy className="w-4 h-4" />
-                  Duplicate
+                  Duplicar
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     handleExport(template);
                     setShowActionMenu(null);
                   }}
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  Export JSON
+                  Exportar JSON
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     handleTogglePublish(template);
                     setShowActionMenu(null);
                   }}
-                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 cursor-pointer"
                 >
                   <Eye className="w-4 h-4" />
-                  {template.isPublic ? 'Unpublish' : 'Publish'}
+                  {template.isPublic ? 'Despublicar' : 'Publicar'}
                 </button>
-                <div className="admin-divider my-1"></div>
+                <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     handleDelete(template);
                     setShowActionMenu(null);
                   }}
-                  className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
+                  className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Delete
+                  Eliminar
                 </button>
               </div>
             )}
@@ -415,15 +432,15 @@ export const AdminTemplates: React.FC = () => {
       <div className="p-4">
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Appears in:</label>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Aparece en:</label>
             <select
               value={template.appearIn}
               onChange={(e) => handleAppearInChange(template, e.target.value as AppearIn)}
               className="mt-1 w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700"
             >
-              <option value="templates">Templates Only</option>
-              <option value="design-presets">Design Presets Only</option>
-              <option value="both">Both Sections</option>
+              <option value="templates">Solo Plantillas</option>
+              <option value="design-presets">Solo Presets de Diseño</option>
+              <option value="both">Ambas Secciones</option>
             </select>
           </div>
           
@@ -448,10 +465,10 @@ export const AdminTemplates: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Templates
+                Plantillas
               </h1>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Manage and organize your templates
+                Gestiona y organiza tus plantillas
               </p>
             </div>
           </div>
@@ -464,12 +481,12 @@ export const AdminTemplates: React.FC = () => {
               className="border-black/10 dark:border-white/20 hover:bg-white/40 dark:hover:bg-white/10"
             >
               <Upload className="w-4 h-4 mr-2" />
-              {importing ? 'Importing...' : 'Import JSON'}
+              {importing ? 'Importando...' : 'Importar JSON'}
             </Button>
             
             <Button onClick={() => navigate('/admin/creator')} className="bg-white/10 dark:bg-white/10 text-gray-900 dark:text-white border border-black/10 dark:border-white/20 hover:bg-white/20">
               <Plus className="w-4 h-4 mr-2" />
-              New Template
+              Nueva Plantilla
             </Button>
           </div>
         </div>
@@ -480,14 +497,14 @@ export const AdminTemplates: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Search
+              Buscar
             </label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input
                 value={filters.search}
                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                placeholder="Search templates..."
+                placeholder="Buscar plantillas..."
                 className="pl-10"
               />
             </div>
@@ -495,50 +512,50 @@ export const AdminTemplates: React.FC = () => {
           
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Category
+              Categoría
             </label>
             <select
               value={filters.category}
               onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value as TemplateCategory | 'all' }))}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
-              <option value="all">All Categories</option>
-              <option value="minimal">Minimal</option>
-              <option value="modern">Modern</option>
-              <option value="creative">Creative</option>
-              <option value="luxury">Luxury</option>
-              <option value="business">Business</option>
+              <option value="all">Todas las Categorías</option>
+              <option value="minimal">Minimalista</option>
+              <option value="modern">Moderno</option>
+              <option value="creative">Creativo</option>
+              <option value="luxury">Lujo</option>
+              <option value="business">Negocios</option>
             </select>
           </div>
           
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Status
+              Estado
             </label>
             <select
               value={filters.status}
               onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value as any }))}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
-              <option value="all">All Status</option>
-              <option value="published">Published</option>
-              <option value="draft">Draft</option>
+              <option value="all">Todos los Estados</option>
+              <option value="published">Publicadas</option>
+              <option value="draft">Borradores</option>
             </select>
           </div>
           
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Appears In
+              Aparece En
             </label>
             <select
               value={filters.appearIn}
               onChange={(e) => setFilters(prev => ({ ...prev, appearIn: e.target.value as AppearIn | 'all' }))}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
             >
-              <option value="all">All Locations</option>
-              <option value="templates">Templates Only</option>
-              <option value="design-presets">Design Presets Only</option>
-              <option value="both">Both Sections</option>
+              <option value="all">Todas las Ubicaciones</option>
+              <option value="templates">Solo Plantillas</option>
+              <option value="design-presets">Solo Presets de Diseño</option>
+              <option value="both">Ambas Secciones</option>
             </select>
           </div>
         </div>
@@ -547,7 +564,7 @@ export const AdminTemplates: React.FC = () => {
       {/* Results */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          {filteredTemplates.length} template{filteredTemplates.length !== 1 ? 's' : ''} found
+          {filteredTemplates.length} plantilla{filteredTemplates.length !== 1 ? 's' : ''} encontrada{filteredTemplates.length !== 1 ? 's' : ''}
         </p>
         
         <div className="flex items-center gap-2">
@@ -589,17 +606,17 @@ export const AdminTemplates: React.FC = () => {
         <div className="text-center py-12">
           <Palette className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-            No templates found
+            No se encontraron plantillas
           </h3>
           <p className="text-gray-600 dark:text-gray-400 mb-4">
             {filters.search || filters.category !== 'all' || filters.status !== 'all' 
-              ? 'Try adjusting your filters or search terms.'
-              : 'Get started by creating your first template.'
+              ? 'Prueba ajustar tus filtros o términos de búsqueda.'
+              : 'Comienza creando tu primera plantilla.'
             }
           </p>
           <Button onClick={() => navigate('/admin/creator')}>
             <Plus className="w-4 h-4 mr-2" />
-            Create Template
+            Crear Plantilla
           </Button>
         </div>
       ) : (
@@ -624,7 +641,7 @@ export const AdminTemplates: React.FC = () => {
       {/* Click outside to close action menu */}
       {showActionMenu && (
         <div
-          className="fixed inset-0 z-10"
+          className="fixed inset-0 z-40"
           onClick={() => setShowActionMenu(null)}
         />
       )}

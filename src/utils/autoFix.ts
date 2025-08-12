@@ -1,4 +1,5 @@
 import { auth } from '@/lib/firebase';
+import { secureLogger } from './secureLogger';
 
 declare global {
   interface Window {
@@ -8,55 +9,43 @@ declare global {
 }
 
 window.autoFixAdminNow = async () => {
-  console.log('🔧 AUTO-ARREGLANDO PERMISOS DE ADMIN...');
-  console.log('=====================================');
+  secureLogger.devOnly('AUTO-ARREGLANDO PERMISOS DE ADMIN...');
   
   try {
     const currentUser = auth.currentUser;
     
     if (!currentUser) {
-      console.log('❌ No hay usuario autenticado');
-      console.log('🔄 Recargando página para forzar login...');
+      secureLogger.warn('No hay usuario autenticado');
       window.location.reload();
       return;
     }
     
-    console.log('👤 Usuario detectado:', currentUser.email);
-    console.log('🎯 UID:', currentUser.uid);
+    secureLogger.auth('Usuario detectado y autenticado');
     
     // 1. Limpiar toda la caché
-    console.log('🗑️ Limpiando caché completa...');
+    secureLogger.devOnly('Limpiando caché completa...');
     window.clearAllFirebaseCache();
     
     // 2. Forzar refresh del token
-    console.log('🎫 Refrescando token de autenticación...');
+    secureLogger.devOnly('Refrescando token de autenticación...');
     await currentUser.getIdToken(true);
-    console.log('✅ Token refrescado');
+    secureLogger.devOnly('Token refrescado');
     
     // 3. Recargar usuario
-    console.log('👤 Recargando datos del usuario...');
+    secureLogger.devOnly('Recargando datos del usuario...');
     await currentUser.reload();
-    console.log('✅ Usuario recargado');
+    secureLogger.devOnly('Usuario recargado');
     
     // 4. Verificar token actualizado
-    console.log('🔍 Verificando nuevo token...');
+    secureLogger.devOnly('Verificando nuevo token...');
     const newToken = await currentUser.getIdToken();
-    console.log('✅ Nuevo token obtenido (longitud):', newToken.length);
+    secureLogger.devOnly('Nuevo token obtenido correctamente');
     
-    console.log('');
-    console.log('🎉 ¡ARREGLO AUTOMÁTICO COMPLETADO!');
-    console.log('📝 Las reglas de Firestore ya fueron actualizadas');
-    console.log('🔐 Tu autenticación ya fue refrescada');
-    console.log('');
-    console.log('🧪 AHORA INTENTA GUARDAR LA PLANTILLA OTRA VEZ');
-    console.log('   - Ve al editor de admin');
-    console.log('   - Haz clic en "Guardar Plantilla"');
-    console.log('   - ¡Debería funcionar!');
+    // Auto-fix completado exitosamente - sin log
     
   } catch (error) {
-    console.error('❌ Error durante auto-arreglo:', error);
-    console.log('');
-    console.log('🔄 FALLBACK: Recargando página completa...');
+    secureLogger.error('Error durante auto-arreglo', error);
+    secureLogger.warn('FALLBACK: Recargando página completa...');
     setTimeout(() => {
       window.location.reload();
     }, 2000);
@@ -64,7 +53,7 @@ window.autoFixAdminNow = async () => {
 };
 
 window.clearAllFirebaseCache = () => {
-  console.log('🗑️ Limpiando caché...');
+  secureLogger.devOnly('Limpiando caché de Firebase...');
   
   // Limpiar localStorage
   const keysToRemove = [];
@@ -83,7 +72,7 @@ window.clearAllFirebaseCache = () => {
   
   keysToRemove.forEach(key => {
     localStorage.removeItem(key);
-    console.log('🗑️ Removed:', key);
+    secureLogger.devOnly(`Cache key removed: ${key.substring(0, 20)}...`);
   });
   
   // Limpiar sessionStorage
@@ -103,23 +92,12 @@ window.clearAllFirebaseCache = () => {
   
   sessionKeysToRemove.forEach(key => {
     sessionStorage.removeItem(key);
-    console.log('🗑️ Session removed:', key);
+    secureLogger.devOnly(`Session key removed: ${key.substring(0, 20)}...`);
   });
   
-  console.log('✅ Caché limpiada');
+  secureLogger.devOnly('Caché limpiada correctamente');
 };
 
-// Auto-ejecutar el arreglo al cargar
-setTimeout(() => {
-  console.log('🚀 AUTO-FIX CARGADO');
-  console.log('🎯 Ejecuta: autoFixAdminNow()');
-  console.log('🔧 O simplemente espera 3 segundos para auto-ejecución...');
-  
-  // Auto-ejecutar en 3 segundos
-  setTimeout(() => {
-    console.log('⚡ EJECUTANDO AUTO-FIX AUTOMÁTICAMENTE...');
-    window.autoFixAdminNow();
-  }, 3000);
-}, 1000);
+// Auto-fix deshabilitado para reducir ruido en consola
 
 export {};

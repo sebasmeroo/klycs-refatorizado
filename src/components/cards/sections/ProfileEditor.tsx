@@ -339,6 +339,35 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({ card, onUpdate }) 
         </div>
       </IOSSection>
 
+      {/* Ajuste de espacio lateral del preview (contenedor del dispositivo) */}
+      <IOSSection title="Espacio lateral del preview" icon={<Palette size={14} />} variant="dark" sectionKey="preview-padding">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Espacio a los lados (0–10 px)</label>
+            <input
+              type="range"
+              min={0}
+              max={10}
+              step={1}
+              value={Number(((card as any)?.settings?.branding?.customFooter ?? (card as any)?.templateData?.data?.__outerPadding ?? 10))}
+              onChange={(e)=> onUpdate({ settings: { ...card.settings, branding: { ...card.settings.branding, customFooter: String(Math.max(0, Math.min(10, Number(e.target.value)||0))) } } })}
+              className="w-full"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Valor</label>
+            <Input
+              type="number"
+              min={0}
+              max={10}
+              value={Number(((card as any)?.settings?.branding?.customFooter ?? (card as any)?.templateData?.data?.__outerPadding ?? 10))}
+              onChange={(e)=> onUpdate({ settings: { ...card.settings, branding: { ...card.settings.branding, customFooter: String(Math.max(0, Math.min(10, Number(e.target.value)||0))) } } })}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">Este ajuste solo afecta al contenedor del preview en el editor. No modifica tu componente ni el diseño publicado.</p>
+      </IOSSection>
+
       {/* Galería de Plantillas de Diseño */}
        <IOSSection title="Plantillas de Diseño" icon={<Wand2 size={14} />} variant="dark" sectionKey="design-templates">
         <div className="space-y-4">

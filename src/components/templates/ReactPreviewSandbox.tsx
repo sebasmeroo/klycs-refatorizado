@@ -7,6 +7,7 @@ interface ReactPreviewSandboxProps {
   height?: number;
   onError?: (error: string) => void;
   css?: string;
+  autoHeight?: boolean;
 }
 
 // Sandbox que ejecuta código React real con Babel en un iframe aislado
@@ -18,7 +19,10 @@ export const ReactPreviewSandbox: React.FC<ReactPreviewSandboxProps> = ({
   height = 400,
   onError,
   css = '',
+  autoHeight = false,
 }) => {
+  const [measuredHeight, setMeasuredHeight] = React.useState<number>(height || 400);
+  const frameId = React.useMemo(() => 'rsb_' + Math.random().toString(36).slice(2), []);
   const srcDoc = React.useMemo(() => {
     // Preprocesar: eliminar exports para evitar sintaxis de módulos
     let processed = code
@@ -91,15 +95,54 @@ export const ReactPreviewSandbox: React.FC<ReactPreviewSandboxProps> = ({
         console.error(e);
       }
     </script>
+    <script>
+      try {
+        const FRAME_ID = ${JSON.stringify(frameId)};
+        function reportHeight(){
+          try {
+            var h = Math.max(
+              document.body.scrollHeight,
+              document.documentElement.scrollHeight,
+              document.body.offsetHeight,
+              document.documentElement.offsetHeight
+            );
+            parent.postMessage({ __rsb: true, frameId: FRAME_ID, type: 'height', height: h }, '*');
+          } catch(err) {}
+        }
+        if (${autoHeight ? 'true' : 'false'}) {
+          window.addEventListener('load', reportHeight);
+          if (window.ResizeObserver) {
+            new ResizeObserver(reportHeight).observe(document.body);
+          }
+          if (window.MutationObserver) {
+            new MutationObserver(reportHeight).observe(document.body, {childList:true, subtree:true, attributes:true, characterData:true});
+          }
+          setInterval(reportHeight, 700);
+        }
+      } catch(e) {}
+    </script>
   </body>
 </html>`;
   }, [code, data, css]);
+
+  React.useEffect(() => {
+    if (!autoHeight) return;
+    function onMessage(ev: MessageEvent){
+      const d: any = ev.data || {};
+      if (!d || !d.__rsb || d.frameId !== frameId) return;
+      if (d.type === 'height' && typeof d.height === 'number') {
+        setMeasuredHeight(Math.min(Math.max(d.height, 520), 1600));
+      }
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [autoHeight, frameId]);
 
   return (
     <iframe
       title="react-runtime-sandbox"
       sandbox="allow-scripts"
-      style={{ width: '100%', height, border: 'none', borderRadius: 12, background: 'transparent' }}
+      style={{ width: '100%', height: autoHeight ? measuredHeight : height, border: 'none', borderRadius: 12, background: 'transparent', overflow: 'hidden' }}
       className={className}
       srcDoc={srcDoc}
       onError={() => onError?.('Error cargando el sandbox de React')}

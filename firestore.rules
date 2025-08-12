@@ -30,16 +30,13 @@ service cloud.firestore {
       // Permitir lectura pública para visualización
       allow read: if true;
       
-      // Solo el propietario puede crear tarjetas (max 5 por hora)
+      // Usuario autenticado puede crear tarjetas
       allow create: if request.auth != null && 
-                   request.resource.data.userId == request.auth.uid &&
-                   isValidCardData(request.resource.data) &&
-                   isNotTooFrequent(request.auth.uid, 5);
+                   request.resource.data.userId == request.auth.uid;
       
       // Permitir actualización solo al propietario
       allow update: if request.auth != null && 
-                   resource.data.userId == request.auth.uid &&
-                   isValidCardData(request.resource.data);
+                   resource.data.userId == request.auth.uid;
       
       // Permitir eliminación solo al propietario
       allow delete: if request.auth != null && resource.data.userId == request.auth.uid;

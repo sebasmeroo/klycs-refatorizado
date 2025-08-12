@@ -106,9 +106,16 @@ export const TemplatesGallery: React.FC<TemplatesGalleryProps> = ({
     setApplying(true);
     try {
       // Crear datos iniciales basados en la configuración JSON
+      // Importante: NO empujar valores genéricos que arruinen el diseño ("Valor por defecto", vacío)
       const initialData: Record<string, any> = {};
+      const isGeneric = (v: any) => v === undefined || v === null || v === '' || v === 'Valor por defecto';
+      const isLayoutSensitive = (id: string) => /(padding|width|height|radius|shadow|border|line|margin|gap|inset|offset)/i.test(id);
       template.jsonConfig.forEach(field => {
-        initialData[field.id] = field.defaultValue;
+        const v = field.defaultValue;
+        // No sembrar campos de layout/espaciado en la instancia para no alterar el diseño base del componente
+        if (!isGeneric(v) && !isLayoutSensitive(field.id)) {
+          initialData[field.id] = v;
+        }
       });
 
       // Aplicar plantilla a la tarjeta

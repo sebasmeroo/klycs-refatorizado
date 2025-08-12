@@ -55,11 +55,11 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({ card, section 
   const getMergedData = () => {
     if (!templateData) return {};
 
-    const { template, instance } = templateData;
-    const templateInstanceData = instance.data || {};
-    
-    // Mapear datos de la tarjeta a los campos de la plantilla
-    const cardDataMapping = {
+    const { template, instance } = templateData as any;
+    const templateInstanceData = (instance && instance.data) || {};
+
+    // Datos base de la tarjeta (sólo contenido genérico)
+    const cardDataMapping: any = {
       // Profile data
       name: card.name || '',
       title: card.title || '',
@@ -83,12 +83,48 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({ card, section 
       // Booking data
       bookingEnabled: card.bookingEnabled || false,
       availableSlots: card.availableSlots || [],
-      
-      // Custom data from template
-      ...templateInstanceData
     };
 
-    return cardDataMapping;
+    // Mezclar datos de instancia SIN pisar lo que ya tiene valor en la instancia
+    // Prioridad: instancia > datos de tarjeta > defaults vacíos
+    // 1) Baseline: defaults de la plantilla (como en el creador)
+    const defaults: any = {};
+    const isGeneric = (v: any) => {
+      if (v === undefined || v === null) return true;
+      if (typeof v !== 'string') return false;
+      const s = v.trim();
+      if (!s) return true;
+      const lower = s.toLowerCase();
+      return (
+        lower === 'valor por defecto' ||
+        lower === 'default value' ||
+        lower === 'default' ||
+        lower === 'valor predeterminado'
+      );
+    };
+    const isLayoutSensitive = (id: string) => /(padding|width|height|radius|shadow|border|line|margin|gap|inset|offset)/i.test(id);
+
+    if (template?.jsonConfig && Array.isArray(template.jsonConfig)) {
+      template.jsonConfig.forEach((field: any) => {
+        const v = field?.defaultValue;
+        // No aplicar como baseline valores de layout; el componente define su layout por defecto
+        if (!isGeneric(v) && !isLayoutSensitive(field.id)) defaults[field.id] = v;
+      });
+    }
+
+    // 2) Mezclar datos de instancia limpiando genéricos
+    const merged: any = { ...defaults };
+
+    Object.keys(templateInstanceData).forEach((key: string) => {
+      const val = templateInstanceData[key];
+      // No usar valores de instancia para layout si están presentes (dejan el layout al componente)
+      if (!isGeneric(val) && !isLayoutSensitive(key)) {
+        merged[key] = val;
+      }
+    });
+
+    // 3) Finalmente, añadir datos de la tarjeta (texto/fotos) sin tocar estilos
+    return { ...merged, ...cardDataMapping };
   };
 
   if (loading) {
@@ -123,19 +159,12 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({ card, section 
           css={template.cssCode}
           data={mergedData}
           onError={handleError}
+          autoHeight={true}
           className="w-full"
         />
       </div>
       
-      {/* Indicator de plantilla activa */}
-      <div className="absolute top-2 right-2 z-10">
-        <div className="flex items-center gap-1 bg-blue-600 text-white text-xs px-2 py-1 rounded-full shadow-md">
-          <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-          <span>{template.name}</span>
-        </div>
-      </div>
-
-      {/* No badge de fuente; usamos siempre JSX sandbox */}
+      {/* No badge en el preview para no estorbar la visual */}
     </div>
   );
 };

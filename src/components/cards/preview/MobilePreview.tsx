@@ -594,8 +594,10 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
                 <style dangerouslySetInnerHTML={{ __html: customCSS }} />
               )}
               
-              {/* Scrollable Content */}
-              <div className="relative z-10 h-full overflow-y-auto px-4 py-6">
+              {/* Scrollable Content with adjustable side padding (0–10px) controlled from ProfileEditor */}
+              <div className="relative z-10 h-full overflow-y-auto py-6"
+                   style={{ paddingLeft: `${Math.max(0, Math.min(10, Number((card as any)?.settings?.branding?.customFooter ?? 10)))}px`,
+                            paddingRight: `${Math.max(0, Math.min(10, Number((card as any)?.settings?.branding?.customFooter ?? 10)))}px` }}>
                 {templateComponent ? (
                   templateComponent
                 ) : (

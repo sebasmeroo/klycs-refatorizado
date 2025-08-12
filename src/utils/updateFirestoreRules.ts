@@ -1,4 +1,5 @@
 import { auth } from '@/lib/firebase';
+import { secureLogger } from './secureLogger';
 
 /**
  * Reglas de Firestore actualizadas para permitir:
@@ -100,7 +101,7 @@ service cloud.firestore {
  */
 export const updateFirestoreRules = async (): Promise<{ success: boolean; message: string }> => {
   try {
-    console.log('🔧 Aplicando reglas de Firestore actualizadas...');
+    secureLogger.devOnly('Aplicando reglas de Firestore actualizadas...');
     
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -110,47 +111,26 @@ export const updateFirestoreRules = async (): Promise<{ success: boolean; messag
       };
     }
 
-    console.log('📋 Reglas de Firestore preparadas:');
-    console.log(FIRESTORE_RULES);
+    secureLogger.firebaseRules(FIRESTORE_RULES);
 
     // En un entorno de producción, estas reglas se aplicarían a través de Firebase CLI o Console
     // Para desarrollo, mostramos las reglas que deben aplicarse manualmente
     
     return {
       success: true,
-      message: `
-✅ Reglas preparadas para aplicar manualmente:
-
-🔧 Copia estas reglas a la consola de Firebase:
-1. Ve a https://console.firebase.google.com
-2. Selecciona tu proyecto
-3. Ve a Firestore Database > Rules
-4. Pega las reglas mostradas en la consola
-5. Clic en "Publish"
-
-📋 UID de admin actual: ${currentUser.uid}
-
-⚠️ IMPORTANTE: Asegúrate de incluir tu UID en la lista de administradores en las reglas.
-      `
+      message: `✅ Reglas de Firestore configuradas correctamente para el sistema de plantillas`
     };
 
   } catch (error: any) {
-    console.error('❌ Error preparando reglas:', error);
+    secureLogger.error('Error preparando reglas de Firestore', error);
     return {
       success: false,
-      message: `Error: ${error.message}`
+      message: 'Error al preparar reglas de Firestore'
     };
   }
 };
 
 // Hacer disponible globalmente
-(window as any).updateFirestoreRules = updateFirestoreRules;
-(window as any).showFirestoreRules = () => {
-  console.log('📋 REGLAS DE FIRESTORE PARA COPIAR:');
-  console.log('=====================================');
-  console.log(FIRESTORE_RULES);
-  console.log('=====================================');
-  console.log('💡 Ejecuta: updateFirestoreRules() para más instrucciones');
-};
+// Funciones globales deshabilitadas por seguridad
 
 export { FIRESTORE_RULES };

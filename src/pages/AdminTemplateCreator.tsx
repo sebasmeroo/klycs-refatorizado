@@ -250,13 +250,24 @@ export const AdminTemplateCreator: React.FC = () => {
     targetSection: 'profile'
   });
 
-  // Genera datos de preview basados en la configuración JSON
+  // Genera/actualiza datos de preview basados en la configuración JSON
+  // Importante: NO sobrescribir valores ya presentes en previewData
+  // y evitar empujar defaults genéricos que cambien el diseño ("Valor por defecto", cadenas vacías)
   useEffect(() => {
-    const mockData: any = {};
-    templateData.jsonConfig.forEach(field => {
-      mockData[field.id] = field.defaultValue;
+    setPreviewData((prev) => {
+      // Si ya había datos de preview, no mutarlos para evitar cambios de diseño
+      if (prev && Object.keys(prev).length > 0) {
+        return prev;
+      }
+      // Primera carga: rellenar desde defaults válidos
+      const initial: any = {};
+      for (const field of templateData.jsonConfig) {
+        const v = field.defaultValue;
+        const isGeneric = v === undefined || v === null || v === '' || v === 'Valor por defecto';
+        if (!isGeneric) initial[field.id] = v;
+      }
+      return initial;
     });
-    setPreviewData(mockData);
   }, [templateData.jsonConfig]);
 
   // Debug UID del usuario para las reglas de Firestore
@@ -371,34 +382,57 @@ export const AdminTemplateCreator: React.FC = () => {
 
   // Función para detectar automáticamente campos en el código React
   const detectFieldsFromCode = () => {
-    const codeContent = templateData.reactCode;
-    // Captura data.campo y también expresiones con short-circuit: (data && data.campo)
-    const fieldPattern = /(?:data\.|data\s*&&\s*data\.)[A-Za-z0-9_]+/g;
+    // 1) Tomar el código actual
+    let codeContent = templateData.reactCode || '';
+
+    // 2) Quitar comentarios para evitar falsos positivos
+    //    - comentarios de línea // ...
+    //    - comentarios de bloque /* ... */
+    codeContent = codeContent
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+    // 3) Reconocer diferentes formas de acceso a campos:
+    //    - data.campo
+    //    - data?.campo
+    //    - (data && data.campo)
+    //    - data["campo"] o data['campo']
     const detectedFields = new Set<string>();
-    let match;
-    
-    while ((match = fieldPattern.exec(codeContent)) !== null) {
-      const raw = match[0];
-      const id = raw.substring(raw.lastIndexOf('.') + 1);
-      detectedFields.add(id);
+
+    // Dot notation con o sin optional chaining y short-circuit
+    const dotPattern = /(?:data\s*\?\.\s*|data\s*\.\s*|data\s*&&\s*data\s*\.\s*)([A-Za-z_][A-Za-z0-9_]*)/g;
+    let dotMatch: RegExpExecArray | null;
+    while ((dotMatch = dotPattern.exec(codeContent)) !== null) {
+      const fieldId = dotMatch[1];
+      detectedFields.add(fieldId);
     }
-    
+
+    // Bracket notation: data["campo"] o data['campo']
+    const bracketPattern = /data\s*\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g;
+    let bracketMatch: RegExpExecArray | null;
+    while ((bracketMatch = bracketPattern.exec(codeContent)) !== null) {
+      const fieldId = bracketMatch[1];
+      detectedFields.add(fieldId);
+    }
+
+    // 4) Preparar nuevos campos a agregar, evitando duplicados con el JSON actual
+    const reserved = new Set(['map', 'filter', 'reduce', 'length']);
     const newFields: TemplateField[] = Array.from(detectedFields)
-      .filter(fieldId => !templateData.jsonConfig.some(config => config.id === fieldId))
-      .map(fieldId => ({
+      .filter((fieldId) => !reserved.has(fieldId))
+      .filter((fieldId) => !templateData.jsonConfig.some((config) => config.id === fieldId))
+      .map((fieldId) => ({
         id: fieldId,
         label: fieldId.charAt(0).toUpperCase() + fieldId.slice(1).replace(/([A-Z])/g, ' $1'),
         type: inferFieldType(fieldId),
         defaultValue: getDefaultValueForField(fieldId),
-        editable: true
+        editable: true,
       }));
 
     if (newFields.length > 0) {
-      setTemplateData(prev => ({
+      setTemplateData((prev) => ({
         ...prev,
-        jsonConfig: [...prev.jsonConfig, ...newFields]
+        jsonConfig: [...prev.jsonConfig, ...newFields],
       }));
-      
       alert(`¡Se detectaron ${newFields.length} nuevos campos en tu código React! Se agregaron automáticamente a la configuración JSON.`);
     } else {
       alert('No se detectaron nuevos campos en el código React. Asegúrate de usar la sintaxis data.nombreCampo en tu JSX.');

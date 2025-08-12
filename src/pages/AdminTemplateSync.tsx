@@ -6,7 +6,7 @@ import {
   Database,
   Users,
   Eye,
-  Sync,
+  RotateCw,
   Info
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -228,7 +228,7 @@ export const AdminTemplateSync: React.FC = () => {
                 disabled={syncing}
                 className="bg-blue-600 hover:bg-blue-700 text-white"
               >
-                <Sync className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+                <RotateCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
                 {syncing ? 'Sincronizando...' : 'Sincronizar Ahora'}
               </Button>
             </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import TemplateSandbox from './TemplateSandbox';
+import ReactPreviewSandbox from '@/components/templates/ReactPreviewSandbox';
 
 interface TemplateField {
   id: string;
@@ -57,14 +58,17 @@ export const TemplateRenderer: React.FC<TemplateRendererProps> = ({
   useEffect(() => {
     const initData: any = {};
     
-    // Usar datos iniciales proporcionados o valores por defecto del template
-    template.jsonConfig.forEach(field => {
-      if (initialData && initialData[field.id] !== undefined) {
-        initData[field.id] = initialData[field.id];
-      } else {
-        initData[field.id] = field.defaultValue;
-      }
-    });
+    // Validar que template.jsonConfig existe y es un array
+    if (template?.jsonConfig && Array.isArray(template.jsonConfig)) {
+      // Usar datos iniciales proporcionados o valores por defecto del template
+      template.jsonConfig.forEach(field => {
+        if (initialData && initialData[field.id] !== undefined) {
+          initData[field.id] = initialData[field.id];
+        } else {
+          initData[field.id] = field.defaultValue || '';
+        }
+      });
+    }
     
     setTemplateData(initData);
     setIsLoading(false);
@@ -289,13 +293,14 @@ export const TemplateRenderer: React.FC<TemplateRendererProps> = ({
           </div>
 
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-800">
-            <TemplateSandbox
-              templateCode={template.reactCode}
-              cssCode={template.cssCode}
+            {/* Renderizar siempre con React (mismo runtime que preview de usuario) */}
+            <ReactPreviewSandbox
+              code={template.reactCode}
+              css={template.cssCode}
               data={templateData}
               onError={handleError}
-              onSuccess={handleSuccess}
-              className="p-4"
+              autoHeight={true}
+              className="w-full h-full"
             />
           </div>
         </div>

@@ -9,6 +9,7 @@ import {
   serverTimestamp 
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { secureLogger } from '@/utils/secureLogger';
 import { AdminTemplate } from './templateDistribution';
 import { UserTemplate } from './userTemplates';
 
@@ -27,7 +28,7 @@ export class TemplateSyncService {
     let synced = 0;
 
     try {
-      console.log('🔄 Iniciando sincronización de plantillas públicas...');
+      secureLogger.devOnly('Iniciando sincronización de plantillas públicas...');
 
       // Obtener todas las plantillas públicas de admin
       const adminTemplatesRef = collection(db, this.adminCollection);
@@ -39,7 +40,7 @@ export class TemplateSyncService {
       const adminSnapshot = await getDocs(publicTemplatesQuery);
       
       if (adminSnapshot.empty) {
-        console.log('ℹ️ No hay plantillas públicas para sincronizar');
+        // No hay plantillas para sincronizar - sin log
         return { success: true, synced: 0, errors: [] };
       }
 
@@ -79,16 +80,16 @@ export class TemplateSyncService {
           }, { merge: true });
 
           synced++;
-          console.log(`✅ Sincronizada: ${adminTemplate.name}`);
+          secureLogger.devOnly(`Plantilla sincronizada: ${adminTemplate.name}`);
 
         } catch (error: any) {
           const errorMsg = `Error sincronizando ${adminDoc.id}: ${error.message}`;
-          console.error('❌', errorMsg);
+          secureLogger.error('Error sincronizando plantilla', errorMsg);
           errors.push(errorMsg);
         }
       }
 
-      console.log(`🎉 Sincronización completada: ${synced} plantillas`);
+      // Sincronización completada - sin log
       
       return { 
         success: true, 
@@ -97,7 +98,7 @@ export class TemplateSyncService {
       };
 
     } catch (error: any) {
-      console.error('❌ Error en sincronización:', error);
+      secureLogger.error('Error en sincronización', error);
       return {
         success: false,
         synced,
@@ -115,7 +116,7 @@ export class TemplateSyncService {
       const userTemplateDoc = await getDoc(userTemplateRef);
       return userTemplateDoc.exists();
     } catch (error) {
-      console.error('Error verificando plantilla:', error);
+      secureLogger.error('Error verificando plantilla', error);
       return false;
     }
   }
@@ -151,7 +152,7 @@ export class TemplateSyncService {
       };
 
     } catch (error) {
-      console.error('Error obteniendo estadísticas:', error);
+      secureLogger.error('Error obteniendo estadísticas de sync', error);
       return {
         adminPublic: 0,
         userTemplates: 0,
@@ -159,10 +160,43 @@ export class TemplateSyncService {
       };
     }
   }
+
+  /**
+   * Verifica disponibilidad de plantillas y estado de sincronización
+   */
+  async checkTemplateAvailability(): Promise<{
+    adminCount: number;
+    userCount: number;
+    publicAdminCount: number;
+    needsSync: boolean;
+  }> {
+    try {
+      const stats = await this.getSyncStats();
+      return {
+        adminCount: stats.adminPublic + stats.needsSync, // Total aproximado
+        userCount: stats.userTemplates,
+        publicAdminCount: stats.adminPublic,
+        needsSync: stats.needsSync > 0
+      };
+    } catch (error) {
+      secureLogger.error('Error verificando disponibilidad', error);
+      return {
+        adminCount: 0,
+        userCount: 0,
+        publicAdminCount: 0,
+        needsSync: true
+      };
+    }
+  }
+
+  /**
+   * Sincroniza todas las plantillas (alias para syncPublicTemplates)
+   */
+  async syncAllTemplates() {
+    return await this.syncPublicTemplates();
+  }
 }
 
 export const templateSyncService = new TemplateSyncService();
 
-// Hacer disponible globalmente para debug
-(window as any).syncTemplates = () => templateSyncService.syncPublicTemplates();
-(window as any).templateSyncStats = () => templateSyncService.getSyncStats();
+// Funciones globales deshabilitadas por seguridad
