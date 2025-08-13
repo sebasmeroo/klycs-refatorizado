@@ -88,7 +88,7 @@ const defaultReactCode = `export const Template = ({ data }) => {
       padding: '24px',
       backgroundColor: data.backgroundColor || '#667eea',
       borderRadius: '20px',
-      boxShadow: '0 20px 40px rgba(0, 0, 0, 0.1)',
+      boxShadow: '0 20px 40px rgba(0, 0, 0, 0)',
       color: 'white',
       fontFamily: 'system-ui, sans-serif'
     }}>
@@ -121,7 +121,7 @@ const defaultReactCode = `export const Template = ({ data }) => {
           backgroundColor: '#f1f5f9',
           borderRadius: '16px',
           marginBottom: '16px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
