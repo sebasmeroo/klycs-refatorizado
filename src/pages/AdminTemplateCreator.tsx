@@ -25,7 +25,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { templateDistributionService, AdminTemplate } from '@/services/templateDistribution';
 import { compileTemplateToArtifact } from '@/services/templateCompiler';
 import TemplateSandbox from '@/components/templates/TemplateSandbox';
-import ReactPreviewSandbox from '@/components/templates/ReactPreviewSandbox';
+import DirectTemplateRenderer from '@/components/templates/DirectTemplateRenderer';
 import { useAuth } from '@/hooks/useAuth';
 import { auth } from '@/lib/firebase';
 import { autoFixAdminPermissions } from '@/utils/adminSetup';
@@ -1130,12 +1130,10 @@ export const AdminTemplateCreator: React.FC = () => {
                     {/* Pantalla con bisel */}
                     <div className="absolute inset-[12px] rounded-[24px] bg-black overflow-hidden">
                       <div className="w-full h-full bg-black">
-                        <ReactPreviewSandbox
-                          code={templateData.reactCode}
+                        <DirectTemplateRenderer
+                          jsxCode={templateData.reactCode}
                           data={previewData}
-                          css={templateData.cssCode}
-                          height={deviceHeight - 24}
-                          className="w-full h-full"
+                          className="w-full h-full direct-template-renderer"
                         />
                       </div>
                     </div>

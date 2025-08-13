@@ -8,53 +8,62 @@ interface SectionRendererProps {
   sectionType: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
   defaultContent: React.ReactNode;
   className?: string;
+  // Nuevo: ID de item específico (por ejemplo, un enlace) para plantillas dirigidas
+  targetItemId?: string;
 }
 
 export const SectionRenderer: React.FC<SectionRendererProps> = ({
   card,
   sectionType,
   defaultContent,
-  className = ''
+  className = '',
+  targetItemId
 }) => {
-  const [hasTemplate, setHasTemplate] = useState(false);
+  const [templateData, setTemplateData] = useState<{
+    template: any;
+    instance: any;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkForTemplate();
-  }, [card.id, sectionType]);
-
-  const checkForTemplate = async () => {
-    if (!card.id) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const activeTemplate = await userTemplatesService.getActiveTemplateForCard(card.id);
-      setHasTemplate(activeTemplate?.template?.targetSection === sectionType);
-    } catch (error) {
-      console.error('Error checking for template:', error);
-      setHasTemplate(false);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className={`animate-pulse bg-gray-200 dark:bg-gray-700 rounded-lg h-20 ${className}`}>
-        <div className="flex items-center justify-center h-full">
-          <div className="w-4 h-4 bg-gray-300 dark:bg-gray-600 rounded-full animate-bounce"></div>
-        </div>
-      </div>
+    // Suscribirse y pre-cargar datos de plantilla para evitar doble carga
+    setLoading(true);
+    const unsubscribe = userTemplatesService.subscribeActiveTemplateForCard(
+      card.id,
+      sectionType,
+      (data) => {
+        setTemplateData(data);
+        setLoading(false);
+        
+        // Debug para verificar que se detectan cambios de plantilla
+        if (process.env.NODE_ENV === 'development' && targetItemId) {
+          console.log(`🔍 SectionRenderer - ${sectionType}/${targetItemId}: ${data ? 'HAS TEMPLATE' : 'NO TEMPLATE'}`, {
+            hasTemplate: !!data,
+            templateName: data?.template?.name,
+            targetItemId: data?.instance?.targetItemId
+          });
+        }
+      },
+      { targetItemId }
     );
+    return () => unsubscribe();
+  }, [card.id, sectionType, targetItemId]);
+
+  // Mientras está cargando, no mostrar nada para evitar doble renderizado
+  if (loading) {
+    return null;
   }
 
   return (
     <div className={`section-renderer ${className}`}>
-      {hasTemplate ? (
+      {templateData ? (
         <div className="template-section relative">
-          <TemplatePreview card={card} section={sectionType} />
+          <TemplatePreview 
+            card={card} 
+            section={sectionType} 
+            targetItemId={targetItemId}
+            preloadedData={templateData}
+          />
         </div>
       ) : (
         <div className="default-section">

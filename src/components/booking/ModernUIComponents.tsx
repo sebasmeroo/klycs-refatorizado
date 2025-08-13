@@ -1,5 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+// import { motion, AnimatePresence } from 'framer-motion';
+
+// Simple mock for motion components
+const motion = {
+  button: (props: any) => <button {...props} />,
+  div: (props: any) => <div {...props} />
+};
+
+const AnimatePresence = ({ children }: { children: React.ReactNode }) => <>{children}</>;
 import { 
   Check, 
   ChevronDown, 

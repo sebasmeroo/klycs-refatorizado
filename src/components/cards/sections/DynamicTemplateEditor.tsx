@@ -23,12 +23,15 @@ interface DynamicTemplateEditorProps {
   card: Card;
   section: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
   onUpdate: (updates: Partial<Card>) => void;
+  // Opcional: para aplicar plantilla a un item específico (ej. un enlace individual)
+  targetItemId?: string;
 }
 
 export const DynamicTemplateEditor: React.FC<DynamicTemplateEditorProps> = ({
   card,
   section,
-  onUpdate
+  onUpdate,
+  targetItemId
 }) => {
   const [activeTemplate, setActiveTemplate] = useState<{
     template: UserTemplate;
@@ -44,7 +47,7 @@ export const DynamicTemplateEditor: React.FC<DynamicTemplateEditorProps> = ({
 
   useEffect(() => {
     loadActiveTemplate();
-  }, [card.id, section]);
+  }, [card.id, section, targetItemId]);
 
   const loadActiveTemplate = async () => {
     if (!card.id) {
@@ -53,11 +56,25 @@ export const DynamicTemplateEditor: React.FC<DynamicTemplateEditorProps> = ({
     }
 
     try {
-      const result = await userTemplatesService.getActiveTemplateForCard(card.id);
+      // Si tenemos targetItemId, buscar plantilla específica para ese elemento
+      const result = await userTemplatesService.getActiveTemplateForCard(
+        card.id, 
+        section, 
+        targetItemId
+      );
       
       if (result && result.template.targetSection === section) {
-        setActiveTemplate(result);
-        setTemplateData(result.instance.data || {});
+        // Verificar si la plantilla es para el item correcto o para la sección general
+        if (targetItemId && result.instance.targetItemId !== targetItemId) {
+          setActiveTemplate(null);
+          setTemplateData({});
+        } else if (!targetItemId && result.instance.targetItemId) {
+          setActiveTemplate(null);
+          setTemplateData({});
+        } else {
+          setActiveTemplate(result);
+          setTemplateData(result.instance.data || {});
+        }
       } else {
         setActiveTemplate(null);
         setTemplateData({});
@@ -71,12 +88,39 @@ export const DynamicTemplateEditor: React.FC<DynamicTemplateEditorProps> = ({
   };
 
   const handleFieldChange = (fieldId: string, value: any) => {
-    setTemplateData(prev => ({
-      ...prev,
-      [fieldId]: value
-    }));
+    setTemplateData(prev => {
+      const next = { ...prev, [fieldId]: value };
+      // Broadcast cambios en vivo para el preview sin guardar
+      try {
+        // @ts-ignore
+        window.dispatchEvent(
+          new CustomEvent('template-instance-live-edit', {
+            detail: { cardId: card.id, section, targetItemId, data: next }
+          })
+        );
+      } catch (e) {
+        // no-op
+      }
+      return next;
+    });
     setHasChanges(true);
   };
+
+  // Limpiar override al desmontar o cambiar de sección
+  useEffect(() => {
+    return () => {
+      try {
+        // @ts-ignore
+        window.dispatchEvent(
+          new CustomEvent('template-instance-live-edit', {
+            detail: { cardId: card.id, section, targetItemId, data: null }
+          })
+        );
+      } catch (e) {
+        // no-op
+      }
+    };
+  }, [card.id, section, targetItemId]);
 
   const handleSaveChanges = async () => {
     if (!activeTemplate || !hasChanges) return;
@@ -127,7 +171,11 @@ export const DynamicTemplateEditor: React.FC<DynamicTemplateEditorProps> = ({
     if (!confirm) return;
 
     try {
-      const success = await userTemplatesService.removeTemplateFromCard(card.id);
+      const success = await userTemplatesService.removeTemplateFromCard(
+        card.id, 
+        section, 
+        targetItemId
+      );
       if (success) {
         setActiveTemplate(null);
         setTemplateData({});
@@ -141,10 +189,21 @@ export const DynamicTemplateEditor: React.FC<DynamicTemplateEditorProps> = ({
   };
 
   const renderFieldEditor = (field: any) => {
-    const value = templateData[field.id] || field.defaultValue;
+    const value = templateData[field.id] ?? field.defaultValue;
 
     switch (field.type) {
-      case 'text':
+      case 'text': {
+        const isRadius = /radius$/i.test(String(field.id)) || /border[_-]?radius$/i.test(String(field.id));
+        if (isRadius) {
+          return (
+            <Input
+              value={value}
+              onChange={(e) => handleFieldChange(field.id, e.target.value)}
+              placeholder={field.defaultValue || '16px'}
+              className="text-sm"
+            />
+          );
+        }
         return (
           <Input
             value={value}
@@ -153,6 +212,7 @@ export const DynamicTemplateEditor: React.FC<DynamicTemplateEditorProps> = ({
             className="text-sm"
           />
         );
+      }
 
       case 'textarea':
         return (
@@ -253,7 +313,40 @@ export const DynamicTemplateEditor: React.FC<DynamicTemplateEditorProps> = ({
   }
 
   if (!activeTemplate) {
-    return null; // No hay plantilla aplicada en esta sección
+    // Mostrar botón para aplicar plantilla cuando no hay ninguna aplicada
+    return (
+      <div className="dynamic-template-selector bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-900/50 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-gray-400 to-gray-500 rounded-xl flex items-center justify-center">
+              <Wand2 className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="font-medium text-gray-900 dark:text-white">
+                {targetItemId ? 'Personalizar este elemento' : `Personalizar ${section === 'profile' ? 'perfil' : section}`}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Aplica una plantilla para personalizar el diseño
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={() => {
+              // Crear evento para abrir galería de plantillas
+              const event = new CustomEvent('open-template-gallery', {
+                detail: { section, targetItemId }
+              });
+              window.dispatchEvent(event);
+            }}
+            variant="outline"
+            className="bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40"
+          >
+            <Wand2 className="w-4 h-4 mr-2" />
+            Aplicar Plantilla
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   const { template } = activeTemplate;

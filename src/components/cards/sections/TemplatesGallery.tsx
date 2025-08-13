@@ -32,6 +32,10 @@ interface TemplatesGalleryProps {
   userId: string;
   onTemplateApplied: (template: UserTemplate, data: any) => void;
   onClose: () => void;
+  // Opcional: aplicar a un item concreto (por ejemplo, un enlace específico)
+  targetItemId?: string;
+  // Opcional: resolver/alterar el destino antes de aplicar (permite duplicar el item)
+  beforeApply?: (targetItemId?: string) => Promise<string | undefined> | string | undefined;
 }
 
 const sectionInfo = {
@@ -50,7 +54,9 @@ export const TemplatesGallery: React.FC<TemplatesGalleryProps> = ({
   cardId,
   userId,
   onTemplateApplied,
-  onClose
+  onClose,
+  targetItemId,
+  beforeApply
 }) => {
   const [templates, setTemplates] = useState<UserTemplate[]>([]);
   const [filteredTemplates, setFilteredTemplates] = useState<UserTemplate[]>([]);
@@ -105,6 +111,13 @@ export const TemplatesGallery: React.FC<TemplatesGalleryProps> = ({
 
     setApplying(true);
     try {
+      // Permitir que el host duplique el item y nos devuelva un nuevo destino
+      let finalTargetId = targetItemId;
+      if (beforeApply) {
+        const resolved = await beforeApply(targetItemId);
+        if (resolved) finalTargetId = resolved;
+      }
+
       // Crear datos iniciales basados en la configuración JSON
       // Importante: NO empujar valores genéricos que arruinen el diseño ("Valor por defecto", vacío)
       const initialData: Record<string, any> = {};
@@ -118,12 +131,13 @@ export const TemplatesGallery: React.FC<TemplatesGalleryProps> = ({
         }
       });
 
-      // Aplicar plantilla a la tarjeta
+      // Aplicar plantilla a la tarjeta o al item si se especifica
       const instance = await userTemplatesService.applyTemplateToCard(
         template.id,
         userId,
         cardId,
-        initialData
+        initialData,
+        { targetItemId: finalTargetId }
       );
 
       if (instance) {

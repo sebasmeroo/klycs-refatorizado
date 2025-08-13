@@ -15,30 +15,17 @@ import {
   Play
 } from 'lucide-react';
 
-interface MobilePreviewProps {
+interface PublicMobilePreviewProps {
   card: Card;
   customCSS?: string;
+  className?: string;
 }
 
-export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS }) => {
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const [frameSize, setFrameSize] = React.useState<{ width: number; height: number }>({ width: 280, height: 600 });
-
-  React.useEffect(() => {
-    const updateSize = () => {
-      const el = containerRef.current;
-      if (!el) return;
-      const availableHeight = el.clientHeight || 600;
-      // Ocupamos el 95% del alto disponible; razón de aspecto ~0.467 (280/600)
-      const height = Math.max(600, Math.min(availableHeight * 0.95, 980));
-      const width = height * (280 / 600);
-      setFrameSize({ width, height });
-    };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
-
+export const PublicMobilePreview: React.FC<PublicMobilePreviewProps> = ({ 
+  card, 
+  customCSS,
+  className = ''
+}) => {
   // Si la card trae un componente registrado, lo renderizamos directamente
   // @ts-expect-error campo extendido a nivel de app
   const componentEntry = card?.templateComponent as { id: string; props?: any } | undefined;
@@ -564,115 +551,64 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
   };
 
   return (
-    <div className="relative h-full w-full" ref={containerRef}>
-      {/* iPhone Frame */}
-      <div className="mx-auto" style={{ width: `${frameSize.width}px`, height: `${frameSize.height}px` }}>
-        {/* iPhone Outer Frame */}
-        <div className="w-full h-full bg-black rounded-[3rem] p-2 shadow-2xl">
-          {/* Screen */}
-          <div className="w-full h-full bg-white rounded-[2.5rem] overflow-hidden relative">
-            {/* Status Bar */}
-            <div className="absolute top-0 left-0 right-0 z-20">
-              <div className="h-6 bg-black rounded-t-[2.5rem] flex items-center justify-center">
-                <div className="w-20 h-1 bg-gray-800 rounded-full"></div>
-              </div>
-              <div className="h-6 bg-gradient-to-r from-gray-900 to-black text-white text-xs flex items-center justify-between px-6">
-                <span>9:41</span>
-                <div className="flex items-center space-x-1">
-                  <div className="w-4 h-2 border border-white rounded-sm">
-                    <div className="w-3 h-1 bg-white rounded-sm"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Card Background */}
-            <div
-              className="absolute inset-0 pt-12"
-              style={
-                card.profile.backgroundType === 'gradient' 
-                  ? {
-                      backgroundImage: card.profile.backgroundGradient || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-                    }
-                  : card.profile.backgroundType === 'image' && card.profile.backgroundImage
-                    ? {
-                        backgroundImage: `url(${card.profile.backgroundImage})`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                        backgroundRepeat: 'no-repeat'
-                      }
-                    : {
-                        backgroundColor: card.profile.backgroundColor || '#667eea'
-                      }
+    <div className={`w-full h-full overflow-y-auto ${className}`}>
+      {/* CSS personalizado */}
+      {customCSS && (
+        <style dangerouslySetInnerHTML={{ __html: customCSS }} />
+      )}
+      
+      {/* Scrollable Content with adjustable side padding */}
+      <div className="relative z-10 h-full py-6"
+           style={{ paddingLeft: `${Math.max(0, Math.min(10, Number((card as any)?.settings?.branding?.customFooter ?? 10)))}px`,
+                    paddingRight: `${Math.max(0, Math.min(10, Number((card as any)?.settings?.branding?.customFooter ?? 10)))}px` }}>
+        {templateComponent ? (
+          templateComponent
+        ) : (
+          sortedElements.map((element, index) => {
+            // Verificar si esta sección tiene una plantilla aplicada
+            const sectionType = element.type as 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+            
+            // Crear el contenido por defecto
+            const defaultContent = (() => {
+              switch (element.component) {
+                case 'ProfileSection':
+                  return <ProfileSection />;
+                case 'LinksSection':
+                  return <LinksSection />;
+                case 'SocialSection':
+                  return <SocialSection />;
+                case 'ServicesSection':
+                  return <ServicesSection />;
+                case 'PortfolioSection':
+                  return <PortfolioSection />;
+                case 'BookingSection':
+                  return <BookingSection />;
+                case 'CustomElement': {
+                  const el = (element as any).element as CardElement | undefined;
+                  return el ? <CustomElement element={el} /> : null;
+                }
+                default:
+                  return null;
               }
-            >
-              {/* Content Overlay */}
-              <div className="absolute inset-0 bg-black/20"></div>
-              
-              {/* CSS personalizado */}
-              {customCSS && (
-                <style dangerouslySetInnerHTML={{ __html: customCSS }} />
-              )}
-              
-              {/* Scrollable Content with adjustable side padding (0–10px) controlled from ProfileEditor */}
-              <div className="relative z-10 h-full overflow-y-auto py-6"
-                   style={{ paddingLeft: `${Math.max(0, Math.min(10, Number((card as any)?.settings?.branding?.customFooter ?? 10)))}px`,
-                            paddingRight: `${Math.max(0, Math.min(10, Number((card as any)?.settings?.branding?.customFooter ?? 10)))}px` }}>
-                {templateComponent ? (
-                  templateComponent
-                ) : (
-                  sortedElements.map((element, index) => {
-                    // Verificar si esta sección tiene una plantilla aplicada
-                    const sectionType = element.type as 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
-                    
-                    // Crear el contenido por defecto
-                    const defaultContent = (() => {
-                      switch (element.component) {
-                        case 'ProfileSection':
-                          return <ProfileSection />;
-                        case 'LinksSection':
-                          return <LinksSection />;
-                        case 'SocialSection':
-                          return <SocialSection />;
-                        case 'ServicesSection':
-                          return <ServicesSection />;
-                        case 'PortfolioSection':
-                          return <PortfolioSection />;
-                        case 'BookingSection':
-                          return <BookingSection />;
-                        case 'CustomElement': {
-                          const el = (element as any).element as CardElement | undefined;
-                          return el ? <CustomElement element={el} /> : null;
-                        }
-                        default:
-                          return null;
-                      }
-                    })();
+            })();
 
-                    return (
-                      <SectionRenderer
-                        key={`${element.type}-${index}`}
-                        card={card}
-                        sectionType={sectionType}
-                        defaultContent={defaultContent}
-                        className="mb-6"
-                      />
-                    );
-                  })
-                )}
-                
-                {/* Footer Spacer */}
-                <div className="h-8"></div>
-              </div>
-            </div>
-
-            {/* Home Indicator */}
-            <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 w-32 h-1 bg-black rounded-full"></div>
-          </div>
-        </div>
+            return (
+              <SectionRenderer
+                key={`${element.type}-${index}`}
+                card={card}
+                sectionType={sectionType}
+                defaultContent={defaultContent}
+                className="mb-6"
+              />
+            );
+          })
+        )}
+        
+        {/* Footer Spacer */}
+        <div className="h-8"></div>
       </div>
     </div>
   );
 };
 
-export default MobilePreview;
+export default PublicMobilePreview;

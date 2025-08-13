@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import TemplateSandbox from './TemplateSandbox';
-import ReactPreviewSandbox from '@/components/templates/ReactPreviewSandbox';
+import DirectTemplateRenderer from '@/components/templates/DirectTemplateRenderer';
 
 interface TemplateField {
   id: string;
@@ -35,7 +35,7 @@ interface TemplateRendererProps {
 export const TemplateRenderer: React.FC<TemplateRendererProps> = ({
   template,
   editable = false,
-  initialData = {},
+  initialData,
   onDataChange,
   previewMode = false,
   className = ''
@@ -54,25 +54,30 @@ export const TemplateRenderer: React.FC<TemplateRendererProps> = ({
     setError(null);
   }, []);
 
-  // Inicializar datos del template
+  // Inicializar datos del template (evitar bucles por identidad de objeto)
   useEffect(() => {
+    const source = initialData || {};
     const initData: any = {};
-    
-    // Validar que template.jsonConfig existe y es un array
+
     if (template?.jsonConfig && Array.isArray(template.jsonConfig)) {
-      // Usar datos iniciales proporcionados o valores por defecto del template
       template.jsonConfig.forEach(field => {
-        if (initialData && initialData[field.id] !== undefined) {
-          initData[field.id] = initialData[field.id];
+        if (Object.prototype.hasOwnProperty.call(source, field.id)) {
+          initData[field.id] = source[field.id];
         } else {
           initData[field.id] = field.defaultValue || '';
         }
       });
     }
-    
-    setTemplateData(initData);
+
+    // Solo actualizar si cambia realmente
+    const nextStr = JSON.stringify(initData);
+    const prevStr = JSON.stringify(templateData);
+    if (nextStr !== prevStr) {
+      setTemplateData(initData);
+    }
     setIsLoading(false);
-  }, [template, initialData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, JSON.stringify(initialData || {})]);
 
   // Notificar cambios de datos al componente padre
   useEffect(() => {
@@ -293,14 +298,11 @@ export const TemplateRenderer: React.FC<TemplateRendererProps> = ({
           </div>
 
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-800">
-            {/* Renderizar siempre con React (mismo runtime que preview de usuario) */}
-            <ReactPreviewSandbox
-              code={template.reactCode}
-              css={template.cssCode}
+            {/* Renderizar con DirectTemplateRenderer (sin iframes) */}
+            <DirectTemplateRenderer
+              jsxCode={template.reactCode}
               data={templateData}
-              onError={handleError}
-              autoHeight={true}
-              className="w-full h-full"
+              className="w-full h-full direct-template-renderer"
             />
           </div>
         </div>

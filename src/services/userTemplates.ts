@@ -9,7 +9,8 @@ import {
   addDoc, 
   updateDoc, 
   deleteDoc,
-  serverTimestamp 
+  serverTimestamp,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -46,6 +47,9 @@ export interface UserTemplateInstance {
   templateId: string;
   userId: string;
   cardId: string;
+  targetSection?: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+  // Nuevo: cuando la plantilla se aplica a un item específico dentro de una sección (por ejemplo, un enlace)
+  targetItemId?: string;
   data: Record<string, any>;
   isActive: boolean;
   appliedAt: string;
@@ -132,21 +136,29 @@ class UserTemplatesService {
 
   // Aplicar plantilla a una tarjeta de usuario
   async applyTemplateToCard(
-    templateId: string, 
-    userId: string, 
-    cardId: string, 
-    templateData: Record<string, any>
+    templateId: string,
+    userId: string,
+    cardId: string,
+    templateData: Record<string, any>,
+    options?: { targetItemId?: string }
   ): Promise<UserTemplateInstance | null> {
     try {
-      // Desactivar cualquier plantilla anterior en esta tarjeta
-      await this.deactivateCardTemplates(cardId);
+      // Obtener plantilla para conocer su sección
+      const template = await this.getTemplate(templateId);
+      const targetSection = template?.targetSection;
+
+      // Desactivar cualquier plantilla anterior en esta tarjeta PERO solo de la misma sección y (si aplica) del mismo item
+      await this.deactivateCardTemplates(cardId, targetSection, options?.targetItemId);
 
       // Crear nueva instancia de plantilla
       const instanceRef = collection(db, this.instancesCollection);
-      const newInstance = {
+      const newInstance: any = {
         templateId,
         userId,
         cardId,
+        targetSection: targetSection,
+        // Solo incluir targetItemId cuando exista, Firestore no permite undefined
+        ...(options?.targetItemId ? { targetItemId: options.targetItemId } : {}),
         data: templateData,
         isActive: true,
         appliedAt: serverTimestamp()
@@ -154,8 +166,12 @@ class UserTemplatesService {
 
       const docRef = await addDoc(instanceRef, newInstance);
 
-      // Incrementar contador de descargas
-      await this.incrementDownloadCount(templateId);
+      // Incrementar contador de descargas (no bloquear en caso de fallo de permisos)
+      try {
+        await this.incrementDownloadCount(templateId);
+      } catch (incErr) {
+        console.warn('No se pudo incrementar downloadCount (continuando):', incErr);
+      }
 
       return {
         id: docRef.id,
@@ -169,9 +185,10 @@ class UserTemplatesService {
   }
 
   // Desactivar plantillas de una tarjeta
-  private async deactivateCardTemplates(cardId: string): Promise<void> {
+  private async deactivateCardTemplates(cardId: string, section?: string, targetItemId?: string): Promise<void> {
     try {
       const instancesRef = collection(db, this.instancesCollection);
+      // Usar query simple para evitar problemas de índices
       const q = query(
         instancesRef,
         where('cardId', '==', cardId),
@@ -182,11 +199,32 @@ class UserTemplatesService {
       const updatePromises: Promise<void>[] = [];
       
       querySnapshot.forEach((docSnapshot) => {
-        updatePromises.push(
-          updateDoc(doc(db, this.instancesCollection, docSnapshot.id), {
-            isActive: false
-          })
-        );
+        const data = docSnapshot.data();
+        
+        // Filtrar en cliente con la misma lógica que los otros métodos
+        let shouldDeactivate = false;
+        
+        // Verificar sección si se especifica
+        if (section && data.targetSection !== section) {
+          return; // Skip si no coincide la sección
+        }
+        
+        // Aplicar lógica de targetItemId
+        if (targetItemId) {
+          // Si buscamos una plantilla específica, solo desactivar plantillas para ese item
+          shouldDeactivate = data.targetItemId === targetItemId;
+        } else {
+          // Si no especificamos targetItemId, solo desactivar plantillas generales
+          shouldDeactivate = !data.targetItemId;
+        }
+        
+        if (shouldDeactivate) {
+          updatePromises.push(
+            updateDoc(doc(db, this.instancesCollection, docSnapshot.id), {
+              isActive: false
+            })
+          );
+        }
       });
       
       await Promise.all(updatePromises);
@@ -196,7 +234,11 @@ class UserTemplatesService {
   }
 
   // Obtener plantilla activa de una tarjeta
-  async getActiveTemplateForCard(cardId: string): Promise<{
+  async getActiveTemplateForCard(
+    cardId: string,
+    section?: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design',
+    targetItemId?: string
+  ): Promise<{
     template: UserTemplate;
     instance: UserTemplateInstance;
   } | null> {
@@ -207,22 +249,34 @@ class UserTemplatesService {
       }
 
       const instancesRef = collection(db, this.instancesCollection);
-      const q = query(
-        instancesRef,
-        where('cardId', '==', cardId),
-        where('isActive', '==', true)
-      );
-      
+      // Usar sólo filtro por cardId para evitar necesidad de índices compuestos
+      const q = query(instancesRef, where('cardId', '==', cardId));
       const querySnapshot = await getDocs(q);
       
       if (querySnapshot.empty) {
         return null;
       }
 
-      const instanceDoc = querySnapshot.docs[0];
+      // Filtrar en cliente por sección, item y activo
+      const docs = querySnapshot.docs
+        .map(d => ({ id: d.id, ...(d.data() as any) }))
+        .filter(d => d.isActive === true)
+        .filter(d => (section ? d.targetSection === section : true))
+        .filter(d => {
+          // Si se especifica targetItemId, solo devolver instancias para ese item específico
+          if (targetItemId) {
+            return d.targetItemId === targetItemId;
+          }
+          // Si NO se especifica targetItemId, solo devolver instancias generales (sin targetItemId)
+          return !d.targetItemId;
+        });
+
+      if (docs.length === 0) return null;
+
+      const instanceDoc = { id: docs[0].id, ...docs[0] } as any;
       const instance = {
         id: instanceDoc.id,
-        ...instanceDoc.data()
+        ...instanceDoc
       } as UserTemplateInstance;
 
       const template = await this.getTemplate(instance.templateId);
@@ -243,6 +297,88 @@ class UserTemplatesService {
       console.error('Error getting active template for card:', error);
       return null;
     }
+  }
+
+  /**
+   * Suscribirse en tiempo real a la plantilla activa de una tarjeta.
+   * Llama al callback con { template, instance } o null cuando no hay activa.
+   * Devuelve una función para desuscribirse.
+   */
+  subscribeActiveTemplateForCard(
+    cardId: string,
+    section: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design' | undefined,
+    callback: (data: { template: UserTemplate; instance: UserTemplateInstance } | null) => void,
+    options?: { targetItemId?: string }
+  ): () => void {
+    if (!cardId || cardId === 'undefined') {
+      callback(null);
+      return () => {};
+    }
+
+    let unsubscribeTemplateDoc: (() => void) | null = null;
+
+    const instancesRef = collection(db, this.instancesCollection);
+    // Sólo por cardId; filtramos en cliente para evitar índices compuestos
+    const q = query(instancesRef, where('cardId', '==', cardId));
+
+    const unsubscribeInstances = onSnapshot(q, async (querySnapshot) => {
+      try {
+        // Reset listener del template si cambia la instancia
+        if (unsubscribeTemplateDoc) {
+          unsubscribeTemplateDoc();
+          unsubscribeTemplateDoc = null;
+        }
+
+        const docs = querySnapshot.docs
+          .map(d => ({ id: d.id, ...(d.data() as any) }))
+          .filter(d => d.isActive === true)
+          .filter(d => (section ? d.targetSection === section : true))
+          .filter(d => {
+            // Si se especifica targetItemId, solo devolver instancias para ese item específico
+            if (options?.targetItemId) {
+              return d.targetItemId === options.targetItemId;
+            }
+            // Si NO se especifica targetItemId, solo devolver instancias generales (sin targetItemId)
+            return !d.targetItemId;
+          });
+
+        if (docs.length === 0) {
+          callback(null);
+          return;
+        }
+
+        const instance = {
+          id: docs[0].id,
+          ...docs[0]
+        } as UserTemplateInstance;
+
+        // Escuchar cambios del documento de la plantilla también (react/css/json)
+        const templateRef = doc(db, this.collectionName, instance.templateId);
+        unsubscribeTemplateDoc = onSnapshot(templateRef, (templateSnap) => {
+          if (!templateSnap.exists()) {
+            callback(null);
+            return;
+          }
+          const template = {
+            id: templateSnap.id,
+            ...templateSnap.data()
+          } as UserTemplate;
+          callback({ template, instance });
+        });
+      } catch (error) {
+        console.error('Error subscribing active template for card:', error);
+        callback(null);
+      }
+    }, (error) => {
+      // Errores de permisos o similares
+      console.warn('Suscripción a plantillas activa falló:', error);
+      callback(null);
+    });
+
+    return () => {
+      unsubscribeInstances();
+      if (unsubscribeTemplateDoc) unsubscribeTemplateDoc();
+    };
   }
 
   // Actualizar datos de una instancia de plantilla
@@ -323,9 +459,9 @@ class UserTemplatesService {
   }
 
   // Remover plantilla de tarjeta
-  async removeTemplateFromCard(cardId: string): Promise<boolean> {
+  async removeTemplateFromCard(cardId: string, section?: string, targetItemId?: string): Promise<boolean> {
     try {
-      await this.deactivateCardTemplates(cardId);
+      await this.deactivateCardTemplates(cardId, section, targetItemId);
       return true;
     } catch (error) {
       console.error('Error removing template from card:', error);

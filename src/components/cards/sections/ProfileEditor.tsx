@@ -19,6 +19,7 @@ import { getDefaultProfileDesign, getPresetById, profileDesignPresets, getPreset
 import { getAvailableThemes, applyProfileThemeToCard } from '@/data/themes/registry';
 import { CardElement } from '@/types';
 import DynamicTemplateEditor from './DynamicTemplateEditor';
+import TemplatesGallery from './TemplatesGallery';
 // Editor avanzado eliminado
 
 interface ProfileEditorProps {
@@ -29,6 +30,7 @@ interface ProfileEditorProps {
 export const ProfileEditor: React.FC<ProfileEditorProps> = ({ card, onUpdate }) => {
   const [previewAvatar, setPreviewAvatar] = useState(card.profile.avatar || '');
   const [showBio, setShowBio] = useState(!!card.profile.bio);
+  const [showCareerDesc, setShowCareerDesc] = useState(card.profile.design?.showCareerDescription ?? false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [advancedMode, setAdvancedMode] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -37,6 +39,19 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({ card, onUpdate }) 
   const design = card.profile.design ?? getDefaultProfileDesign();
   const themes = getAvailableThemes();
   const categories = ['all', ...getPresetCategories()];
+
+  // Escuchar evento para abrir galería de plantillas
+  React.useEffect(() => {
+    const handleOpenTemplateGallery = (event: CustomEvent) => {
+      const { section } = event.detail;
+      if (section === 'profile') {
+        setShowTemplateGallery(true);
+      }
+    };
+
+    window.addEventListener('open-template-gallery', handleOpenTemplateGallery as EventListener);
+    return () => window.removeEventListener('open-template-gallery', handleOpenTemplateGallery as EventListener);
+  }, []);
 
   const handleProfileUpdate = (updates: Partial<Card['profile']>) => {
     onUpdate({
@@ -332,6 +347,39 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({ card, onUpdate }) 
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 text-right">
                   {(card.profile.bio || '').length}/150 caracteres
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Toggle para Descripción de Carrera */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Descripción de Carrera
+              </label>
+              <button
+                onClick={() => {
+                  const newValue = !showCareerDesc;
+                  setShowCareerDesc(newValue);
+                  handleProfileUpdate({ 
+                    design: { 
+                      ...design, 
+                      showCareerDescription: newValue 
+                    } 
+                  });
+                }}
+                className="flex items-center text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+              >
+                {showCareerDesc ? <EyeOff className="w-4 h-4 mr-1" /> : <Eye className="w-4 h-4 mr-1" />}
+                {showCareerDesc ? 'Ocultar' : 'Mostrar'}
+              </button>
+            </div>
+            
+            {showCareerDesc && (
+              <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                  <strong>Nota:</strong> La descripción de carrera "&gt; Full Stack Developer especializado en [tecnologías] &gt; Construyendo el futuro con código" se mostrará automáticamente en tu tarjeta cuando no tengas plantillas personalizadas aplicadas.
                 </p>
               </div>
             )}
@@ -879,6 +927,23 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({ card, onUpdate }) 
         section="profile"
         onUpdate={onUpdate}
       />
+
+      {/* Galería de Plantillas */}
+      {showTemplateGallery && (
+        <TemplatesGallery
+          section="profile"
+          cardId={card.id}
+          userId={card.userId}
+          onTemplateApplied={(_template, _data) => {
+            setShowTemplateGallery(false);
+            // Forzar actualización del preview - usar una propiedad válida
+            onUpdate({
+              updatedAt: new Date() // Trigger re-render usando una propiedad existente
+            });
+          }}
+          onClose={() => setShowTemplateGallery(false)}
+        />
+      )}
     </div>
   );
 };

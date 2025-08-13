@@ -19,6 +19,11 @@ import '@/utils/createSafeTemplate';
 import '@/utils/adminDebug';
 import '@/utils/fixFirestoreRules';
 import '@/utils/autoFix';
+import '@/utils/testIndividualLinkTemplates';
+import '@/utils/debugLinkTemplates';
+import '@/utils/testLinkTemplateFlow';
+import '@/utils/linkTemplatesSummary';
+import '@/utils/linkTemplatesFix';
 
 // Lazy load pages for better performance with error handling
 const Home = React.lazy(() => 

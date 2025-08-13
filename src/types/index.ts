@@ -636,6 +636,7 @@ export interface ProfileDesign {
   container: ProfileContainerStyle;
   content?: ProfilePresetContent;
   preset?: string; // ID del preset aplicado
+  showCareerDescription?: boolean; // Controla si se muestra la descripción de carrera por defecto
 }
 
 export interface ProfileLayout {
@@ -680,7 +681,7 @@ export interface AvatarStyle {
 export interface ProfilePresetContent {
   poster?: PosterContent;
   ticket?: TicketContent;
-  wallet?: WalletContent;
+  // wallet?: WalletContent; // TODO: Definir WalletContent cuando se implemente
 }
 
 export interface PosterContent {

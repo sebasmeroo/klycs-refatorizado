@@ -40,6 +40,7 @@ const minimalDesign: ProfileDesign = {
     borderRadius: 16,
     variant: 'ticket',
   },
+  showCareerDescription: false, // Por defecto no mostrar la descripción de carrera
   content: {
     poster: {
       titleTop: 'STILL WASTING TIME',

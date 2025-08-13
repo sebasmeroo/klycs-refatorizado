@@ -12,11 +12,17 @@ import {
   Edit3, 
   Trash2, 
   ExternalLink,
+  Wand2,
   Palette,
   Type,
   Smile,
-  Image as ImageIcon
+  Image as ImageIcon,
+  MoreVertical,
+  Copy
 } from 'lucide-react';
+import DynamicTemplateEditor from './DynamicTemplateEditor';
+import TemplatesGallery from './TemplatesGallery';
+import { userTemplatesService } from '@/services/userTemplates';
 
 interface LinksEditorProps {
   card: Card;
@@ -26,6 +32,21 @@ interface LinksEditorProps {
 export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
   const [editingLink, setEditingLink] = useState<string | null>(null);
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const [showTemplatesForLink, setShowTemplatesForLink] = useState<string | null>(null);
+  const [lastLinkTemplate, setLastLinkTemplate] = useState<{ id: string; data: Record<string, any> } | null>(null);
+
+  // Escuchar evento para abrir galería de plantillas
+  React.useEffect(() => {
+    const handleOpenTemplateGallery = (event: CustomEvent) => {
+      const { section, targetItemId } = event.detail;
+      if (section === 'links' && targetItemId) {
+        setShowTemplatesForLink(targetItemId);
+      }
+    };
+
+    window.addEventListener('open-template-gallery', handleOpenTemplateGallery as EventListener);
+    return () => window.removeEventListener('open-template-gallery', handleOpenTemplateGallery as EventListener);
+  }, []);
 
   const handleLinksUpdate = (newLinks: CardLink[]) => {
     onUpdate({ links: newLinks });
@@ -40,7 +61,7 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
     return fallback;
   };
 
-  const addNewLink = () => {
+  const addNewLink = async () => {
     const newLink: CardLink = {
       id: `link-${Date.now()}`,
       title: 'Nuevo Enlace',
@@ -64,8 +85,24 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
       }
     };
 
-    handleLinksUpdate([...card.links, newLink]);
+    const nextLinks = [...card.links, newLink];
+    handleLinksUpdate(nextLinks);
     setEditingLink(newLink.id);
+
+    // Aplicar automáticamente la última plantilla usada para enlaces (si existe)
+    try {
+      if (lastLinkTemplate) {
+        await userTemplatesService.applyTemplateToCard(
+          lastLinkTemplate.id,
+          card.userId,
+          card.id,
+          lastLinkTemplate.data || {},
+          { targetItemId: newLink.id }
+        );
+      }
+    } catch (e) {
+      // no-op visual; el usuario puede aplicar manualmente si falla
+    }
   };
 
   const updateLink = (linkId: string, updates: Partial<CardLink>) => {
@@ -134,6 +171,88 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
 
   return (
     <div className="space-y-8">
+      {/* Plantillas de Enlaces (React + JSON) */}
+      <IOSSection title="Plantillas de Enlaces" icon={<Palette size={14} />} variant="dark" sectionKey="links-templates">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Aplica una plantilla de enlaces desde el botón “Plantillas” en la cabecera del editor. Aquí podrás editar sus campos.
+          </p>
+          <DynamicTemplateEditor card={card} section="links" onUpdate={onUpdate} />
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            Consejo: los estilos del componente se respetan; solo edita contenido con el JSON.
+          </div>
+        </div>
+      </IOSSection>
+
+      {/* Crear Enlace con Plantilla */}
+      <IOSSection title="Crear Enlace con Plantilla" icon={<Wand2 size={14} />} variant="dark" sectionKey="links-create-with-template">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mr-4">
+            Crea un nuevo enlace y elige una plantilla individual para él. Se añadirá al preview automáticamente.
+          </p>
+          <Button
+            onClick={() => {
+              const newLink: CardLink = {
+                id: `link-${Date.now()}`,
+                title: 'Nuevo Enlace',
+                url: '',
+                description: '',
+                icon: '🔗',
+                iconType: 'emoji',
+                isVisible: true,
+                order: card.links.length,
+                style: {
+                  variant: 'solid',
+                  backgroundColor: '#3b82f6',
+                  textColor: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  fontSize: '16px',
+                  fontWeight: '500'
+                },
+                analytics: { clicks: 0 }
+              };
+              onUpdate({ links: [...card.links, newLink] });
+              setEditingLink(newLink.id);
+              setShowTemplatesForLink(newLink.id);
+            }}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Nuevo enlace + plantilla
+          </Button>
+        </div>
+      </IOSSection>
+
+      {/* Código personalizado para enlaces (opcional) */}
+      <IOSSection title="Código personalizado (opcional)" icon={<Edit3 size={14} />} variant="dark" sectionKey="links-custom-code">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Puedes añadir un bloque de código personalizado como elemento adicional en la sección de enlaces.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const newEl = {
+                id: `custom-links-${Date.now()}`,
+                type: 'custom-code' as const,
+                content: {
+                  html: '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#fff;text-align:center;">Bloque personalizado de Enlaces</div>',
+                  css: '',
+                  js: "console.log('Custom Links block loaded')",
+                  height: 240,
+                },
+                isVisible: true,
+                order: (card.elements?.reduce((m, e) => Math.max(m, e.order), 0) ?? 0) + 1,
+                style: {},
+              } as any;
+              onUpdate({ elements: [...card.elements, newEl] });
+            }}
+          >
+            <Plus className="w-4 h-4 mr-2" /> Añadir bloque personalizado
+          </Button>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Se renderiza en un iframe aislado. Úsalo solo si necesitas algo muy específico.</p>
+        </div>
+      </IOSSection>
       <IOSSection title="Enlaces Principales" icon={<Link size={14} />} variant="dark" sectionKey="links-main">
         <div className="flex justify-end">
           <Button onClick={addNewLink}>
@@ -197,6 +316,36 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
 
                 <div className="flex items-center space-x-2">
                   <button
+                    onClick={() => setShowTemplatesForLink(link.id)}
+                    className="p-2 rounded-lg transition-colors text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+                    title="Plantillas (este enlace)"
+                  >
+                    <Wand2 className="w-4 h-4" />
+                  </button>
+                  {/* Menú de acciones (duplicar, etc.) */}
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.currentTarget.nextElementSibling?.classList.toggle('hidden');
+                      }}
+                      className="p-2 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/40"
+                      title="Más acciones"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                    <div className="hidden absolute right-0 mt-2 w-40 bg-[#1b1b22] border border-black/20 rounded-lg shadow-lg z-10">
+                      <button
+                        onClick={() => {
+                          const clone = { ...link, id: `link-${Date.now()}`, order: card.links.length };
+                          handleLinksUpdate([...card.links, clone]);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-white/90 hover:bg-white/5"
+                      >
+                        <Copy className="w-3.5 h-3.5" /> Duplicar
+                      </button>
+                    </div>
+                  </div>
+                  <button
                     onClick={() => toggleLinkVisibility(link.id)}
                     className={`p-2 rounded-lg transition-colors ${
                       link.isVisible
@@ -233,6 +382,13 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
               {/* Expanded Editor */}
               {editingLink === link.id && (
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                  {/* Editor JSON de plantilla si existe instancia para este link */}
+                  <DynamicTemplateEditor
+                    card={{ ...card, id: card.id }}
+                    section={'links'}
+                    onUpdate={onUpdate}
+                    targetItemId={link.id}
+                  />
                   {/* Basic Info */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -453,6 +609,24 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
           ))
         )}
       </div>
+
+      {showTemplatesForLink && (
+        <TemplatesGallery
+          section={'links'}
+          cardId={card.id}
+          userId={card.userId}
+          onTemplateApplied={(template, data) => {
+            setLastLinkTemplate({ id: template.id, data: data || {} });
+            setShowTemplatesForLink(null);
+            // Forzar actualización del preview - usar una propiedad válida
+            onUpdate({
+              updatedAt: new Date() // Trigger re-render usando una propiedad existente
+            });
+          }}
+          onClose={() => setShowTemplatesForLink(null)}
+          targetItemId={showTemplatesForLink}
+        />
+      )}
     </div>
   );
 };

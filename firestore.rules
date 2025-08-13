@@ -76,8 +76,10 @@ service cloud.firestore {
 
     // === REGLAS PARA INSTANCIAS DE PLANTILLAS ===
     match /templateInstances/{instanceId} {
-      // Los usuarios pueden leer todas las instancias autenticados
-      allow read: if request.auth != null;
+      // Lectura pública para instancias activas (necesario para vista pública de tarjetas)
+      // Los usuarios autenticados pueden leer todas las instancias
+      allow read: if request.auth != null || 
+                 (resource.data.isActive == true);
       
       // Los usuarios pueden crear instancias 
       allow create: if request.auth != null;
