@@ -98,8 +98,7 @@ export const CardViewer: React.FC<CardViewerProps> = ({ slug, card: propCard, is
       className="min-h-screen w-full flex items-center justify-center"
       style={getFullScreenBackgroundStyle()}
     >
-      {/* Overlay de fondo oscuro igual que en el preview */}
-      <div className="absolute inset-0 bg-black/20"></div>
+      {/* Sin overlay para respetar el color/gradient puro elegido por el usuario */}
       
       {/* Contenedor móvil centrado - usando el mismo preview del editor */}
       <div className="w-full max-w-sm mx-auto relative z-10 py-8 px-4" style={{ maxWidth: '375px', minHeight: '667px' }}>

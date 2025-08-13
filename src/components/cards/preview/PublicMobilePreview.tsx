@@ -328,7 +328,8 @@ export const PublicMobilePreview: React.FC<PublicMobilePreviewProps> = ({
             targetItemId={link.id}
             defaultContent={(
               <button
-                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-white hover:bg-white/20 transition-all duration-200 shadow-lg"
+                className="w-full rounded-xl p-4 text-white transition-all duration-200"
+                style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
@@ -372,7 +373,8 @@ export const PublicMobilePreview: React.FC<PublicMobilePreviewProps> = ({
             .map((social) => (
               <button
                 key={social.id}
-                className="w-12 h-12 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200 shadow-lg"
+                className="w-12 h-12 rounded-full flex items-center justify-center text-white transition-all duration-200"
+                style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}
               >
                 {getSocialIcon(social.platform)}
               </button>
@@ -396,7 +398,8 @@ export const PublicMobilePreview: React.FC<PublicMobilePreviewProps> = ({
             .map((service) => (
               <div
                 key={service.id}
-                className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 shadow-lg"
+                className="rounded-xl p-4"
+                style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}
               >
                 <div className="flex justify-between items-start mb-2">
                   <h4 className="font-medium text-white text-sm">{service.name}</h4>

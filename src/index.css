@@ -14,7 +14,7 @@
   --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   --glass-bg: rgba(248, 250, 252, 0.08);
   --glass-border: rgba(248, 250, 252, 0.12);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+  --glass-shadow: none;
   --glass-backdrop: blur(20px);
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
@@ -64,7 +64,7 @@
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid rgba(248, 250, 252, 0.08);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: none;
   }
 
   .glass-light {
@@ -72,7 +72,13 @@
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(248, 250, 252, 0.16);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+    box-shadow: none;
+  }
+
+  /* Eliminar sombras de templates dinámicos */
+  .direct-template-renderer * {
+    box-shadow: none !important;
+    text-shadow: none !important;
   }
 
   /* Button styles */

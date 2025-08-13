@@ -88,7 +88,7 @@ const defaultReactCode = `export const Template = ({ data }) => {
       padding: '24px',
       backgroundColor: data.backgroundColor || '#667eea',
       borderRadius: '20px',
-      boxShadow: '0 20px 40px rgba(0, 0, 0, 0)',
+      boxShadow: '0 20px 40px rgba(0, 0, 0, 0.1)',
       color: 'white',
       fontFamily: 'system-ui, sans-serif'
     }}>
@@ -121,7 +121,7 @@ const defaultReactCode = `export const Template = ({ data }) => {
           backgroundColor: '#f1f5f9',
           borderRadius: '16px',
           marginBottom: '16px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -479,7 +479,7 @@ export const AdminTemplateCreator: React.FC = () => {
     if (lowerField.includes('cardheight')) return '460px';
     if (lowerField.includes('cardradius')) return '32px';
     if (lowerField.includes('cardfallback')) return '#2a2f3a';
-    if (lowerField.includes('cardshadow')) return '0 30px 60px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.25)';
+    if (lowerField.includes('cardshadow')) return 'none';
     if (lowerField.includes('cardborder')) return '1px solid rgba(255,255,255,0.06)';
     if (lowerField.includes('statusbg') && !lowerField.includes('2') && !lowerField.includes('3')) return 'rgba(40,199,111,0.92)';
     if (lowerField.includes('statustext') && !lowerField.includes('2') && !lowerField.includes('3')) return '#ffffff';
