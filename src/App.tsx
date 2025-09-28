@@ -91,6 +91,33 @@ const DashboardProfile = React.lazy(() =>
     })
 );
 
+const DashboardTeam = React.lazy(() => 
+  import('@/pages/DashboardTeam')
+    .then(module => ({ default: module.default }))
+    .catch(err => {
+      logError('Failed to load DashboardTeam component', err, { component: 'App' });
+      return { default: () => <div>Error loading Dashboard Team</div> };
+    })
+);
+
+const TeamLogin = React.lazy(() => 
+  import('@/pages/TeamLogin')
+    .then(module => ({ default: module.default }))
+    .catch(err => {
+      logError('Failed to load TeamLogin component', err, { component: 'App' });
+      return { default: () => <div>Error loading Team Login</div> };
+    })
+);
+
+const CalendarView = React.lazy(() => 
+  import('@/pages/DashboardBookings')
+    .then(module => ({ default: module.default }))
+    .catch(err => {
+      logError('Failed to load CalendarView component', err, { component: 'App' });
+      return { default: () => <div>Error loading Calendar View</div> };
+    })
+);
+
 const DashboardSettings = React.lazy(() => 
   import('@/pages/DashboardSettings')
     .then(module => ({ default: module.default }))
@@ -127,12 +154,12 @@ const CardEditorPage = React.lazy(() =>
     })
 );
 
-const Bookings = React.lazy(() => 
-  import('@/pages/Bookings')
-    .then(module => ({ default: module.Bookings }))
+const Calendar = React.lazy(() => 
+  import('@/pages/Calendar')
+    .then(module => ({ default: module.default }))
     .catch(err => {
-      logError('Failed to load Bookings component', err, { component: 'App' });
-      return { default: () => <div>Error loading Bookings page</div> };
+      logError('Failed to load Calendar component', err, { component: 'App' });
+      return { default: () => <div>Error loading Calendar page</div> };
     })
 );
 
@@ -215,6 +242,15 @@ const AdminSettings = React.lazy(() =>
     .catch(err => {
       logError('Failed to load AdminSettings component', err, { component: 'App' });
       return { default: () => <div>Error loading Admin Settings</div> };
+    })
+);
+
+const ProfessionalCalendar = React.lazy(() => 
+  import('@/pages/ProfessionalCalendar')
+    .then(module => ({ default: module.ProfessionalCalendar }))
+    .catch(err => {
+      logError('Failed to load ProfessionalCalendar component', err, { component: 'App' });
+      return { default: () => <div>Error loading Professional Calendar</div> };
     })
 );
 
@@ -327,6 +363,32 @@ function App() {
             </PublicRoute>
           } 
         />
+
+        {/* Team Login Route */}
+        <Route 
+          path="/team/login" 
+          element={
+            <PublicRoute>
+              <TeamLogin />
+            </PublicRoute>
+          } 
+        />
+
+        {/* Professional Calendar Access Route */}
+        <Route 
+          path="/calendar/professional/:calendarId" 
+          element={<ProfessionalCalendar />} 
+        />
+
+        {/* Professional Calendar Route */}
+        <Route 
+          path="/calendar" 
+          element={
+            <ProtectedRoute>
+              <CalendarView />
+            </ProtectedRoute>
+          } 
+        />
         
         {/* Dashboard Routes */}
         <Route 
@@ -372,6 +434,16 @@ function App() {
           } 
         />
         <Route 
+          path="/dashboard/team" 
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <DashboardTeam />
+              </DashboardLayout>
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
           path="/dashboard/settings" 
           element={
             <ProtectedRoute>
@@ -405,11 +477,11 @@ function App() {
         {/* Legacy Routes */}
         {/* Ruta legacy de edición eliminada */}
         <Route 
-          path="/reservas" 
+          path="/calendario" 
           element={
             <ProtectedRoute>
               <Layout>
-                <Bookings />
+                <Calendar />
               </Layout>
             </ProtectedRoute>
           } 

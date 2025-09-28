@@ -44,14 +44,14 @@ export const Header: React.FC = () => {
                   Dashboard
                 </Link>
                 <Link
-                  to="/reservas"
+                  to="/calendario"
                   className={`text-sm font-medium transition-colors ${
-                    location.pathname === '/reservas'
+                    location.pathname === '/calendario'
                       ? 'text-primary-600'
                       : 'text-gray-700 hover:text-primary-600'
                   }`}
                 >
-                  Reservas
+                  Calendario
                 </Link>
                 <Link
                   to="/mi-tarjeta"

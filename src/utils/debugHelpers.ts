@@ -19,7 +19,9 @@ window.debugTemplate = async (cardId?: string) => {
   if (!cardId) {
     // Intentar obtener cardId desde la URL o localStorage
     const urlParams = new URLSearchParams(window.location.search);
-    cardId = urlParams.get('cardId') || localStorage.getItem('currentCardId');
+    const urlCardId = urlParams.get('cardId');
+    const storedCardId = localStorage.getItem('currentCardId');
+    cardId = urlCardId ?? storedCardId ?? undefined;
   }
   
   if (!cardId) {
@@ -73,7 +75,9 @@ window.fixTemplate = async (cardId?: string) => {
   
   if (!cardId) {
     const urlParams = new URLSearchParams(window.location.search);
-    cardId = urlParams.get('cardId') || localStorage.getItem('currentCardId');
+    const urlCardId = urlParams.get('cardId');
+    const storedCardId = localStorage.getItem('currentCardId');
+    cardId = urlCardId ?? storedCardId ?? undefined;
   }
   
   if (!cardId) {

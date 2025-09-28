@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { User as FirebaseUser } from 'firebase/auth';
-import { User } from '@/types';
+import { User, UserRole } from '@/types';
 
 interface AuthState {
   user: User | null;

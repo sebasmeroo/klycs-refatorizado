@@ -33,6 +33,13 @@ export interface Template {
   downloads: number;
   usage: number;
   trend: number;
+  targetSection?: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+  reactCode?: string;
+  cssCode?: string;
+  jsonConfig?: any[];
+  version?: string;
+  author?: string;
+  tags?: string[];
 }
 
 export interface AdminTemplate {
@@ -193,7 +200,14 @@ class TemplateDistributionService {
           isPublic: data.isPublic,
           downloads: data.downloadCount || 0,
           usage: data.downloadCount || 0,
-          trend: Math.floor(Math.random() * 20) - 10 // Simulado por ahora
+          trend: Math.floor(Math.random() * 20) - 10, // Simulado por ahora
+          targetSection: data.targetSection,
+          reactCode: data.reactCode,
+          cssCode: data.cssCode,
+          jsonConfig: Array.isArray(data.jsonConfig) ? data.jsonConfig : [],
+          version: data.version,
+          author: data.author,
+          tags: Array.isArray(data.tags) ? data.tags : []
         });
       });
       

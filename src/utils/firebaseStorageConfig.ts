@@ -103,7 +103,7 @@ export const createFirebaseStorageFetch = () => {
       try {
         return await originalFetch(url, newInit);
       } catch (error) {
-        warn('Firebase Storage fetch failed', error);
+        warn('Firebase Storage fetch failed', { error: error instanceof Error ? error.message : String(error) });
         throw error;
       }
     }

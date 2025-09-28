@@ -1,9 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+/* Estilos iOS/glass globales */
+@import './styles/ios-dashboard.css';
+/* Estilos Admin aislados */
+@import './styles/admin.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
 
 :root {
   --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
@@ -20,11 +24,6 @@
   --text-secondary: #cbd5e1;
   --text-muted: #64748b;
 }
-
-/* Estilos iOS/glass globales */
-@import './styles/ios-dashboard.css';
-/* Estilos Admin aislados */
-@import './styles/admin.css';
 
 @layer base {
   * {
@@ -315,5 +314,3 @@ html, body {
   width: 0;
   background: transparent;
 }
-
-

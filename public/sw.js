@@ -1,5 +1,6 @@
 // Service Worker for Klycs PWA - Advanced Version
-const CACHE_VERSION = '2.0.0';
+// No CSP headers applied from SW
+const CACHE_VERSION = '3.0.0';
 const CACHE_NAME = `klycs-v${CACHE_VERSION}`;
 const STATIC_CACHE = `${CACHE_NAME}-static`;
 const DYNAMIC_CACHE = `${CACHE_NAME}-dynamic`;
@@ -186,13 +187,12 @@ async function networkFirstStrategy(request) {
     if (request.method === 'GET') {
       const cache = await caches.open(cacheName);
       const cachedResponse = await cache.match(request);
-      
       if (cachedResponse) {
         return cachedResponse;
       }
     }
-    
-    throw error;
+    // Return safe fallback Response instead of rejecting the promise
+    return new Response('Network error', { status: 503, statusText: 'Service Unavailable' });
   }
 }
 
@@ -206,16 +206,19 @@ async function staleWhileRevalidateStrategy(request) {
   const cache = await caches.open(IMAGE_CACHE);
   const cachedResponse = await cache.match(request);
   
-  // Siempre intentar actualizar en background
-  const fetchPromise = fetch(request).then((response) => {
-    if (response.ok) {
-      cache.put(request, response.clone());
-    }
-    return response;
-  }).catch(() => {}); // Silently fail
+  // Intentar actualizar en background, pero no rechazar si falla
+  const fetchPromise = fetch(request)
+    .then((response) => {
+      if (response && response.ok) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
   
-  // Devolver caché si existe, sino esperar a la red
-  return cachedResponse || await fetchPromise;
+  // Devolver caché si existe, o respuesta de red si llegó, o un fallback seguro
+  const networkResponse = await fetchPromise;
+  return cachedResponse || networkResponse || new Response('', { status: 503, statusText: 'Service Unavailable' });
 }
 
 // Navigation Strategy - Para páginas HTML

@@ -1,640 +1,730 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar, 
-  Clock, 
-  User, 
-  Phone, 
-  Mail, 
-  Filter, 
-  Search, 
+  Calendar as CalendarIcon, 
   Plus,
-  MoreVertical,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-  Star,
-  TrendingUp,
+  ChevronLeft,
+  ChevronRight,
+  Settings,
   Users,
-  DollarSign,
-  Eye,
-  Edit,
-  Trash2,
-  MessageSquare,
+  MessageCircle,
+  Share2,
+  Filter,
+  Search,
+  MoreVertical,
+  Clock,
   MapPin,
-  Zap,
-  Award,
-  Shield,
-  RefreshCw
+  UserPlus,
+  X,
+  Check,
+  Send,
+  Paperclip,
+  Eye,
+  EyeOff,
+  Palette,
+  Bell,
+  BellOff,
+  Copy,
+  ExternalLink,
+  Crown,
+  Shield
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/hooks/useAuth';
 import { 
-  AnimatedContainer, 
-  AnimatedButton, 
-  AnimatedCard,
-  StaggeredList 
-} from '@/components/booking/BookingAnimations';
+  SharedCalendar,
+  CalendarEvent,
+  EventComment,
+  CalendarStats,
+  CalendarState,
+  CalendarView
+} from '@/types/calendar';
 import { 
-  ModernSelect, 
-  ModernChip,
-  FloatingActionButton 
-} from '@/components/booking/ModernUIComponents';
-import { AdvancedBookingDashboard } from '@/components/analytics/AdvancedBookingDashboard';
+  CollaborativeCalendarService,
+  CalendarEventService,
+  EventCommentService,
+  CalendarStatsService
+} from '@/services/collaborativeCalendar';
+import { CreateCalendarModal } from '@/components/calendar/CreateCalendarModal';
+import { createDemoCalendarData, getDemoStats } from '@/utils/calendarDemoData';
 
-interface Booking {
-  id: string;
-  clientName: string;
-  clientEmail: string;
-  clientPhone: string;
-  service: string;
-  date: string;
-  time: string;
-  duration: number;
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
-  notes?: string;
-  price?: number;
-  avatar?: string;
-  rating?: number;
-  isVip?: boolean;
+// ===== TIPOS AUXILIARES =====
+
+interface CalendarDay {
+  date: Date;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  events: CalendarEvent[];
+  dayNumber: number;
 }
 
+// ===== COMPONENTE PRINCIPAL =====
+
 export const Bookings: React.FC = () => {
-  const [filter, setFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'calendar' | 'analytics'>('list');
-  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
-  const [showQuickStats, setShowQuickStats] = useState(true);
-
-  const mockBookings: Booking[] = [
-    {
-      id: '1',
-      clientName: 'María García',
-      clientEmail: 'maria@example.com',
-      clientPhone: '+34 600 123 456',
-      service: 'Consulta Médica General',
-      date: '2024-01-15',
-      time: '10:00',
-      duration: 45,
-      status: 'confirmed',
-      notes: 'Primera consulta. Dolor de cabeza recurrente.',
-      price: 75,
-      rating: 5,
-      isVip: true
-    },
-    {
-      id: '2',
-      clientName: 'Carlos López',
-      clientEmail: 'carlos@example.com',
-      clientPhone: '+34 600 234 567',
-      service: 'Limpieza Dental',
-      date: '2024-01-16',
-      time: '14:00',
-      duration: 60,
-      status: 'pending',
-      notes: 'Cliente habitual. Limpieza semestral.',
-      price: 85,
-      rating: 4
-    },
-    {
-      id: '3',
-      clientName: 'Ana Martín',
-      clientEmail: 'ana@example.com',
-      clientPhone: '+34 600 345 678',
-      service: 'Masaje Relajante',
-      date: '2024-01-12',
-      time: '16:00',
-      duration: 90,
-      status: 'completed',
-      notes: 'Masaje por estrés laboral. Muy satisfecha.',
-      price: 65,
-      rating: 5
-    },
-    {
-      id: '4',
-      clientName: 'Roberto Silva',
-      clientEmail: 'roberto@example.com',
-      clientPhone: '+34 600 456 789',
-      service: 'Entrenamiento Personal',
-      date: '2024-01-18',
-      time: '09:00',
-      duration: 60,
-      status: 'confirmed',
-      notes: 'Sesión de inicio. Objetivos de pérdida de peso.',
-      price: 45,
-      isVip: true
-    },
-    {
-      id: '5',
-      clientName: 'Laura Ruiz',
-      clientEmail: 'laura@example.com',
-      clientPhone: '+34 600 567 890',
-      service: 'Tratamiento Facial',
-      date: '2024-01-14',
-      time: '11:30',
-      duration: 75,
-      status: 'no_show',
-      notes: 'No se presentó a la cita.',
-      price: 95
-    },
-    {
-      id: '6',
-      clientName: 'Diego Fernández',
-      clientEmail: 'diego@example.com',
-      clientPhone: '+34 600 678 901',
-      service: 'Sesión de Psicología',
-      date: '2024-01-17',
-      time: '15:30',
-      duration: 50,
-      status: 'confirmed',
-      notes: 'Seguimiento de terapia cognitiva.',
-      price: 80,
-      rating: 5
-    }
-  ];
-
-  // Stats calculadas
-  const stats = {
-    total: mockBookings.length,
-    pending: mockBookings.filter(b => b.status === 'pending').length,
-    confirmed: mockBookings.filter(b => b.status === 'confirmed').length,
-    completed: mockBookings.filter(b => b.status === 'completed').length,
-    revenue: mockBookings
-      .filter(b => ['confirmed', 'completed'].includes(b.status))
-      .reduce((sum, b) => sum + (b.price || 0), 0),
-    avgRating: mockBookings
-      .filter(b => b.rating)
-      .reduce((sum, b) => sum + (b.rating || 0), 0) / mockBookings.filter(b => b.rating).length || 0
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'confirmed': return 'success';
-      case 'pending': return 'warning';
-      case 'completed': return 'primary';
-      case 'cancelled': return 'error';
-      case 'no_show': return 'error';
-      default: return 'default';
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'confirmed': return 'Confirmada';
-      case 'pending': return 'Pendiente';
-      case 'completed': return 'Completada';
-      case 'cancelled': return 'Cancelada';
-      case 'no_show': return 'No asistió';
-      default: return status;
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'confirmed': return <CheckCircle className="w-4 h-4" />;
-      case 'pending': return <AlertCircle className="w-4 h-4" />;
-      case 'completed': return <CheckCircle className="w-4 h-4" />;
-      case 'cancelled': return <XCircle className="w-4 h-4" />;
-      case 'no_show': return <XCircle className="w-4 h-4" />;
-      default: return <AlertCircle className="w-4 h-4" />;
-    }
-  };
-
-  const filteredBookings = mockBookings.filter(booking => {
-    const matchesSearch = booking.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         booking.service.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filter === 'all' || booking.status === filter;
-    return matchesSearch && matchesFilter;
+  const { user } = useAuth();
+  
+  // ===== ESTADO =====
+  const [calendarState, setCalendarState] = useState<CalendarState>({
+    currentDate: new Date(),
+    view: 'month',
+    selectedCalendars: [],
+    isCreatingEvent: false,
+    isEditingEvent: false
   });
+  
+  const [calendars, setCalendars] = useState<SharedCalendar[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [stats, setStats] = useState<CalendarStats | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [eventComments, setEventComments] = useState<EventComment[]>([]);
+  
+  // UI State
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showCreateCalendar, setShowCreateCalendar] = useState(false);
+  const [showCreateEvent, setShowCreateEvent] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [newComment, setNewComment] = useState('');
 
-  const filterOptions = [
-    { value: 'all', label: 'Todas las reservas', icon: <Calendar className="w-4 h-4" /> },
-    { value: 'pending', label: 'Pendientes', icon: <AlertCircle className="w-4 h-4" /> },
-    { value: 'confirmed', label: 'Confirmadas', icon: <CheckCircle className="w-4 h-4" /> },
-    { value: 'completed', label: 'Completadas', icon: <CheckCircle className="w-4 h-4" /> },
-    { value: 'cancelled', label: 'Canceladas', icon: <XCircle className="w-4 h-4" /> },
-    { value: 'no_show', label: 'No asistieron', icon: <XCircle className="w-4 h-4" /> }
-  ];
+  // ===== EFECTOS =====
+  
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    // MODO DEMO: Cargar datos de ejemplo
+    const demoData = createDemoCalendarData(
+      user.id, 
+      user.name || 'Usuario', 
+      user.email || 'usuario@example.com'
+    );
+    
+    setCalendars(demoData.calendars);
+    setEvents(demoData.events);
+    setStats(getDemoStats());
+    
+    // Seleccionar todos los calendarios por defecto
+    setCalendarState(prev => ({
+      ...prev,
+      selectedCalendars: demoData.calendars.map(c => c.id)
+    }));
+    
+    // TODO: Reemplazar con datos reales de Firebase cuando esté listo
+    /*
+    const unsubscribe = CollaborativeCalendarService.subscribeToUserCalendars(
+      user.id,
+      (userCalendars) => {
+        setCalendars(userCalendars);
+        setCalendarState(prev => ({
+          ...prev,
+          selectedCalendars: userCalendars.map(c => c.id)
+        }));
+      }
+    );
+    
+    CalendarStatsService.getStats(user.id).then(setStats);
+    return unsubscribe;
+    */
+  }, [user?.id]);
+  
+  useEffect(() => {
+    if (calendarState.selectedCalendars.length === 0) return;
+    
+    // MODO DEMO: Los eventos ya están cargados
+    // TODO: Cargar eventos reales de Firebase
+    /*
+    const currentMonth = calendarState.currentDate;
+    const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    
+    const unsubscribe = CalendarEventService.subscribeToCalendarEvents(
+      calendarState.selectedCalendars,
+      setEvents,
+      startDate,
+      endDate
+    );
+    
+    return unsubscribe;
+    */
+  }, [calendarState.selectedCalendars, calendarState.currentDate]);
+  
+  useEffect(() => {
+    if (!selectedEvent) {
+      setEventComments([]);
+      return;
+    }
+    
+    // MODO DEMO: Cargar comentarios de ejemplo
+    const demoData = createDemoCalendarData(
+      user?.id || '', 
+      user?.name || 'Usuario', 
+      user?.email || 'usuario@example.com'
+    );
+    
+    const eventComments = demoData.comments.filter(comment => 
+      comment.eventId === selectedEvent.id
+    );
+    setEventComments(eventComments);
+    
+    // TODO: Cargar comentarios reales de Firebase
+    /*
+    const unsubscribe = EventCommentService.subscribeToEventComments(
+      selectedEvent.id,
+      setEventComments
+    );
+    
+    return unsubscribe;
+    */
+  }, [selectedEvent?.id, user]);
 
-  const StatCard = ({ title, value, icon, color = 'emerald', change }: any) => (
-    <AnimatedCard className="p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-3xl font-bold text-gray-900">{value}</p>
-          {change && (
-            <div className="flex items-center mt-2">
-              <TrendingUp className="w-4 h-4 text-green-500 mr-1" />
-              <span className="text-sm font-medium text-green-600">{change}%</span>
-              <span className="text-sm text-gray-500 ml-1">vs mes anterior</span>
+  // ===== FUNCIONES AUXILIARES =====
+  
+  const generateCalendarDays = (): CalendarDay[] => {
+    const currentDate = calendarState.currentDate;
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    
+    // Primer día del mes
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    
+    // Calcular días a mostrar (empezar el lunes)
+    const firstWeekday = firstDay.getDay();
+    const startDate = new Date(firstDay);
+    startDate.setDate(startDate.getDate() - (firstWeekday === 0 ? 6 : firstWeekday - 1));
+    
+    const days: CalendarDay[] = [];
+    const today = new Date();
+    
+    for (let i = 0; i < 42; i++) { // 6 semanas x 7 días
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + i);
+      
+      const dayEvents = events.filter(event => {
+        const eventDate = new Date(event.startDate);
+        return eventDate.toDateString() === date.toDateString();
+      });
+      
+      days.push({
+        date: new Date(date),
+        isCurrentMonth: date.getMonth() === month,
+        isToday: date.toDateString() === today.toDateString(),
+        events: dayEvents,
+        dayNumber: date.getDate()
+      });
+    }
+    
+    return days;
+  };
+  
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    setCalendarState(prev => {
+      const newDate = new Date(prev.currentDate);
+      if (direction === 'prev') {
+        newDate.setMonth(newDate.getMonth() - 1);
+      } else {
+        newDate.setMonth(newDate.getMonth() + 1);
+      }
+      return { ...prev, currentDate: newDate };
+    });
+  };
+  
+  const toggleCalendarVisibility = (calendarId: string) => {
+    setCalendarState(prev => ({
+      ...prev,
+      selectedCalendars: prev.selectedCalendars.includes(calendarId)
+        ? prev.selectedCalendars.filter(id => id !== calendarId)
+        : [...prev.selectedCalendars, calendarId]
+    }));
+  };
+  
+  const getCalendarColor = (calendarId: string): string => {
+    const calendar = calendars.find(c => c.id === calendarId);
+    return calendar?.color || '#3B82F6';
+  };
+  
+  const formatMonthYear = (date: Date): string => {
+    return date.toLocaleDateString('es-ES', { 
+      month: 'long', 
+      year: 'numeric' 
+    }).replace(/^\w/, c => c.toUpperCase());
+  };
+  
+  const addComment = async () => {
+    if (!selectedEvent || !newComment.trim() || !user?.id) return;
+    
+    // MODO DEMO: Simular añadir comentario
+    const newCommentObj = {
+      id: `comment-${Date.now()}`,
+      eventId: selectedEvent.id,
+      userId: user.id,
+      userName: user.name || 'Usuario',
+      message: newComment.trim(),
+      createdAt: new Date()
+    };
+    
+    setEventComments(prev => [...prev, newCommentObj]);
+    setNewComment('');
+    
+    // TODO: Usar Firebase real
+    /*
+    try {
+      await EventCommentService.addComment(
+        selectedEvent.id,
+        user.id,
+        user.name || 'Usuario',
+        newComment.trim(),
+        user.avatar
+      );
+      setNewComment('');
+    } catch (error) {
+      console.error('Error al añadir comentario:', error);
+    }
+    */
+  };
+
+  // ===== COMPONENTES =====
+  
+  const CalendarSidebar = () => (
+    <div className={`bg-white border-r border-gray-200 transition-all duration-300 ${
+      sidebarOpen ? 'w-72' : 'w-0'
+    } overflow-hidden`}>
+      <div className="p-4 space-y-4">
+        {/* Header del sidebar */}
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">Lista de calendarios</h2>
+          <button
+            onClick={() => setShowCreateCalendar(true)}
+            className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        </div>
+        
+        {/* Lista de calendarios */}
+        <div className="space-y-2">
+          {calendars.map(calendar => (
+            <div key={calendar.id} className="group">
+              <div className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50">
+                <div className="flex items-center space-x-2 flex-1">
+                  <button
+                    onClick={() => toggleCalendarVisibility(calendar.id)}
+                    className="relative"
+                  >
+                    {calendarState.selectedCalendars.includes(calendar.id) ? (
+                      <Eye className="w-4 h-4 text-gray-600" />
+                    ) : (
+                      <EyeOff className="w-4 h-4 text-gray-400" />
+                    )}
+                  </button>
+                  
+                  <div 
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: calendar.color }}
+                  />
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-1">
+                      <span className="text-sm font-medium text-gray-900 truncate">
+                        {calendar.name}
+                      </span>
+                      {calendar.ownerId === user?.id && (
+                        <Crown className="w-3 h-3 text-yellow-500" />
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {calendar.members.length} miembro{calendar.members.length > 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={() => {/* Abrir menú del calendario */}}
+                  className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 rounded transition-all"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+              </div>
+              
+              {/* Miembros del calendario */}
+              {calendarState.selectedCalendars.includes(calendar.id) && (
+                <div className="ml-9 mt-1 flex items-center space-x-1">
+                  {calendar.members.slice(0, 3).map(member => (
+                    <div
+                      key={member.id}
+                      className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-blue-500 flex items-center justify-center text-white text-xs font-medium"
+                      title={member.name}
+                    >
+                      {member.name.charAt(0).toUpperCase()}
+                    </div>
+                  ))}
+                  {calendar.members.length > 3 && (
+                    <span className="text-xs text-gray-500">
+                      +{calendar.members.length - 3}
+                    </span>
+                  )}
             </div>
           )}
         </div>
-        <div className={`p-3 rounded-xl bg-${color}-100`}>
-          <div className={`text-${color}-600`}>{icon}</div>
+          ))}
         </div>
+        
+        {/* Botón crear nuevo calendario */}
+        <button
+          onClick={() => setShowCreateCalendar(true)}
+          className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-green-400 hover:text-green-600 transition-colors flex items-center justify-center space-x-2"
+        >
+          <Plus className="w-4 h-4" />
+          <span className="text-sm font-medium">Crear nuevo calendario</span>
+        </button>
       </div>
-    </AnimatedCard>
+    </div>
   );
 
-  const BookingCard = ({ booking }: { booking: Booking }) => {
-    const [showMenu, setShowMenu] = useState(false);
+  const CalendarGrid = () => {
+    const days = generateCalendarDays();
+    const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
     return (
-      <AnimatedCard className="p-6 relative">
-        {/* Badges */}
-        <div className="absolute top-4 right-4 flex items-center space-x-2">
-          {booking.isVip && (
-            <ModernChip variant="warning" size="sm" icon={<Award className="w-3 h-3" />}>
-              VIP
-            </ModernChip>
-          )}
-          <ModernChip 
-            variant={getStatusColor(booking.status)} 
-            size="sm" 
-            icon={getStatusIcon(booking.status)}
-          >
-            {getStatusText(booking.status)}
-          </ModernChip>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        {/* Header con días de la semana */}
+        <div className="grid grid-cols-7 border-b border-gray-200">
+          {weekDays.map(day => (
+            <div key={day} className="p-3 text-center">
+              <span className="text-sm font-medium text-gray-600">{day}</span>
+            </div>
+          ))}
         </div>
 
-        {/* Header con avatar y info cliente */}
-        <div className="flex items-start space-x-4 mb-4">
-          <div className="relative">
-            <div className="w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-xl flex items-center justify-center shadow-lg">
-              <span className="text-white font-bold text-lg">
-                {booking.clientName.charAt(0).toUpperCase()}
-              </span>
-            </div>
-            {booking.isVip && (
-              <div className="absolute -top-1 -right-1 w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center">
-                <Star className="w-3 h-3 text-white" fill="currentColor" />
-              </div>
-            )}
-          </div>
-          
-          <div className="flex-1">
-            <h3 className="text-xl font-bold text-gray-900">{booking.clientName}</h3>
-            <p className="text-emerald-600 font-semibold">{booking.service}</p>
-            {booking.rating && (
-              <div className="flex items-center mt-1">
-                {Array.from({ length: 5 }, (_, i) => (
-                  <Star
-                    key={i}
-                    className={`w-4 h-4 ${
-                      i < booking.rating! ? 'text-yellow-400 fill-current' : 'text-gray-300'
-                    }`}
-                  />
-                ))}
-                <span className="ml-2 text-sm text-gray-600">({booking.rating})</span>
-              </div>
-            )}
-          </div>
-
-          {/* Menu de acciones */}
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+        {/* Grid de días */}
+        <div className="grid grid-cols-7">
+          {days.map((day, index) => (
+            <div
+              key={index}
+              className={`relative min-h-[100px] p-2 border-r border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
+                !day.isCurrentMonth ? 'bg-gray-50/50' : ''
+              } ${day.isToday ? 'bg-blue-50' : ''}`}
+              onClick={() => setShowCreateEvent(true)}
             >
-              <MoreVertical className="w-5 h-5 text-gray-600" />
-            </button>
-            
+              {/* Número del día */}
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-sm font-medium ${
+                  day.isCurrentMonth 
+                    ? day.isToday 
+                      ? 'text-blue-600' 
+                      : 'text-gray-900'
+                    : 'text-gray-400'
+                }`}>
+                  {day.dayNumber}
+              </span>
+                {day.isToday && (
+                  <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                )}
+              </div>
+              
+              {/* Eventos del día */}
+              <div className="space-y-1">
+                {day.events.slice(0, 3).map(event => (
+                  <div
+                    key={event.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedEvent(event);
+                    }}
+                    className="px-2 py-1 rounded text-xs font-medium text-white truncate cursor-pointer hover:opacity-80 transition-opacity"
+                    style={{ backgroundColor: getCalendarColor(event.calendarId) }}
+                  >
+                    {event.title}
+          </div>
+                ))}
+                {day.events.length > 3 && (
+                  <div className="text-xs text-gray-500 px-2">
+                    +{day.events.length - 3} más
+              </div>
+            )}
+          </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Modal de evento con chat
+  const EventModal = () => {
+    if (!selectedEvent) return null;
+    
+    const calendar = calendars.find(c => c.id === selectedEvent.calendarId);
+    
+    return (
             <AnimatePresence>
-              {showMenu && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedEvent(null)}
+        >
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                  className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-10"
+            initial={{ scale: 0.95, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.95, y: 20 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden"
+          >
+            {/* Header */}
+            <div className="p-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div 
+                    className="w-4 h-4 rounded-full"
+                    style={{ backgroundColor: calendar?.color }}
+                  />
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    {selectedEvent.title}
+                  </h2>
+                </div>
+                <button
+                  onClick={() => setSelectedEvent(null)}
+                  className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center">
-                    <Eye className="w-4 h-4 mr-3 text-gray-400" />
-                    Ver detalles
+                  <X className="w-5 h-5 text-gray-600" />
                   </button>
-                  <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center">
-                    <Edit className="w-4 h-4 mr-3 text-gray-400" />
-                    Editar
-                  </button>
-                  <button className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center">
-                    <MessageSquare className="w-4 h-4 mr-3 text-gray-400" />
-                    Contactar
-                  </button>
-                  <hr className="my-2" />
-                  <button className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center text-red-600">
-                    <Trash2 className="w-4 h-4 mr-3" />
-                    Eliminar
-                  </button>
-                </motion.div>
+          </div>
+        </div>
+
+            {/* Información del evento */}
+            <div className="p-4 border-b border-gray-200 space-y-3">
+              <div className="flex items-center space-x-3 text-sm text-gray-600">
+                <Clock className="w-4 h-4" />
+                <span>
+                  {selectedEvent.startDate.toLocaleDateString('es-ES')} - 
+                  {selectedEvent.startDate.toLocaleTimeString('es-ES', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  })}
+                </span>
+              </div>
+              
+              {selectedEvent.location && (
+                <div className="flex items-center space-x-3 text-sm text-gray-600">
+                  <MapPin className="w-4 h-4" />
+                  <span>{selectedEvent.location}</span>
+                </div>
               )}
-            </AnimatePresence>
-          </div>
-        </div>
+              
+              <div className="flex items-center space-x-3 text-sm text-gray-600">
+                <Users className="w-4 h-4" />
+                <span>{calendar?.name}</span>
+              </div>
+              
+              {selectedEvent.description && (
+                <p className="text-sm text-gray-700 mt-3">
+                  {selectedEvent.description}
+                </p>
+              )}
+            </div>
 
-        {/* Información de la cita */}
-        <div className="bg-gray-50 rounded-xl p-4 mb-4">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <Calendar className="w-4 h-4 text-blue-600" />
+            {/* Comentarios */}
+            <div className="flex-1 overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-gray-200">
+                <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  Comentarios ({eventComments.length})
+                </h3>
+                
+                {/* Lista de comentarios */}
+                <div className="space-y-3 max-h-40 overflow-y-auto">
+                  {eventComments.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-4">
+                      No hay comentarios aún
+                    </p>
+                  ) : (
+                    eventComments.map(comment => (
+                      <div key={comment.id} className="flex items-start space-x-2">
+                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-400 to-blue-500 flex items-center justify-center text-white text-xs font-medium">
+                          {comment.userName.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="bg-gray-100 rounded-lg p-2">
+                            <p className="text-xs font-medium text-gray-900">
+                              {comment.userName}
+                            </p>
+                            <p className="text-sm text-gray-700">
+                              {comment.message}
+                            </p>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {comment.createdAt.toLocaleTimeString('es-ES', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">Fecha</p>
-                  <p className="font-semibold text-gray-900">
-                    {new Date(booking.date).toLocaleDateString('es-ES', {
-                      weekday: 'long',
-                      day: 'numeric',
-                      month: 'long'
-                    })}
-                  </p>
+                    ))
+                  )}
                 </div>
               </div>
               
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <Clock className="w-4 h-4 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Hora</p>
-                  <p className="font-semibold text-gray-900">
-                    {booking.time} ({booking.duration} min)
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                  <Mail className="w-4 h-4 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Email</p>
-                  <a 
-                    href={`mailto:${booking.clientEmail}`} 
-                    className="font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+              {/* Input para nuevo comentario */}
+              <div className="p-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    placeholder="Escribe un comentario..."
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && addComment()}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                  />
+                  <button
+                    onClick={addComment}
+                    disabled={!newComment.trim()}
+                    className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    {booking.clientEmail}
-                  </a>
-                </div>
-              </div>
-              
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                  <Phone className="w-4 h-4 text-orange-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Teléfono</p>
-                  <a 
-                    href={`tel:${booking.clientPhone}`} 
-                    className="font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-                  >
-                    {booking.clientPhone}
-                  </a>
+                    <Send className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Notas */}
-        {booking.notes && (
-          <div className="mb-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <div className="flex items-start space-x-3">
-                <MessageSquare className="w-5 h-5 text-blue-600 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-blue-900 mb-1">Notas</p>
-                  <p className="text-sm text-blue-800">{booking.notes}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Footer con precio y acciones */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            {booking.price && (
-              <div className="text-right">
-                <p className="text-sm text-gray-500">Precio</p>
-                <p className="text-2xl font-bold text-emerald-600">€{booking.price}</p>
-              </div>
-            )}
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            {booking.status === 'pending' && (
-              <>
-                <AnimatedButton variant="outline" size="sm">
-                  <XCircle className="w-4 h-4 mr-2" />
-                  Rechazar
-                </AnimatedButton>
-                <AnimatedButton size="sm">
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Confirmar
-                </AnimatedButton>
-              </>
-            )}
-            {booking.status === 'confirmed' && (
-              <>
-                <AnimatedButton variant="outline" size="sm">
-                  <XCircle className="w-4 h-4 mr-2" />
-                  Cancelar
-                </AnimatedButton>
-                <AnimatedButton size="sm">
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Completar
-                </AnimatedButton>
-              </>
-            )}
-            {booking.status === 'completed' && booking.rating && (
-              <div className="flex items-center space-x-2 text-sm text-gray-600">
-                <Star className="w-4 h-4 text-yellow-400" fill="currentColor" />
-                <span>Valorado: {booking.rating}/5</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </AnimatedCard>
+          </motion.div>
+        </motion.div>
+      </AnimatePresence>
     );
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header moderno */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Panel de Reservas</h1>
-              <p className="text-gray-600">Gestiona todas tus citas desde un lugar</p>
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar de calendarios */}
+      <CalendarSidebar />
+      
+      {/* Contenido principal */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header estilo TimeTree */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <Settings className="w-5 h-5 text-gray-600" />
+              </button>
+              
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => navigateMonth('prev')}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                
+                <h1 className="text-xl font-bold text-gray-900 min-w-[200px] text-center">
+                  {formatMonthYear(calendarState.currentDate)}
+                </h1>
+                
+                <button
+                  onClick={() => navigateMonth('next')}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
             </div>
             
-            <div className="flex items-center space-x-4">
-              {/* Selector de vista */}
-              <div className="flex items-center bg-gray-100 rounded-xl p-1">
+            {/* Controles superiores */}
+            <div className="flex items-center space-x-3">
+              {/* Toggle mensual/semanal */}
+              <div className="bg-gray-100 rounded-lg p-1 flex">
                 <button
-                  onClick={() => setViewMode('list')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    viewMode === 'list' 
+                  onClick={() => setCalendarState(prev => ({ ...prev, view: 'month' }))}
+                  className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+                    calendarState.view === 'month'
                       ? 'bg-white text-gray-900 shadow-sm' 
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  Lista
+                  Mensual
                 </button>
                 <button
-                  onClick={() => setViewMode('analytics')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    viewMode === 'analytics' 
+                  onClick={() => setCalendarState(prev => ({ ...prev, view: 'week' }))}
+                  className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+                    calendarState.view === 'week'
                       ? 'bg-white text-gray-900 shadow-sm' 
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  Analytics
+                  Semanal
                 </button>
               </div>
               
-              <AnimatedButton size="sm">
-                <Plus className="w-4 h-4 mr-2" />
-                Nueva Reserva
-              </AnimatedButton>
-            </div>
+              <button
+                onClick={() => setShowCreateEvent(true)}
+                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Evento</span>
+              </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <AnimatePresence mode="wait">
-          {viewMode === 'analytics' ? (
-            <motion.div
-              key="analytics"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3 }}
-            >
-              <AdvancedBookingDashboard cardId="demo-card" />
-            </motion.div>
+        {/* Área del calendario */}
+        <div className="flex-1 p-6 overflow-auto">
+          {calendarState.view === 'month' ? (
+            <CalendarGrid />
           ) : (
-            <motion.div
-              key="list"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-8"
-            >
-              {/* Stats cards */}
-              {showQuickStats && (
-                <AnimatedContainer>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <StatCard
-                      title="Total Reservas"
-                      value={stats.total}
-                      icon={<Calendar className="w-6 h-6" />}
-                      color="blue"
-                      change={8.2}
-                    />
-                    <StatCard
-                      title="Pendientes"
-                      value={stats.pending}
-                      icon={<AlertCircle className="w-6 h-6" />}
-                      color="yellow"
-                    />
-                    <StatCard
-                      title="Ingresos"
-                      value={`€${stats.revenue}`}
-                      icon={<DollarSign className="w-6 h-6" />}
-                      color="emerald"
-                      change={12.5}
-                    />
-                    <StatCard
-                      title="Valoración Media"
-                      value={stats.avgRating.toFixed(1)}
-                      icon={<Star className="w-6 h-6" />}
-                      color="purple"
-                    />
+            <div className="bg-white rounded-xl p-8 text-center">
+              <p className="text-gray-500">Vista semanal en desarrollo...</p>
                   </div>
-                </AnimatedContainer>
-              )}
-
-              {/* Controles de búsqueda y filtros */}
-              <AnimatedContainer className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
-                <div className="flex flex-col lg:flex-row gap-4">
-                  <div className="flex-1">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder="Buscar por cliente, servicio..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-lg"
-                      />
-                    </div>
+          )}
                   </div>
                   
-                  <div className="flex items-center space-x-3">
-                    <ModernSelect
-                      options={filterOptions}
-                      value={filter}
-                      onChange={setFilter}
-                      placeholder="Filtrar por estado"
-                      className="min-w-[200px]"
-                    />
-                    
-                    <button
-                      onClick={() => setShowQuickStats(!showQuickStats)}
-                      className="p-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors"
-                    >
-                      <TrendingUp className="w-5 h-5 text-gray-600" />
-                    </button>
-                    
-                    <button className="p-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors">
-                      <RefreshCw className="w-5 h-5 text-gray-600" />
-                    </button>
-                  </div>
+        {/* Estadísticas rápidas */}
+        {stats && (
+          <div className="bg-white border-t border-gray-200 px-6 py-4">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center space-x-6">
+                <div className="flex items-center space-x-2">
+                  <CalendarIcon className="w-4 h-4 text-gray-500" />
+                  <span className="text-gray-600">{stats.totalEvents} eventos</span>
                 </div>
-              </AnimatedContainer>
-
-              {/* Lista de reservas */}
-              {filteredBookings.length > 0 ? (
-                <StaggeredList className="space-y-6">
-                  {filteredBookings.map((booking) => (
-                    <BookingCard key={booking.id} booking={booking} />
-                  ))}
-                </StaggeredList>
-              ) : (
-                <AnimatedContainer>
-                  <div className="text-center py-16 bg-white rounded-2xl border border-gray-200">
-                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Calendar className="w-10 h-10 text-gray-400" />
-                    </div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                      No hay reservas
-                    </h3>
-                    <p className="text-gray-600 mb-6">
-                      No se encontraron reservas que coincidan con tu búsqueda
-                    </p>
-                    <AnimatedButton>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Crear nueva reserva
-                    </AnimatedButton>
+                <div className="flex items-center space-x-2">
+                  <Users className="w-4 h-4 text-gray-500" />
+                  <span className="text-gray-600">{stats.collaborators} colaboradores</span>
                   </div>
-                </AnimatedContainer>
-              )}
-            </motion.div>
+                <div className="flex items-center space-x-2">
+                  <Share2 className="w-4 h-4 text-gray-500" />
+                  <span className="text-gray-600">{stats.sharedCalendars} calendarios compartidos</span>
+                </div>
+              </div>
+              
+              <div className="text-gray-500">
+                {stats.upcomingEvents} eventos próximos
+              </div>
+                    </div>
+                  </div>
           )}
-        </AnimatePresence>
       </div>
 
-      {/* FAB para crear nueva reserva */}
-      <FloatingActionButton
-        icon={<Plus className="w-6 h-6" />}
-        onClick={() => console.log('Nueva reserva')}
-        pulse={true}
+      {/* Modal de evento con chat */}
+      {selectedEvent && <EventModal />}
+      
+      {/* Modal crear calendario */}
+      <CreateCalendarModal 
+        isOpen={showCreateCalendar}
+        onClose={() => setShowCreateCalendar(false)}
+        onCalendarCreated={() => {
+          // Recargar calendario se hará automáticamente por el subscription
+          setShowCreateCalendar(false);
+        }}
       />
+      
+      {/* FAB para crear evento */}
+      <button
+        onClick={() => setShowCreateEvent(true)}
+        className="fixed bottom-6 right-6 w-14 h-14 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all flex items-center justify-center z-40"
+      >
+        <Plus className="w-6 h-6" />
+      </button>
     </div>
   );
 };

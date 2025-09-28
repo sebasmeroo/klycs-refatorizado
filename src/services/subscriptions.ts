@@ -7,8 +7,7 @@ import {
   query, 
   where, 
   getDocs,
-  deleteDoc,
-  Timestamp
+
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { logger } from '@/utils/logger';
@@ -166,7 +165,7 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error initializing default plans', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -199,7 +198,7 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error getting active plans', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -269,7 +268,7 @@ class SubscriptionsService {
 
       // Guardar en Firestore
       const subscriptionData: Omit<UserSubscription, 'id'> = {
-        userId,
+        userId: userId,
         planId,
         stripeSubscriptionId: stripeSubscription.id,
         stripeCustomerId,
@@ -288,7 +287,7 @@ class SubscriptionsService {
       await setDoc(docRef, subscriptionData);
 
       logger.info('Subscription created', { 
-        userId, 
+        userId: userId, 
         planId, 
         stripeSubscriptionId: stripeSubscription.id 
       });
@@ -300,9 +299,9 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error creating subscription', { 
-        userId, 
+        userId: userId, 
         planId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -325,7 +324,7 @@ class SubscriptionsService {
       nextMonth.setMonth(nextMonth.getMonth() + 1);
 
       const subscriptionData: Omit<UserSubscription, 'id'> = {
-        userId,
+        userId: userId,
         planId,
         stripeSubscriptionId: '', // No hay suscripción en Stripe
         stripeCustomerId: '',
@@ -333,7 +332,7 @@ class SubscriptionsService {
         currentPeriodStart: now,
         currentPeriodEnd: nextMonth,
         cancelAtPeriodEnd: false,
-        metadata: { type: 'free' },
+        metadata: {},
         createdAt: now,
         updatedAt: now
       };
@@ -350,9 +349,9 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error creating free subscription', { 
-        userId, 
+        userId: userId, 
         planId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -398,8 +397,8 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error getting user subscription', { 
-        userId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        userId: userId,
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -454,7 +453,7 @@ class SubscriptionsService {
       });
 
       logger.info('Subscription canceled', { 
-        subscriptionId, 
+        subscriptionId: subscriptionId, 
         cancelAtPeriodEnd, 
         reason 
       });
@@ -463,8 +462,8 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error canceling subscription', { 
-        subscriptionId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        subscriptionId: subscriptionId,
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -557,7 +556,7 @@ class SubscriptionsService {
       });
 
       logger.info('Subscription plan changed', { 
-        subscriptionId, 
+        subscriptionId: subscriptionId, 
         oldPlanId: subscription.planId, 
         newPlanId 
       });
@@ -566,9 +565,9 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error changing subscription plan', { 
-        subscriptionId, 
+        subscriptionId: subscriptionId, 
         newPlanId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -593,7 +592,7 @@ class SubscriptionsService {
       if (!subscriptionResult.success || !subscriptionResult.data) {
         // Si no hay suscripción, crear registro de uso básico
         const usageData: Omit<UsageRecord, 'id'> = {
-          userId,
+          userId: userId,
           subscriptionId: '',
           metric,
           quantity,
@@ -610,7 +609,7 @@ class SubscriptionsService {
       const subscription = subscriptionResult.data;
 
       const usageData: Omit<UsageRecord, 'id'> = {
-        userId,
+        userId: userId,
         subscriptionId: subscription.id,
         metric,
         quantity,
@@ -627,10 +626,10 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error recording usage', { 
-        userId, 
+        userId: userId, 
         metric, 
         quantity,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -690,9 +689,9 @@ class SubscriptionsService {
 
     } catch (error) {
       logger.error('Error checking plan limits', { 
-        userId, 
+        userId: userId, 
         metric,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -789,7 +788,7 @@ class SubscriptionsService {
     } catch (error) {
       logger.error('Error processing subscription webhook', { 
         eventType: event.type,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {

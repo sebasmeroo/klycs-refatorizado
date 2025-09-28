@@ -3,12 +3,10 @@ import {
   collection, 
   doc, 
   setDoc, 
-  getDoc, 
   updateDoc, 
   query, 
   where, 
-  getDocs,
-  Timestamp
+  getDocs
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -231,7 +229,7 @@ class StripeConnectService {
       logger.error('Error creating onboarding session', { 
         userId, 
         stripeAccountId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -348,7 +346,7 @@ class StripeConnectService {
     } catch (error) {
       logger.error('Error getting user Stripe account', { 
         userId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -419,7 +417,7 @@ class StripeConnectService {
     } catch (error) {
       logger.error('Error syncing account status', { 
         stripeAccountId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -470,7 +468,7 @@ class StripeConnectService {
     } catch (error) {
       logger.error('Error getting account balance', { 
         stripeAccountId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -516,7 +514,7 @@ class StripeConnectService {
     } catch (error) {
       logger.error('Error creating dashboard login link', { 
         stripeAccountId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -531,8 +529,8 @@ class StripeConnectService {
    */
   async processWebhook(
     payload: string,
-    signature: string,
-    webhookSecret: string
+    _signature: string,
+    _webhookSecret: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
       // En un entorno real, verificarías la firma del webhook aquí

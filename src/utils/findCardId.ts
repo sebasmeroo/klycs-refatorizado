@@ -56,11 +56,12 @@ window.findCardId = () => {
   if (possibleElements.length > 0) {
     console.log('🎯 Elementos DOM con posible cardId:');
     possibleElements.forEach((el, index) => {
+      const element = el as HTMLElement;
       console.log(`  Elemento ${index}:`, {
-        tag: el.tagName,
-        id: el.id,
-        className: el.className,
-        dataset: el.dataset
+        tag: element.tagName,
+        id: element.id,
+        className: element.className,
+        dataset: element.dataset
       });
     });
   }

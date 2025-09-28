@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase';
 import { useAuthStore } from '@/store/authStore';
 import { User } from '@/types';
+import { authService } from '@/services/auth';
 import { error as logError } from '@/utils/logger';
 import { monitoringService } from '@/services/monitoring';
 
@@ -16,9 +16,8 @@ export const useAuth = () => {
       
       if (firebaseUser) {
         try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data() as User;
+          const userData = await authService.getUserData(firebaseUser.uid);
+          if (userData) {
             setUser(userData);
             // Set user context for monitoring
             monitoringService.setUser({
@@ -45,10 +44,13 @@ export const useAuth = () => {
     return () => unsubscribe();
   }, [setUser, setFirebaseUser, setLoading]);
 
-  return {
-    user,
-    firebaseUser,
-    loading,
-    isAuthenticated: !!firebaseUser,
-  };
+    return {
+      user,
+      firebaseUser,
+      loading,
+      isAuthenticated: !!firebaseUser,
+      isAdmin: user?.role === 'admin',
+      isProfessional: user?.role === 'professional',
+      isUser: user?.role === 'user' || !user?.role, // usuarios sin rol definido son 'user' por defecto
+    };
 };

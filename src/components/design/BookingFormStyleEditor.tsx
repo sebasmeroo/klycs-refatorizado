@@ -12,6 +12,15 @@ export interface BookingFormStyle {
     step2: string;
     step3: string;
     step4: string;
+    step1Title?: string;
+    step2Title?: string;
+    step3Title?: string;
+    step4Title?: string;
+    step1Visible?: boolean;
+    step2Visible?: boolean;
+    step3Visible?: boolean;
+    step4Visible?: boolean;
+    buttonText?: string;
   };
   stepIndicator: {
     backgroundColor: string;
@@ -21,30 +30,82 @@ export interface BookingFormStyle {
     showIcons: boolean;
     style: 'circle' | 'square' | 'pill';
   };
-  fields: {
+  buttons: {
+    style: 'rounded' | 'square' | 'pill' | 'custom';
+    backgroundColor: string;
+    textColor: string;
+    borderColor: string;
+    borderWidth: number;
+    borderRadius: number;
+    shadow: boolean;
+    shadowColor: string;
+    shadowIntensity: number;
+    hoverEffect: 'lift' | 'glow' | 'pulse' | 'scale' | 'none';
+    hoverColor: string;
+    icon?: boolean;
+    iconPosition?: 'left' | 'right';
+    iconColor?: string;
+  };
+  serviceCards: {
     backgroundColor: string;
     borderColor: string;
-    focusColor: string;
+    borderWidth: number;
     borderRadius: number;
-    padding: number;
-  };
-  buttons: {
-    primaryBackground: string;
-    primaryText: string;
-    secondaryBackground: string;
-    secondaryText: string;
-    borderRadius: number;
-    padding: number;
-  };
-  layout: {
-    maxWidth: number;
+    shadow: boolean;
+    shadowColor: string;
+    textColor: string;
+    priceColor: string;
+    hoverEffect: 'lift' | 'scale' | 'glow' | 'none';
     spacing: number;
-    cardElevation: number;
+  };
+  calendar: {
+    backgroundColor: string;
+    headerColor: string;
+    dayColor: string;
+    selectedDayColor: string;
+    todayColor: string;
+    disabledDayColor: string;
+    borderRadius: number;
+    spacing: number;
+  };
+  timeSlots: {
+    backgroundColor: string;
+    textColor: string;
+    selectedColor: string;
+    borderColor: string;
+    borderRadius: number;
+    spacing: number;
+    hoverEffect: 'lift' | 'scale' | 'glow' | 'none';
+  };
+  form: {
+    inputBackgroundColor: string;
+    inputTextColor: string;
+    inputBorderColor: string;
+    inputBorderWidth: number;
+    inputBorderRadius: number;
+    labelColor: string;
+    placeholderColor: string;
+    focusBorderColor: string;
+    spacing: number;
+  };
+  container: {
+    backgroundColor: string;
+    borderRadius: number;
+    shadow: boolean;
+    shadowColor: string;
+    shadowIntensity: number;
+    borderColor: string;
+    borderWidth: number;
+    maxWidth: number;
+    padding: number;
   };
   effects: {
-    enableAnimations: boolean;
-    enableShadows: boolean;
-    enableGradients: boolean;
+    backdrop: boolean;
+    blur: number;
+    gradient: boolean;
+    gradientDirection: string;
+    animation: 'fadeIn' | 'slideUp' | 'bounce' | 'none';
+    transition: number;
   };
 }
 
@@ -58,7 +119,16 @@ export const getDefaultBookingFormStyle = (): BookingFormStyle => ({
     step1: 'Selecciona servicio',
     step2: 'Elige fecha y hora',
     step3: 'Ingresa tus datos',
-    step4: 'Confirma reserva'
+    step4: 'Confirma reserva',
+    step1Title: 'Selecciona un servicio',
+    step2Title: 'Fecha',
+    step3Title: 'Hora',
+    step4Title: 'Tus datos',
+    step1Visible: true,
+    step2Visible: true,
+    step3Visible: true,
+    step4Visible: true,
+    buttonText: 'Continuar'
   },
   stepIndicator: {
     backgroundColor: '#F2F2F7',
@@ -68,30 +138,82 @@ export const getDefaultBookingFormStyle = (): BookingFormStyle => ({
     showIcons: true,
     style: 'circle'
   },
-  fields: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#C6C6C8',
-    focusColor: '#007AFF',
-    borderRadius: 8,
-    padding: 12
-  },
   buttons: {
-    primaryBackground: '#007AFF',
-    primaryText: '#FFFFFF',
-    secondaryBackground: '#F2F2F7',
-    secondaryText: '#007AFF',
-    borderRadius: 8,
-    padding: 12
+    style: 'rounded',
+    backgroundColor: '#007AFF',
+    textColor: '#FFFFFF',
+    borderColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 12,
+    shadow: true,
+    shadowColor: '#007AFF',
+    shadowIntensity: 20,
+    hoverEffect: 'lift',
+    hoverColor: '#2563EB',
+    icon: true,
+    iconPosition: 'left',
+    iconColor: '#FFFFFF'
   },
-  layout: {
-    maxWidth: 600,
-    spacing: 16,
-    cardElevation: 2
+  serviceCards: {
+    backgroundColor: '#F9FAFB',
+    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    borderRadius: 16,
+    shadow: false,
+    shadowColor: '#000000',
+    textColor: '#1F2937',
+    priceColor: '#059669',
+    hoverEffect: 'lift',
+    spacing: 16
+  },
+  calendar: {
+    backgroundColor: '#FFFFFF',
+    headerColor: '#1F2937',
+    dayColor: '#6B7280',
+    selectedDayColor: '#007AFF',
+    todayColor: '#2563EB',
+    disabledDayColor: '#D1D5DB',
+    borderRadius: 12,
+    spacing: 4
+  },
+  timeSlots: {
+    backgroundColor: '#F9FAFB',
+    textColor: '#6B7280',
+    selectedColor: '#007AFF',
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    spacing: 12,
+    hoverEffect: 'scale'
+  },
+  form: {
+    inputBackgroundColor: '#FFFFFF',
+    inputTextColor: '#1F2937',
+    inputBorderColor: '#C6C6C8',
+    inputBorderWidth: 1,
+    inputBorderRadius: 12,
+    labelColor: '#374151',
+    placeholderColor: '#9CA3AF',
+    focusBorderColor: '#007AFF',
+    spacing: 16
+  },
+  container: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    shadow: true,
+    shadowColor: '#000000',
+    shadowIntensity: 10,
+    borderColor: 'transparent',
+    borderWidth: 0,
+    maxWidth: 448,
+    padding: 24
   },
   effects: {
-    enableAnimations: true,
-    enableShadows: true,
-    enableGradients: false
+    backdrop: false,
+    blur: 0,
+    gradient: false,
+    gradientDirection: 'to-br',
+    animation: 'fadeIn',
+    transition: 300
   }
 });
 

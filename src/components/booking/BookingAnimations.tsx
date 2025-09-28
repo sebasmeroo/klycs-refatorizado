@@ -1,8 +1,12 @@
 import React from 'react';
-import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { motion, AnimatePresence, Variants, MotionProps } from 'framer-motion';
+
+type MotionAnimation = Partial<Pick<MotionProps, 'initial' | 'animate' | 'exit' | 'transition' | 'whileHover' | 'whileTap'>> & {
+  variants?: Variants;
+};
 
 // Definiciones de animaciones predefinidas
-export const bookingAnimations = {
+export const bookingAnimations: Record<string, MotionAnimation> = {
   // Animaciones de entrada
   fadeInUp: {
     initial: { opacity: 0, y: 30 },
@@ -161,7 +165,7 @@ export const AnimatedContainer: React.FC<AnimatedContainerProps> = ({
   className = '',
   custom
 }) => {
-  const animationConfig = bookingAnimations[animation];
+  const animationConfig = bookingAnimations[animation] || {};
   
   return (
     <motion.div

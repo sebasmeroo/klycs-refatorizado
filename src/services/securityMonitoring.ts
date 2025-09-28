@@ -4,6 +4,7 @@ import {
   setDoc, 
   getDoc, 
   updateDoc, 
+  deleteDoc,
   query, 
   where, 
   getDocs,
@@ -14,6 +15,17 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { logger } from '@/utils/logger';
+
+// Interface para errores extendidos con metadata adicional de seguridad
+interface SecurityError extends Error {
+  ruleId?: string;
+  alertId?: string;
+  userId?: string;
+  stripeAccountId?: string;
+  subscriptionId?: string;
+  eventType?: string;
+  type?: string;
+}
 
 export interface SecurityLog {
   id: string;
@@ -52,7 +64,7 @@ export interface SecurityAlert {
     threshold: number;
   };
   actions: Array<{
-    type: 'notify' | 'block' | 'quarantine' | 'investigate';
+    type: 'notify' | 'block_ip' | 'disable_user' | 'escalate' | 'quarantine' | 'investigate';
     status: 'pending' | 'completed' | 'failed';
     timestamp: Date;
     details?: string;
@@ -79,7 +91,7 @@ export interface MonitoringRule {
     severity: SecurityAlert['severity'];
   };
   actions: Array<{
-    type: 'notify' | 'block_ip' | 'disable_user' | 'escalate';
+    type: 'notify' | 'block_ip' | 'disable_user' | 'escalate' | 'quarantine' | 'investigate';
     config: Record<string, any>;
   }>;
   isActive: boolean;
@@ -158,7 +170,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error logging security event', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
   }
@@ -205,7 +217,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error processing immediate log', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
   }
@@ -232,7 +244,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error flushing logs', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
   }
@@ -262,7 +274,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error checking monitoring rules', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
   }
@@ -368,9 +380,9 @@ class SecurityMonitoringService {
       }
 
     } catch (error) {
-      logger.error('Error checking rule threshold', { 
+            logger.error('Error checking rule threshold', { 
         ruleId: rule.id,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   }
@@ -391,7 +403,7 @@ class SecurityMonitoringService {
 
       // Log alerta
       logger.warn('Security alert triggered', {
-        type: alert.type,
+        alertType: alert.type,
         severity: alert.severity,
         title: alert.title,
         eventCount: alert.metrics.eventCount
@@ -407,7 +419,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error triggering alert', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
   }
@@ -447,10 +459,10 @@ class SecurityMonitoringService {
         });
 
       } catch (error) {
-        logger.error('Error executing alert action', { 
+                logger.error('Error executing alert action', { 
           alertId,
           actionType: action.type,
-          error: error instanceof Error ? error.message : 'Unknown error' 
+          details: error instanceof Error ? error.message : 'Unknown error'
         });
       }
     }
@@ -462,10 +474,10 @@ class SecurityMonitoringService {
   private async sendNotification(action: SecurityAlert['actions'][0]): Promise<boolean> {
     try {
       // Implementar notificación (email, Slack, webhook, etc.)
-      logger.info('Security notification sent', { action });
+      logger.info('Security notification sent', { actionType: action.type });
       return true;
     } catch (error) {
-      logger.error('Error sending notification', { error });
+      logger.error('Error sending notification', { details: error instanceof Error ? error.message : 'Unknown error' });
       return false;
     }
   }
@@ -476,10 +488,10 @@ class SecurityMonitoringService {
   private async blockEntity(action: SecurityAlert['actions'][0]): Promise<boolean> {
     try {
       // Implementar bloqueo según el tipo de entidad
-      logger.info('Entity blocked', { action });
+      logger.info('Entity blocked', { actionType: action.type });
       return true;
     } catch (error) {
-      logger.error('Error blocking entity', { error });
+      logger.error('Error blocking entity', { details: error instanceof Error ? error.message : 'Unknown error' });
       return false;
     }
   }
@@ -490,10 +502,10 @@ class SecurityMonitoringService {
   private async quarantineResource(action: SecurityAlert['actions'][0]): Promise<boolean> {
     try {
       // Implementar cuarentena
-      logger.info('Resource quarantined', { action });
+      logger.info('Resource quarantined', { actionType: action.type });
       return true;
     } catch (error) {
-      logger.error('Error quarantining resource', { error });
+      logger.error('Error quarantining resource', { details: error instanceof Error ? error.message : 'Unknown error' });
       return false;
     }
   }
@@ -504,10 +516,10 @@ class SecurityMonitoringService {
   private async startInvestigation(action: SecurityAlert['actions'][0]): Promise<boolean> {
     try {
       // Implementar proceso de investigación automática
-      logger.info('Investigation started', { action });
+      logger.info('Investigation started', { actionType: action.type });
       return true;
     } catch (error) {
-      logger.error('Error starting investigation', { error });
+      logger.error('Error starting investigation', { details: error instanceof Error ? error.message : 'Unknown error' });
       return false;
     }
   }
@@ -519,7 +531,7 @@ class SecurityMonitoringService {
     try {
       // Implementar notificación a administradores
       logger.error('ADMINISTRATOR ALERT', {
-        type: alert.type,
+        alertType: alert.type,
         severity: alert.severity,
         title: alert.title,
         description: alert.description,
@@ -527,7 +539,7 @@ class SecurityMonitoringService {
       });
 
     } catch (error) {
-      logger.error('Error notifying administrators', { error });
+      logger.error('Error notifying administrators', { details: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
@@ -585,7 +597,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error getting security logs', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -617,7 +629,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error getting active alerts', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -679,7 +691,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error collecting system metrics', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -784,7 +796,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error initializing monitoring rules', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {
@@ -831,7 +843,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error setting up alerts subscription', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return () => {};
@@ -863,9 +875,9 @@ class SecurityMonitoringService {
       return { success: true };
 
     } catch (error) {
-      logger.error('Error resolving alert', { 
+            logger.error('Error resolving alert', { 
         alertId,
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error'
       });
       
       return {
@@ -896,7 +908,7 @@ class SecurityMonitoringService {
       const batchSize = 100;
       for (let i = 0; i < snapshot.docs.length; i += batchSize) {
         const batch = snapshot.docs.slice(i, i + batchSize);
-        await Promise.all(batch.map(doc => doc.ref.delete()));
+        await Promise.all(batch.map(doc => deleteDoc(doc.ref)));
         cleaned += batch.length;
       }
 
@@ -909,7 +921,7 @@ class SecurityMonitoringService {
 
     } catch (error) {
       logger.error('Error cleaning up old logs', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        details: error instanceof Error ? error.message : 'Unknown error' 
       });
       
       return {

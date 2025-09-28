@@ -484,10 +484,7 @@ export const AdvancedBookingCalendar: React.FC<AdvancedBookingCalendarProps> = (
                 value={contactData.name}
                 onChange={(e) => setContactData(prev => ({ ...prev, name: e.target.value }))}
                 className="w-full transition-all"
-                style={{
-                  ...getInputStyle(),
-                  '::placeholder': { color: formStyle.form.placeholderColor }
-                }}
+                style={getInputStyle()}
                 placeholder="Tu nombre completo"
                 required
                 onFocus={(e) => {
@@ -616,7 +613,7 @@ export const AdvancedBookingCalendar: React.FC<AdvancedBookingCalendarProps> = (
 
 
       {/* Estilos CSS para animaciones */}
-      <style jsx>{`
+      <style>{`
         @keyframes fade-in {
           from { opacity: 0; }
           to { opacity: 1; }

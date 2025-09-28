@@ -4,7 +4,7 @@ import path from 'path'
 import { viteSecurityPlugin } from './src/middleware/securityHeaders'
 import { visualizer } from 'rollup-plugin-visualizer'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     viteSecurityPlugin(), // Plugin de headers de seguridad
@@ -19,7 +19,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Fix React useState undefined error - Force single React instance
+      'react': path.resolve(__dirname, './node_modules/react'),
+      'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
     },
+    dedupe: ['react', 'react-dom']
   },
   build: {
     target: 'es2015',
@@ -34,69 +38,12 @@ export default defineConfig({
       },
     },
     rollupOptions: {
+      // Eliminar manualChunks para evitar ciclos entre chunks (react/vendor) que causan createContext undefined
       output: {
-        manualChunks: (id) => {
-          // Core React libraries
-          if (id.includes('react') || id.includes('react-dom')) {
-            return 'react-vendor';
-          }
-          
-          // Router
-          if (id.includes('react-router-dom')) {
-            return 'router';
-          }
-          
-          // Firebase
-          if (id.includes('firebase')) {
-            return 'firebase';
-          }
-          
-          // Charts library
-          if (id.includes('recharts')) {
-            return 'charts';
-          }
-          
-          // GrapesJS (heavy design library)
-          if (id.includes('grapesjs')) {
-            return 'design-editor';
-          }
-          
-          // DnD libraries
-          if (id.includes('react-dnd')) {
-            return 'dnd';
-          }
-          
-          // UI and Icons
-          if (id.includes('lucide-react') || id.includes('@headlessui')) {
-            return 'ui-vendor';
-          }
-          
-          // Form and validation libraries
-          if (id.includes('zod') || id.includes('react-hook-form')) {
-            return 'forms';
-          }
-          
-          // Utils and date libraries
-          if (id.includes('date-fns') || id.includes('dayjs') || id.includes('moment')) {
-            return 'utils';
-          }
-          
-          // Web Vitals
-          if (id.includes('web-vitals')) {
-            return 'performance';
-          }
-          
-          // Node modules
-          if (id.includes('node_modules')) {
-            return 'vendor';
-          }
-        },
-        chunkFileNames: (chunkInfo) => {
-          return '[name]-[hash].js';
-        },
+        chunkFileNames: '[name]-[hash].js',
         entryFileNames: '[name]-[hash].js',
-        assetFileNames: '[name]-[hash].[ext]',
-      },
+        assetFileNames: '[name]-[hash].[ext]'
+      }
     },
     // Performance budgets and chunk size limits
     chunkSizeWarningLimit: 400, // 400KB warning limit
@@ -117,7 +64,7 @@ export default defineConfig({
       'Cross-Origin-Opener-Policy': 'unsafe-none',
     }
   },
-  // Optimize dependencies
+  // Optimize dependencies - Critical for React context issue
   optimizeDeps: {
     include: [
       'react', 
@@ -129,12 +76,20 @@ export default defineConfig({
       'firebase/storage',
       'lucide-react'
     ],
-    exclude: ['@vite/client', '@vite/env']
+    exclude: ['@vite/client', '@vite/env'],
+    force: true,
+    esbuildOptions: {
+      // Ensure React is properly bundled
+      external: [],
+      define: {
+        global: 'globalThis'
+      }
+    }
   },
   // Enable tree shaking y configuración de seguridad
   define: {
-    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+    'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development'),
     __APP_VERSION__: JSON.stringify(process.env.npm_package_version),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
-})
+}))

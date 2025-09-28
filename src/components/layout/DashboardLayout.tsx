@@ -16,7 +16,8 @@ import {
   Sparkles,
   Home,
   Wallet,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Users
 } from 'lucide-react';
 
 interface DashboardLayoutProps {
@@ -46,7 +47,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     },
     {
       icon: Calendar,
-      label: 'Reservas',
+      label: 'Calendario',
       path: '/dashboard/bookings',
       active: location.pathname.startsWith('/dashboard/bookings'),
       color: 'from-green-500 to-green-600'
@@ -64,6 +65,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       path: '/dashboard/profile',
       active: location.pathname.startsWith('/dashboard/profile'),
       color: 'from-pink-500 to-pink-600'
+    },
+    {
+      icon: Users,
+      label: 'Equipo',
+      path: '/dashboard/team',
+      active: location.pathname.startsWith('/dashboard/team'),
+      color: 'from-indigo-500 to-indigo-600'
     },
     {
       icon: Settings,

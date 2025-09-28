@@ -45,15 +45,7 @@ class MonitoringService {
         
         // Performance monitoring
         integrations: [
-          new BrowserTracing({
-            // Trace navigation transactions
-            routingInstrumentation: Sentry.reactRouterV6Instrumentation(
-              React.useEffect,
-              window.location,
-              (window as any).history,
-              matchPath
-            ),
-          }),
+          new BrowserTracing(),
         ],
 
         // Sampling rates

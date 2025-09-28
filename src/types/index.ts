@@ -1,10 +1,84 @@
-export interface User {
+export type UserRole = 'admin' | 'professional' | 'user';
+export type UserPlan = 'FREE' | 'PRO' | 'PREMIUM';
+
+// Eliminada - usando la versión simplificada de abajo
+
+// Nuevos tipos para el sistema de equipos
+export interface UserLink {
   id: string;
-  email: string;
+  title: string;
+  url: string;
+  type: 'link' | 'social' | 'custom';
+  isVisible: boolean;
+  order: number;
+}
+
+export interface UserProduct {
+  id: string;
   name: string;
+  description: string;
+  price: number;
+  currency: string;
+  isActive: boolean;
+}
+
+export interface TeamProfessional {
+  id: string;
+  name: string;
+  email: string;
+  role: string; // ej: "Dentista", "Asistente"
   avatar?: string;
+  color: string; // Color del calendario
+  isActive: boolean;
+  linkedCalendarId?: string;
+  
+  // Datos de acceso
+  hasAccount: boolean; // Si ya se registró
+  inviteStatus: 'pending' | 'accepted' | 'rejected';
+  invitedAt: Date;
+  joinedAt?: Date;
+  
+  // Permisos
+  permissions: {
+    canCreateEvents: boolean;
+    canEditEvents: boolean;
+    canDeleteEvents: boolean;
+    canViewAllEvents: boolean;
+  };
+}
+
+// Simplificado: Los profesionales van directamente en el usuario
+export interface User {
+  uid: string; // ID de Firebase Auth
+  email: string;
+  displayName: string;
+  photoURL?: string;
+  bio?: string;
+  username?: string;
+  
+  // Plan y suscripción
+  plan: UserPlan;
+  planExpirationDate?: Date | null;
+  stripeConnected: boolean;
+  
+  // Contenido del usuario
+  links: UserLink[];
+  products: UserProduct[];
+  
+  // ===== EQUIPO DE PROFESIONALES =====
+  teamName?: string; // ej: "Clínica Dental Sebi" (editable desde calendario)
+  teamDescription?: string;
+  professionals?: TeamProfessional[]; // ¡Directamente aquí! (opcional para compatibilidad)
+  
+  // Sistema interno de roles (para admin, etc)
+  role?: UserRole;
+  
+  // Para profesionales: ID del calendario vinculado
+  linkedCalendarId?: string;
+  
+  // Metadatos
   createdAt: Date;
-  updatedAt: Date;
+  updatedAt?: Date;
 }
 
 

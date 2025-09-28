@@ -131,6 +131,8 @@ class SecurityHeadersService {
             'https://apis.google.com',
             'https://firebase.googleapis.com',
             'https://www.gstatic.com',
+            'https://unpkg.com',
+            'https://cdn.jsdelivr.net',
             ...(isProduction ? [] : ["'unsafe-eval'", "'unsafe-inline'"])
           ],
           styleSrc: [
@@ -165,6 +167,8 @@ class SecurityHeadersService {
             'https://graph.microsoft.com',
             'https://login.microsoftonline.com',
             'https://accounts.google.com',
+            'https://unpkg.com',
+            'https://cdn.jsdelivr.net',
             ...(isProduction ? [] : ['ws://localhost:*', 'http://localhost:*'])
           ],
           fontSrc: [
