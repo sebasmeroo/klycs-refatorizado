@@ -34,11 +34,6 @@ const sectionInfo: Record<keyof TemplatePackSections, { label: string; descripti
     description: 'Sistema de citas y reservas',
     icon: '📅'
   },
-  portfolio: {
-    label: 'Portfolio',
-    description: 'Galería de trabajos y proyectos',
-    icon: '🎨'
-  },
   elements: {
     label: 'Elementos',
     description: 'Elementos personalizados y código',

@@ -11,7 +11,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyBQnoi57s3oL_yHl4yxehHooXafykzT974",
   authDomain: "klycs-58190.firebaseapp.com",
   projectId: "klycs-58190",
-  storageBucket: "klycs-58190.appspot.com",
+  storageBucket: "klycs-58190.firebasestorage.app",
   messagingSenderId: "222603073619",
   appId: "1:222603073619:web:ca9f968c9c7553daddcea6",
   measurementId: "G-JENV802PEF"

@@ -30,7 +30,7 @@ export interface UserTemplate {
   category: string;
   version: string;
   author: string;
-  targetSection: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+  targetSection: 'profile' | 'links' | 'social' | 'services' | 'portfolio' | 'booking' | 'elements' | 'design';
   reactCode: string;
   cssCode: string;
   jsonConfig: TemplateField[];
@@ -47,7 +47,7 @@ export interface UserTemplateInstance {
   templateId: string;
   userId: string;
   cardId: string;
-  targetSection?: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+  targetSection?: 'profile' | 'links' | 'social' | 'services' | 'portfolio' | 'booking' | 'elements' | 'design';
   // Nuevo: cuando la plantilla se aplica a un item específico dentro de una sección (por ejemplo, un enlace)
   targetItemId?: string;
   data: Record<string, any>;
@@ -236,7 +236,7 @@ class UserTemplatesService {
   // Obtener plantilla activa de una tarjeta
   async getActiveTemplateForCard(
     cardId: string,
-    section?: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design',
+    section?: 'profile' | 'links' | 'social' | 'services' | 'portfolio' | 'booking' | 'elements' | 'design',
     targetItemId?: string
   ): Promise<{
     template: UserTemplate;
@@ -306,7 +306,7 @@ class UserTemplatesService {
    */
   subscribeActiveTemplateForCard(
     cardId: string,
-    section: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design' | undefined,
+    section: 'profile' | 'links' | 'social' | 'services' | 'portfolio' | 'booking' | 'elements' | 'design' | undefined,
     callback: (data: { template: UserTemplate; instance: UserTemplateInstance } | null) => void,
     options?: { targetItemId?: string }
   ): () => void {

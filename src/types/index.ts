@@ -368,6 +368,9 @@ export interface Card {
     name: string;
     bio?: string;
     avatar?: string;
+    tagline?: string;
+    phone?: string;
+    website?: string;
     backgroundImage?: string;
     backgroundType: 'color' | 'gradient' | 'image';
     backgroundColor?: string;
@@ -406,9 +409,12 @@ export interface Card {
     title?: string;
     order: number;
   };
-  
+
   // Sistema de reservas
   booking: CardBooking;
+
+  // Calendario y profesionales (conexión con calendario colaborativo)
+  calendar?: CardCalendar;
 
   // Diseño y tema
   theme: CardTheme;
@@ -422,6 +428,48 @@ export interface Card {
   clickCount: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Sección de calendario en la tarjeta
+export interface CardCalendar {
+  enabled: boolean;
+  isVisible: boolean;
+  title: string;
+  description?: string;
+  order: number;
+  
+  // Configuración de visualización
+  showProfessionals: boolean; // Si mostrar la lista de profesionales
+  allowDirectBooking: boolean; // Permitir reservas directas
+  
+  // Profesionales vinculados (desde el calendario colaborativo)
+  linkedCalendarId?: string; // ID del calendario colaborativo vinculado
+  
+  // Configuración de reservas
+  bookingConfig: {
+    requireApproval: boolean;
+    showAvailability: boolean;
+    defaultDuration: number; // minutos
+    maxAdvanceBookingDays: number;
+    customFields: CustomField[];
+  };
+  
+  // Estilo visual
+  style: {
+    layout: 'list' | 'grid' | 'carousel';
+    showPhotos: boolean;
+    showRoles: boolean;
+    accentColor?: string;
+  };
+}
+
+// Definición de sección para ordenamiento
+export interface CardSection {
+  id: string;
+  type: 'profile' | 'social' | 'links' | 'services' | 'portfolio' | 'calendar' | 'booking' | 'elements';
+  label: string;
+  isVisible: boolean;
+  order: number;
 }
 
 export interface CardLink {
@@ -442,7 +490,7 @@ export interface CardLink {
 
 export interface CardElement {
   id: string;
-  type: 'text' | 'image' | 'video' | 'divider' | 'spacer' | 'embed' | 'social-links' | 'services' | 'portfolio' | 'booking' | 'custom-code';
+  type: 'text' | 'image' | 'video' | 'divider' | 'spacer' | 'embed' | 'social-links' | 'services' | 'booking' | 'custom-code';
   content: any; // Contenido específico del tipo
   isVisible: boolean;
   order: number;
@@ -509,22 +557,33 @@ export interface CardSettings {
   seo: {
     title?: string;
     description?: string;
+    keywords?: string;
     image?: string;
+    canonicalUrl?: string;
   };
   analytics: {
     enabled: boolean;
     trackClicks: boolean;
     trackViews: boolean;
+    googleAnalyticsId?: string;
+    facebookPixelId?: string;
+    customScripts?: string;
   };
   sharing: {
     enabled: boolean;
     allowEmbed: boolean;
     customDomain?: string;
+    ogTitle?: string;
+    ogDescription?: string;
+    ogImage?: string;
   };
   branding: {
     showWatermark: boolean;
     customFooter?: string;
+    faviconUrl?: string;
   };
+  // Orden de secciones en la tarjeta
+  sectionsOrder: CardSection[];
 }
 
 // ===== NUEVAS SECCIONES DE TARJETA =====
@@ -593,15 +652,15 @@ export interface CardPortfolioItem {
   type: 'image' | 'video';
   title?: string;
   description?: string;
-  url: string; // URL del archivo
-  thumbnail?: string; // Para videos
+  url: string;
+  thumbnail?: string;
   isVisible: boolean;
   order: number;
   category?: string;
   metadata?: {
     width?: number;
     height?: number;
-    duration?: number; // Para videos
+    duration?: number;
     size?: number;
   };
 }
@@ -860,4 +919,3 @@ export interface ProfileDesignPreset {
   preview: string; // URL de preview
   design: ProfileDesign;
 }
-

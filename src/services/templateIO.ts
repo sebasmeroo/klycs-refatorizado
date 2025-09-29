@@ -171,8 +171,8 @@ export class TemplateIOService {
         links: [],
         social: {},
         services: [],
-        booking: {},
         portfolio: [],
+        booking: {},
         elements: [],
         design: {}
       },
@@ -290,7 +290,6 @@ export class TemplateIOService {
         booking: {
           enabled: false
         },
-        portfolio: [],
         elements: [],
         design: {
           globalStyles: `
@@ -340,7 +339,7 @@ export class TemplateIOService {
             options: ['centered', 'left', 'right']
           }
         ],
-        lockedSections: ['elements', 'portfolio']
+        lockedSections: ['elements']
       },
       cssGlobal: `
         :root {

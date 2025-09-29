@@ -4,9 +4,13 @@ import path from 'path'
 import { viteSecurityPlugin } from './src/middleware/securityHeaders'
 import { visualizer } from 'rollup-plugin-visualizer'
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode, command }) => ({
   plugins: [
-    react(),
+    react({
+      jsxRuntime: command === 'build' ? 'classic' : 'automatic',
+      jsxImportSource: 'react',
+      development: command === 'serve'
+    }),
     viteSecurityPlugin(), // Plugin de headers de seguridad
     // Bundle analyzer (only in build mode)
     ...(process.env.ANALYZE ? [visualizer({
@@ -50,7 +54,7 @@ export default defineConfig(({ mode }) => ({
     assetsInlineLimit: 2048, // 2KB inline limit for better caching
   },
   server: {
-    port: 3000,
+    port: 5000,
     host: true,
     // Configuración de seguridad del servidor de desarrollo
     headers: {

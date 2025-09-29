@@ -46,6 +46,11 @@ export const DashboardCards: React.FC = () => {
       setLoading(true);
       const userCards = await CardsService.getUserCards(userId);
       setCards(userCards);
+
+      // Si ya tiene una tarjeta, redirigir automáticamente al editor
+      if (userCards.length > 0) {
+        navigate(`/tarjeta/edit/${userCards[0].slug}`, { replace: true });
+      }
     } catch (error) {
       console.error('Error loading cards:', error);
       toast.error('Error al cargar las tarjetas');
@@ -55,8 +60,8 @@ export const DashboardCards: React.FC = () => {
   };
 
   const handleCardCreated = (newCard: Card) => {
-    setCards(prev => [newCard, ...prev]);
-    setViewMode('list');
+    // Redirigir automáticamente al editor de la nueva tarjeta
+    navigate(`/tarjeta/edit/${newCard.slug}`, { replace: true });
   };
 
 
@@ -116,6 +121,15 @@ export const DashboardCards: React.FC = () => {
     card.profile.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Si ya tiene una tarjeta, no mostrar nada (se redirigirá automáticamente)
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
   if (viewMode === 'create') {
     return (
       <div className="p-6">
@@ -134,85 +148,91 @@ export const DashboardCards: React.FC = () => {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            Mis Tarjetas
+            Mi Tarjeta Digital
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Gestiona tus tarjetas digitales y compártelas con el mundo
+            Crea y personaliza tu tarjeta digital profesional
           </p>
         </div>
         
-        <Button onClick={() => setViewMode('create')}>
-          <Plus className="w-4 h-4 mr-2" />
-          Nueva Tarjeta
-        </Button>
+        {cards.length === 0 && (
+          <Button onClick={() => setViewMode('create')}>
+            <Plus className="w-4 h-4 mr-2" />
+            Crear Tarjeta
+          </Button>
+        )}
       </div>
 
-      {/* Search and Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-        <div className="lg:col-span-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              placeholder="Buscar tarjetas..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+      {/* Stats - Solo si hay tarjeta */}
+      {cards.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 text-center">
+            <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+              {cards[0].viewCount || 0}
+            </div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              Visitas Totales
+            </div>
+          </div>
+          
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 text-center">
+            <div className="text-3xl font-bold text-green-600 dark:text-green-400">
+              {cards[0].clickCount || 0}
+            </div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              Clics en Enlaces
+            </div>
+          </div>
+          
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 text-center">
+            <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">
+              {cards[0].isPublic ? 'Pública' : 'Privada'}
+            </div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              Estado de la Tarjeta
+            </div>
           </div>
         </div>
-        
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {cards.length}
-          </div>
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            Tarjetas Totales
-          </div>
-        </div>
-        
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {cards.filter(c => c.isPublic).length}
-          </div>
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            Públicas
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Cards Grid */}
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <LoadingSpinner size="lg" />
         </div>
-      ) : filteredCards.length === 0 ? (
-        <div className="text-center py-12">
-          {cards.length === 0 ? (
-            <>
-              <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Plus className="w-8 h-8 text-gray-400" />
-              </div>
-              <h3 className="text-xl font-medium text-gray-900 dark:text-white mb-2">
-                No tienes tarjetas aún
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Crea tu primera tarjeta digital para comenzar a compartir tus enlaces
-              </p>
-              <Button onClick={() => setViewMode('create')}>
-                <Plus className="w-4 h-4 mr-2" />
-                Crear Primera Tarjeta
-              </Button>
-            </>
-          ) : (
-            <>
-              <h3 className="text-xl font-medium text-gray-900 dark:text-white mb-2">
-                No se encontraron tarjetas
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400">
-                Intenta con una búsqueda diferente
-              </p>
-            </>
-          )}
+      ) : cards.length === 0 ? (
+        <div className="text-center py-16 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-900/50 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-700">
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+            <Plus className="w-10 h-10 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">
+            ¡Bienvenido a Klycs!
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-8 max-w-md mx-auto">
+            Crea tu tarjeta digital profesional y comparte todos tus enlaces, servicios y portfolio en un solo lugar.
+          </p>
+          <Button
+            onClick={() => setViewMode('create')}
+            className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transition-shadow px-8 py-3 text-lg"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            Crear Mi Tarjeta
+          </Button>
+          
+          <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto text-left">
+            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">✨ Diseño Profesional</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Personaliza tu tarjeta con temas y estilos modernos</p>
+            </div>
+            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">📊 Analytics Integrado</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Rastrea visitas y clics en tiempo real</p>
+            </div>
+            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">📅 Reservas Online</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Recibe citas directamente desde tu tarjeta</p>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

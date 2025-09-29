@@ -1,0 +1,73 @@
+╔══════════════════════════════════════════════════════════════╗
+║          🔥 CÓMO CONFIGURAR CORS (ELIGE UNA OPCIÓN)         ║
+╚══════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════
+OPCIÓN 1: Script Automático (Requiere Google Cloud SDK)
+═══════════════════════════════════════════════════════════════
+
+   1. Abre PowerShell o CMD en esta carpeta
+   2. Ejecuta: configurar-cors.bat
+   3. Sigue las instrucciones
+
+═══════════════════════════════════════════════════════════════
+OPCIÓN 2: Manual desde Google Cloud Console (2 MINUTOS)
+═══════════════════════════════════════════════════════════════
+
+   1. Abre esta URL:
+      https://console.cloud.google.com/storage/browser/klycs-58190.appspot.com?project=klycs-58190
+
+   2. Haz clic en el bucket: klycs-58190.appspot.com
+
+   3. Haz clic en la pestaña: "CONFIGURATION" (arriba)
+
+   4. Busca: "CORS configuration"
+
+   5. Haz clic en: "EDIT"
+
+   6. BORRA todo lo que haya y pega ESTO:
+
+      [
+        {
+          "origin": ["*"],
+          "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+          "maxAgeSeconds": 3600
+        }
+      ]
+
+   7. Haz clic en: "SAVE"
+
+   8. ¡LISTO!
+
+═══════════════════════════════════════════════════════════════
+DESPUÉS DE CONFIGURAR CORS:
+═══════════════════════════════════════════════════════════════
+
+   1. Abre: http://localhost:3000
+   
+   2. Presiona: F12
+   
+   3. Ve a: Application → Service Workers
+   
+   4. Haz clic en "Unregister" en todos
+   
+   5. Cierra DevTools
+   
+   6. Recarga la página: Ctrl + Shift + R
+   
+   7. Ve a tu tarjeta → Portfolio → Sube una imagen
+   
+   8. 🎉 ¡DEBERÍA FUNCIONAR!
+
+═══════════════════════════════════════════════════════════════
+
+📝 ¿Por qué necesitas CORS?
+
+   Firebase Storage está en Google Cloud, tu app en localhost.
+   Son dominios diferentes. El navegador bloquea esto por
+   seguridad. CORS le dice a Firebase: "Permite localhost".
+
+   Solo necesitas configurarlo UNA VEZ.
+   En producción NO es necesario.
+
+═══════════════════════════════════════════════════════════════

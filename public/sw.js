@@ -107,9 +107,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // Ignorar requests de Firebase Auth
+  // CRÍTICO: NO interceptar Firebase Auth, Storage o Firestore
+  // Esto previene errores CORS y problemas con uploads
   if (url.hostname.includes('identitytoolkit.googleapis.com') ||
-      url.hostname.includes('securetoken.googleapis.com')) {
+      url.hostname.includes('securetoken.googleapis.com') ||
+      url.hostname.includes('firebasestorage.googleapis.com') ||
+      url.hostname.includes('firestore.googleapis.com') ||
+      url.hostname.includes('firebase.googleapis.com')) {
+    // NO hacer nada - dejar pasar la request directamente
+    return;
+  }
+  
+  // CRÍTICO: NO interceptar requests POST (uploads)
+  if (request.method === 'POST' || request.method === 'PUT') {
+    // Dejar pasar uploads sin interceptar
     return;
   }
   

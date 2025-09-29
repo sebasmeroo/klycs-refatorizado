@@ -3,6 +3,7 @@ import { Card as CardType } from '@/types';
 import { CardsService } from '@/services/cards';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import PublicMobilePreview from '@/components/cards/preview/PublicMobilePreview';
+import { CardMetaTags } from './CardMetaTags';
 
 interface CardViewerProps {
   slug?: string;
@@ -94,20 +95,25 @@ export const CardViewer: React.FC<CardViewerProps> = ({ slug, card: propCard, is
   };
 
   return (
-    <div 
-      className="min-h-screen w-full flex items-center justify-center"
-      style={getFullScreenBackgroundStyle()}
-    >
-      {/* Sin overlay para respetar el color/gradient puro elegido por el usuario */}
+    <>
+      {/* Meta Tags y Analytics */}
+      <CardMetaTags card={card} />
       
-      {/* Contenedor móvil centrado - usando el mismo preview del editor */}
-      <div className="w-full max-w-sm mx-auto relative z-10 py-8 px-4" style={{ maxWidth: '375px', minHeight: '667px' }}>
-        <PublicMobilePreview 
-          card={card}
-          className="h-full relative"
-        />
+      <div 
+        className="min-h-screen w-full flex items-center justify-center"
+        style={getFullScreenBackgroundStyle()}
+      >
+        {/* Sin overlay para respetar el color/gradient puro elegido por el usuario */}
+        
+        {/* Contenedor móvil centrado - usando el mismo preview del editor */}
+        <div className="w-full max-w-sm mx-auto relative z-10 py-8 px-4" style={{ maxWidth: '375px', minHeight: '667px' }}>
+          <PublicMobilePreview 
+            card={card}
+            className="h-full relative"
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

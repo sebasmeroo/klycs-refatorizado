@@ -29,11 +29,6 @@ export interface TemplatePreset {
       canDelete?: boolean;
       canEditPricing?: boolean;
     };
-    portfolio?: {
-      canAdd?: boolean;
-      canDelete?: boolean;
-      maxItems?: number;
-    };
     booking?: {
       canToggle?: boolean;
       canEditDetails?: boolean;
@@ -168,11 +163,6 @@ export const templatePresets: TemplatePreset[] = [
         canDelete: true,
         canEditPricing: true
       },
-      portfolio: {
-        canAdd: true,
-        canDelete: true,
-        maxItems: 6
-      },
       booking: {
         canToggle: true,
         canEditDetails: true
@@ -303,11 +293,6 @@ export const templatePresets: TemplatePreset[] = [
         canAdd: false,
         canDelete: false,
         canEditPricing: false
-      },
-      portfolio: {
-        canAdd: true,
-        canDelete: true,
-        maxItems: 4
       },
       booking: {
         canToggle: false,
@@ -464,11 +449,6 @@ export const templatePresets: TemplatePreset[] = [
         canDelete: true,
         canEditPricing: true
       },
-      portfolio: {
-        canAdd: true,
-        canDelete: true,
-        maxItems: 10
-      },
       booking: {
         canToggle: true,
         canEditDetails: true
@@ -622,11 +602,6 @@ export const templatePresets: TemplatePreset[] = [
         canAdd: true,
         canDelete: true,
         canEditPricing: true
-      },
-      portfolio: {
-        canAdd: true,
-        canDelete: true,
-        maxItems: 8
       },
       booking: {
         canToggle: true,
@@ -812,11 +787,6 @@ export const templatePresets: TemplatePreset[] = [
         canAdd: true,
         canDelete: true,
         canEditPricing: false
-      },
-      portfolio: {
-        canAdd: true,
-        canDelete: true,
-        maxItems: 12
       },
       booking: {
         canToggle: true,

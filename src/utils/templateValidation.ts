@@ -85,7 +85,7 @@ export function validateTemplatePack(pack: TemplatePack): TemplateValidationResu
       type: 'required'
     });
   } else {
-    const requiredSections = ['profile', 'links', 'social', 'services', 'booking', 'portfolio', 'elements', 'design'];
+    const requiredSections = ['profile', 'links', 'social', 'services', 'portfolio', 'booking', 'elements', 'design'];
     requiredSections.forEach(section => {
       if (!(section in pack.sections)) {
         errors.push({

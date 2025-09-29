@@ -1,9 +1,7 @@
-import React, { useMemo } from 'react';
-import { Card, CardElement } from '@/types';
-import { CustomHtmlSandbox } from './CustomHtmlSandbox';
-import { getDefaultProfileDesign } from '@/data/profileDesignPresets';
-import { templateRegistry } from '@/services/templateRegistry.tsx';
+import React from 'react';
+import { Card } from '@/types';
 import SectionRenderer from './SectionRenderer';
+import { BookingFlow } from './BookingFlow';
 import { 
   ExternalLink, 
   Instagram, 
@@ -11,8 +9,10 @@ import {
   Linkedin, 
   Facebook, 
   Youtube,
-  Calendar,
-  Play
+  Phone,
+  Globe,
+  Image as ImageIcon,
+  Video as VideoIcon
 } from 'lucide-react';
 
 interface MobilePreviewProps {
@@ -20,18 +20,26 @@ interface MobilePreviewProps {
   customCSS?: string;
 }
 
+const BASE_WIDTH = 390;
+const BASE_HEIGHT = 844;
+const MIN_SCALE = 0.38;
+
 export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const [frameSize, setFrameSize] = React.useState<{ width: number; height: number }>({ width: 280, height: 600 });
+  const [frameSize, setFrameSize] = React.useState<{ width: number; height: number }>(() => {
+    const initialScale = 0.44;
+    return { width: BASE_WIDTH * initialScale, height: BASE_HEIGHT * initialScale };
+  });
+  const [showBookingFlow, setShowBookingFlow] = React.useState(false);
 
   React.useEffect(() => {
     const updateSize = () => {
       const el = containerRef.current;
       if (!el) return;
-      const availableHeight = el.clientHeight || 600;
-      // Ocupamos el 95% del alto disponible; razón de aspecto ~0.467 (280/600)
-      const height = Math.max(600, Math.min(availableHeight * 0.95, 980));
-      const width = height * (280 / 600);
+      const availableHeight = el.clientHeight || BASE_HEIGHT;
+      const scale = Math.min(1, Math.max(MIN_SCALE, availableHeight / BASE_HEIGHT));
+      const height = BASE_HEIGHT * scale;
+      const width = BASE_WIDTH * scale;
       setFrameSize({ width, height });
     };
     updateSize();
@@ -39,43 +47,8 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  // Si la card trae un componente registrado, lo renderizamos directamente
-  // @ts-expect-error campo extendido a nivel de app
-  const componentEntry = card?.templateComponent as { id: string; props?: any } | undefined;
-  
-  // Renderizar usando el registro de plantillas
-  const renderTemplateComponent = () => {
-    if (componentEntry?.id && templateRegistry.has(componentEntry.id)) {
-      return templateRegistry.render(componentEntry.id, card, componentEntry.props);
-    }
-    return null;
-  };
-
-  const templateComponent = renderTemplateComponent();
-
-  // Ordenar elementos por su posición
-  const sortedElements = useMemo(() => {
-    const elements = [
-      { type: 'profile', order: 0, component: 'ProfileSection' },
-      { type: 'bio', order: 1, component: 'BioSection' },
-      { type: 'links', order: 2, component: 'LinksSection' },
-      { type: 'social', order: 3, component: 'SocialSection' },
-      { type: 'services', order: 4, component: 'ServicesSection' },
-      { type: 'portfolio', order: card.portfolio?.order || 5, component: 'PortfolioSection' },
-      { type: 'booking', order: 6, component: 'BookingSection' },
-      ...card.elements.filter(el => el.isVisible).map(el => ({ 
-        type: el.type, 
-        order: el.order, 
-        component: 'CustomElement',
-        element: el
-      }))
-    ];
-    
-    return elements.sort((a, b) => a.order - b.order);
-  }, [card]);
-
   const getSocialIcon = (platform: string) => {
-    switch (platform) {
+    switch (platform.toLowerCase()) {
       case 'instagram': return <Instagram className="w-5 h-5" />;
       case 'twitter': return <Twitter className="w-5 h-5" />;
       case 'linkedin': return <Linkedin className="w-5 h-5" />;
@@ -85,240 +58,406 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
     }
   };
 
-  const ProfileSection = () => {
-    // Usar diseño avanzado si existe, si no usar valores por defecto
-    const design = card.profile.design ?? getDefaultProfileDesign();
-    
-    // Generar elementos según el orden configurado
-    const sortedElements = (design.layout?.order ?? [])
-      .filter(element => element.enabled)
-      .sort((a, b) => a.order - b.order);
+  const getBackgroundStyle = () => {
+    if (card.profile.backgroundType === 'color') {
+      return { backgroundColor: card.profile.backgroundColor || '#667eea' };
+    } else if (card.profile.backgroundType === 'gradient') {
+      return { background: card.profile.backgroundGradient || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' };
+    } else if (card.profile.backgroundType === 'image' && card.profile.backgroundImage) {
+      return { 
+        backgroundImage: `url(${card.profile.backgroundImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center'
+      };
+    }
+    return { backgroundColor: '#667eea' };
+  };
 
-    const containerStyle = {
-      textAlign: design.layout.alignment.horizontal,
-      justifyContent: design.layout.alignment.horizontal === 'center' ? 'center' : 
-                     design.layout.alignment.horizontal === 'right' ? 'flex-end' : 'flex-start',
-      alignItems: design.layout.alignment.vertical === 'center' ? 'center' :
-                  design.layout.alignment.vertical === 'bottom' ? 'flex-end' : 'flex-start',
-      padding: `${design.spacing.containerPadding.top}px ${design.spacing.containerPadding.right}px ${design.spacing.containerPadding.bottom}px ${design.spacing.containerPadding.left}px`,
-      gap: `${design.spacing.elementSpacing}px`
-    };
+  const formatWebsiteUrl = (url: string) => {
+    if (!url) return '#';
+    const trimmed = url.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    return `https://${trimmed}`;
+  };
 
-    const avatarStyle = {
-      width: `${design.elements.avatar.size}px`,
-      height: `${design.elements.avatar.size}px`,
-      borderRadius: `${design.elements.avatar.borderRadius}px`,
-      border: design.elements.avatar.border.width > 0 
-        ? `${design.elements.avatar.border.width}px ${design.elements.avatar.border.style} ${design.elements.avatar.border.color}`
-        : 'none',
-      boxShadow: design.elements.avatar.shadow.enabled
-        ? `${design.elements.avatar.shadow.x}px ${design.elements.avatar.shadow.y}px ${design.elements.avatar.shadow.blur}px ${design.elements.avatar.shadow.spread}px ${design.elements.avatar.shadow.color}${Math.round(design.elements.avatar.shadow.opacity * 255).toString(16).padStart(2, '0')}`
-        : 'none',
-      transform: `translate(${design.elements.avatar.position.x}px, ${design.elements.avatar.position.y}px)`
-    };
+  const ProfileSection = () => (
+    <SectionRenderer
+      card={card}
+      sectionType="profile"
+      defaultContent={
+        <div className="text-center mb-6">
+          {/* Avatar */}
+          {card.profile.avatar && (
+            <div className="w-24 h-24 mx-auto mb-4">
+              <img
+                src={card.profile.avatar}
+                alt={card.profile.name}
+                className="w-full h-full object-cover rounded-full border-4 border-white/20 shadow-lg"
+              />
+            </div>
+          )}
+          
+          {/* Name */}
+          {card.profile.name && (
+            <h1 className="text-2xl font-bold text-white mb-1">
+              {card.profile.name}
+            </h1>
+          )}
 
-    const nameStyle = {
-      fontFamily: design.elements.name.fontFamily,
-      fontSize: `${design.elements.name.fontSize}px`,
-      fontWeight: design.elements.name.fontWeight,
-      lineHeight: design.elements.name.lineHeight,
-      letterSpacing: `${design.elements.name.letterSpacing}px`,
-      textAlign: design.elements.name.textAlign,
-      color: design.elements.name.color,
-      textShadow: design.elements.name.textShadow?.enabled 
-        ? `${design.elements.name.textShadow.x}px ${design.elements.name.textShadow.y}px ${design.elements.name.textShadow.blur}px ${design.elements.name.textShadow.color}${Math.round((design.elements.name.textShadow.opacity || 1) * 255).toString(16).padStart(2, '0')}`
-        : 'none',
-      padding: `${design.elements.name.padding.top}px ${design.elements.name.padding.right}px ${design.elements.name.padding.bottom}px ${design.elements.name.padding.left}px`,
-      margin: `${design.elements.name.margin.top}px ${design.elements.name.margin.right}px ${design.elements.name.margin.bottom}px ${design.elements.name.margin.left}px`
-    };
+          {card.profile.tagline && (
+            <p className="text-white/80 text-sm italic mb-3">
+              {card.profile.tagline}
+            </p>
+          )}
+          
+          {/* Bio */}
+          {card.profile.bio && (
+            <p className="text-white/90 text-sm leading-relaxed">
+              {card.profile.bio}
+            </p>
+          )}
 
-    const bioStyle = {
-      fontFamily: design.elements.bio.fontFamily,
-      fontSize: `${design.elements.bio.fontSize}px`,
-      fontWeight: design.elements.bio.fontWeight,
-      lineHeight: design.elements.bio.lineHeight,
-      letterSpacing: `${design.elements.bio.letterSpacing}px`,
-      textAlign: design.elements.bio.textAlign,
-      color: design.elements.bio.color,
-      textShadow: design.elements.bio.textShadow?.enabled 
-        ? `${design.elements.bio.textShadow.x}px ${design.elements.bio.textShadow.y}px ${design.elements.bio.textShadow.blur}px ${design.elements.bio.textShadow.color}${Math.round((design.elements.bio.textShadow.opacity || 1) * 255).toString(16).padStart(2, '0')}`
-        : 'none',
-      padding: `${design.elements.bio.padding.top}px ${design.elements.bio.padding.right}px ${design.elements.bio.padding.bottom}px ${design.elements.bio.padding.left}px`,
-      margin: `${design.elements.bio.margin.top}px ${design.elements.bio.margin.right}px ${design.elements.bio.margin.bottom}px ${design.elements.bio.margin.left}px`
-    };
-
-    // Si el usuario eligió hoja en blanco, renderizar su sandbox directamente
-    if (card.profile.useCustomCode) {
-      const c = card.profile.customCode || {};
-      return (
-        <div className="mb-6">
-          <CustomHtmlSandbox html={c.html} css={c.css} js={c.js} height={c.height || 320} />
+          {(card.profile.phone || card.profile.website) && (
+            <div className="mt-4 flex flex-col items-center space-y-2">
+              {card.profile.phone && (
+                <a
+                  href={`tel:${card.profile.phone}`}
+                  className="inline-flex items-center gap-2 text-white/90 text-sm bg-white/10 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full hover:bg-white/20 transition-colors"
+                >
+                  <Phone className="w-4 h-4" />
+                  <span>{card.profile.phone}</span>
+                </a>
+              )}
+              {card.profile.website && (
+                <a
+                  href={formatWebsiteUrl(card.profile.website)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-white/90 text-sm bg-white/10 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full hover:bg-white/20 transition-colors"
+                >
+                  <Globe className="w-4 h-4" />
+                  <span className="truncate max-w-[200px]">{card.profile.website}</span>
+                </a>
+              )}
+            </div>
+          )}
         </div>
-      );
+      }
+    />
+  );
+
+  const LinksSection = () => (
+    <SectionRenderer
+      card={card}
+      sectionType="links"
+      defaultContent={
+        <div className="space-y-3 mb-6">
+          {card.links
+            .filter(link => link.isVisible)
+            .sort((a, b) => a.order - b.order)
+            .map((link) => (
+              <SectionRenderer
+                key={link.id}
+                card={card}
+                sectionType="links"
+                targetItemId={link.id}
+                defaultContent={
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-white hover:bg-white/20 transition-all duration-200 shadow-lg"
+                    style={{
+                      backgroundColor: link.style?.backgroundColor || undefined,
+                      color: link.style?.textColor || undefined
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <div className="w-6 h-6 mr-3 flex items-center justify-center">
+                          {link.iconType === 'emoji' ? (
+                            <span className="text-lg">{link.icon}</span>
+                          ) : (
+                            <ExternalLink className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div className="text-left">
+                          <div className="font-medium text-sm">{link.title}</div>
+                          {link.description && (
+                            <div className="text-xs text-white/70">{link.description}</div>
+                          )}
+                        </div>
+                      </div>
+                      <ExternalLink className="w-4 h-4 opacity-70" />
+                    </div>
+                  </a>
+                }
+              />
+            ))}
+        </div>
+      }
+    />
+  );
+
+  const SocialSection = () => (
+    <SectionRenderer
+      card={card}
+      sectionType="social"
+      defaultContent={
+        card.socialLinks && card.socialLinks.length > 0 ? (
+          <div className="flex justify-center space-x-4 mb-6">
+            {card.socialLinks
+              .filter(social => social.isVisible)
+              .map((social) => (
+                <a
+                  key={social.id}
+                  href={social.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-12 h-12 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200 shadow-lg"
+                >
+                  {getSocialIcon(social.platform)}
+                </a>
+              ))}
+          </div>
+        ) : null
+      }
+    />
+  );
+
+  const ServicesSection = () => (
+    <SectionRenderer
+      card={card}
+      sectionType="services"
+      defaultContent={
+        card.services && card.services.length > 0 ? (
+          <div className="space-y-4 mb-6">
+            <h3 className="text-lg font-semibold text-white mb-3">Servicios</h3>
+            {card.services
+              .filter(service => service.isVisible)
+              .sort((a, b) => a.order - b.order)
+              .map((service) => (
+                <div
+                  key={service.id}
+                  className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-white shadow-lg"
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-medium text-sm">{service.name}</h4>
+                    <span className="text-sm font-semibold">
+                      {service.price > 0 ? `${service.price}${service.currency}` : 'Gratis'}
+                    </span>
+                  </div>
+                  {service.description && (
+                    <p className="text-xs text-white/70">{service.description}</p>
+                  )}
+                  {service.duration && (
+                    <p className="text-xs text-white/60 mt-1">{service.duration} min</p>
+                  )}
+                </div>
+              ))}
+          </div>
+        ) : null
+      }
+    />
+  );
+
+  const PortfolioSection = () => {
+    const items = card.portfolio?.items?.filter(item => item.isVisible) || [];
+    if (!card.portfolio?.isVisible || items.length === 0) {
+      return null;
     }
 
-    const isPoster = design.container.variant === 'poster';
-    const isTicket = design.container.variant === 'ticket';
+    const layout = card.portfolio.style?.layout || 'carousel';
+    const columns = card.portfolio.style?.columns || 1;
+    
+    // Determinar clases de grid según el layout
+    const getLayoutClasses = () => {
+      switch (layout) {
+        case 'grid':
+          return `grid grid-cols-${columns} gap-3`;
+        case 'masonry':
+          return 'columns-2 gap-3 space-y-3';
+        case 'list':
+          return 'flex flex-col gap-3';
+        case 'carousel':
+        default:
+          return 'flex overflow-x-auto snap-x snap-mandatory gap-3 pb-2 scrollbar-hide';
+      }
+    };
+
+    const getItemClasses = () => {
+      if (layout === 'carousel') {
+        return 'flex-shrink-0 w-[85%] snap-center';
+      }
+      if (layout === 'masonry') {
+        return 'break-inside-avoid mb-3';
+      }
+      return '';
+    };
+
+    return (
+      <SectionRenderer
+        card={card}
+        sectionType="portfolio"
+        defaultContent={
+          <div className="mb-6 space-y-3">
+            {card.portfolio.showTitle && card.portfolio.title && (
+              <h3 className="text-lg font-semibold text-white px-1">{card.portfolio.title}</h3>
+            )}
+            <div className={getLayoutClasses()}>
+              {items
+                .sort((a, b) => a.order - b.order)
+                .map(item => (
+                  <div
+                    key={item.id}
+                    className={`relative overflow-hidden rounded-2xl border border-white/15 bg-black/30 backdrop-blur-md ${getItemClasses()}`}
+                    style={{ 
+                      aspectRatio: card.portfolio.style.aspectRatio === 'square' 
+                        ? '1 / 1' 
+                        : card.portfolio.style.aspectRatio === '16:9' 
+                        ? '16 / 9' 
+                        : card.portfolio.style.aspectRatio === '4:3' 
+                        ? '4 / 3' 
+                        : layout === 'carousel'
+                        ? '9 / 16'
+                        : undefined 
+                    }}
+                  >
+                    {item.type === 'image' ? (
+                      <img 
+                        src={item.url} 
+                        alt={item.title || 'Portfolio item'} 
+                        className="w-full h-full object-cover" 
+                        loading="lazy"
+                      />
+                    ) : (
+                      <video 
+                        src={item.url} 
+                        className="w-full h-full object-cover" 
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        preload="auto"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    )}
+                    <div className="absolute top-3 left-3 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-black/60 text-white backdrop-blur-sm">
+                      {item.type === 'image' ? <ImageIcon className="w-3 h-3 mr-1" /> : <VideoIcon className="w-3 h-3 mr-1" />} {item.type === 'image' ? 'Imagen' : 'Video'}
+                    </div>
+                    {card.portfolio.style?.showTitles && (item.title || item.description) && (
+                      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-white">
+                        {item.title && <p className="text-sm font-semibold">{item.title}</p>}
+                        {card.portfolio.style?.showDescriptions && item.description && (
+                          <p className="text-xs text-white/80">{item.description}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </div>
+        }
+      />
+    );
+  };
+
+  const CalendarSection = () => {
+    const [professionals, setProfessionals] = React.useState<any[]>([]);
+    const [loading, setLoading] = React.useState(true);
+
+    React.useEffect(() => {
+      const loadProfessionals = async () => {
+        if (!card.calendar?.linkedCalendarId || !card.userId) {
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const { CollaborativeCalendarService } = await import('@/services/collaborativeCalendar');
+          const profs = await CollaborativeCalendarService.getProfessionals(card.userId);
+          setProfessionals(profs.filter(p => p.isActive));
+        } catch (error) {
+          console.error('Error loading professionals:', error);
+          setProfessionals([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      loadProfessionals();
+    }, [card.calendar?.linkedCalendarId, card.userId]);
+
+    if (!card.calendar?.enabled || !card.calendar?.isVisible) {
+      return null;
+    }
+
     return (
       <div className="mb-6">
-        <div
-          className={`w-full ${isPoster ? 'rounded-[24px] p-6 bg-[#d6e3e2]' : ''} ${isTicket ? 'rounded-[28px] p-4 bg-[#0a0a0a]' : ''}`}
-          style={isPoster ? ({
-            background: card.profile.design?.content?.poster?.bgColor || '#d6e3e2',
-            border: `2px solid ${card.profile.design?.content?.poster?.frameBorderColor || '#0b0f12'}`,
-            boxShadow: `inset 0 0 0 2px ${card.profile.design?.content?.poster?.frameBorderColor || '#0b0f12'}, 0 4px 0 ${card.profile.design?.content?.poster?.frameBorderColor || '#0b0f12'}`,
-          } as React.CSSProperties) : isTicket ? ({
-            background: card.profile.design?.content?.ticket?.frameBgColor || '#0a0a0a',
-            border: '1px solid #1a1a1a',
-            boxShadow: '0 8px 30px rgba(0,0,0,0.45) inset, 0 12px 24px rgba(0,0,0,0.35)',
-          } as React.CSSProperties) : undefined}
-        >
-          {isPoster ? (
-            <div className="flex flex-col items-center">
-              {/* Ilustración superior (vector simple monocromo) */}
-              <svg
-                width="150"
-                height="90"
-                viewBox="0 0 150 90"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="mt-2 mb-4"
-              >
-                <g stroke="#0b0f12" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  {/* Silla izquierda */}
-                  <path d="M20 65 L40 30 L50 30 L30 65 Z"/>
-                  <path d="M18 65 L52 65"/>
-                  {/* Persona izquierda */}
-                  <circle cx="42" cy="22" r="10"/>
-                  {/* Silla derecha */}
-                  <path d="M100 65 L120 30 L130 30 L110 65 Z"/>
-                  <path d="M98 65 L132 65"/>
-                  {/* Persona derecha */}
-                  <circle cx="122" cy="22" r="10"/>
-                </g>
-              </svg>
+        <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 shadow-lg">
+          {/* Header */}
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-white mb-1">{card.calendar.title}</h3>
+            {card.calendar.description && (
+              <p className="text-sm text-white/70">{card.calendar.description}</p>
+            )}
+          </div>
 
-              {/* Título */}
-              <h2 className="text-center font-extrabold uppercase leading-tight"
-                  style={{ fontSize: 16, letterSpacing: 0, lineHeight: 1.15 }}>
-                {card.profile.design?.content?.poster?.titleTop || 'STILL WASTING TIME'}
-                <br />
-                {card.profile.design?.content?.poster?.titleBottom || 'LOOKING FOR TICKETS?'}
-              </h2>
-
-              {/* Subtítulo */}
-              <p className="text-center text-[11px] leading-snug max-w-[240px] mt-2" style={{ color: '#0b0f12cc' }}>
-                {card.profile.design?.content?.poster?.subtitle || 'Simply relax and download our app, we\'ll take care of the rest.'}
-              </p>
-
-              {/* CTA */}
-              <div className="mt-6">
-                <button
-                  className="px-6 py-3 rounded-full text-[12px] font-semibold border-2"
-                  style={{
-                    background: card.profile.design?.content?.poster?.ctaBgColor || '#eef4ea',
-                    color: card.profile.design?.content?.poster?.ctaTextColor || '#0b0f12',
-                    borderColor: card.profile.design?.content?.poster?.frameBorderColor || '#0b0f12',
-                  }}
-                >
-                  {card.profile.design?.content?.poster?.ctaText || 'GET THE APP FOR FREE'}
-                </button>
-              </div>
-            </div>
-          ) : isTicket ? (
-            <div className="relative">
-              {/* Tarjeta naranja con QR */}
-              <div className="mx-auto w-full rounded-[20px] p-4 shadow-[0_10px_20px_rgba(0,0,0,0.25)]" style={{ background: card.profile.design?.content?.ticket?.primaryColor || '#ff3b00', color: card.profile.design?.content?.ticket?.textColor || '#0a0a0a' }}>
-                <div className="flex items-center justify-between text-[10px] font-semibold opacity-90">
-                  <span>{card.profile.design?.content?.ticket?.dateText || 'MONDAY, JULY 23'}</span>
-                  <span>{card.profile.design?.content?.ticket?.timeText || '9:00 - 10:00'}</span>
+          {/* Profesionales Grid - Estilo iOS */}
+          {card.calendar.showProfessionals && (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-white/50 uppercase tracking-wider">Profesionales</p>
+              {loading ? (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin w-6 h-6 border-2 border-white/30 border-t-white rounded-full"></div>
                 </div>
-                <div className="mt-1 text-[18px] font-extrabold tracking-tight">
-                  {card.profile.design?.content?.ticket?.eventTitle || 'ART OF VICTORY'}
-                </div>
-
-                {/* QR simulado */}
-                <div className="mt-4 w-full aspect-square grid grid-cols-6 gap-[3px] bg-[#0a0a0a] p-[6px] rounded-[8px]">
-                  {Array.from({ length: 36 }).map((_, i) => (
-                    <div key={i} className={`${(i + Math.floor(i/6)) % 2 === 0 ? 'bg-[#ff3b00]' : 'bg-[#0a0a0a]'} rounded-[1px]`}></div>
-                  ))}
-                </div>
-
-                <div className="mt-4 text-[10px]">
-                  <div className="font-semibold">{card.profile.design?.content?.ticket?.attendeeName || 'Anna Jordan'}</div>
-                  <div className="opacity-80">{card.profile.design?.content?.ticket?.attendeeEmail || 'anna.jordan@email.com'}</div>
-                </div>
-              </div>
-
-              {/* Dock inferior con 2 botones */}
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="rounded-[16px] backdrop-blur-md border border-white/10 p-3 text-center text-[11px] text-white/90 shadow-[0_8px_20px_rgba(0,0,0,0.25)]" style={{ background: card.profile.design?.content?.ticket?.dockBgColor || 'rgba(255,255,255,0.08)' }}>
-                  {card.profile.design?.content?.ticket?.ctaPrimary || 'Your Tickets'}
-                </div>
-                <div className="rounded-[16px] backdrop-blur-md border border-white/10 p-3 text-center text-[11px] text-white/90 shadow-[0_8px_20px_rgba(0,0,0,0.25)]" style={{ background: card.profile.design?.content?.ticket?.dockBgColor || 'rgba(255,255,255,0.08)' }}>
-                  {card.profile.design?.content?.ticket?.ctaSecondary || 'Get Directions'}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div
-              className={`${design.layout.direction === 'column' ? 'flex flex-col' : 'flex flex-row'}`}
-              style={{
-                ...containerStyle,
-                background: design.container.backgroundColor,
-                borderRadius: `${design.container.borderRadius}px`,
-                border:
-                  design.container.border.width > 0
-                    ? `${design.container.border.width}px ${design.container.border.style} ${design.container.border.color}`
-                    : 'none',
-              } as React.CSSProperties}
-            >
-              {sortedElements.map((element) => {
-                switch (element.id) {
-                  case 'avatar':
-                    return (
-                      <div key="avatar" className="relative inline-block">
-                        {card.profile.avatar ? (
+              ) : professionals.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {professionals.map((prof) => (
+                    <div
+                      key={prof.id}
+                      className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20 hover:bg-white/15 transition-all"
+                    >
+                      <div className="flex flex-col items-center text-center">
+                        {prof.avatar ? (
                           <img
-                            src={card.profile.avatar}
-                            alt={card.profile.name}
-                            className="object-cover"
-                            style={avatarStyle}
+                            src={prof.avatar}
+                            alt={prof.name}
+                            className="w-12 h-12 rounded-full mb-2 object-cover border-2 shadow-lg"
+                            style={{ borderColor: prof.color }}
                           />
                         ) : (
                           <div
-                            className="flex items-center justify-center bg-gradient-to-br from-blue-400 to-purple-500"
-                            style={avatarStyle}
+                            className="w-12 h-12 rounded-full mb-2 flex items-center justify-center text-white font-semibold shadow-lg"
+                            style={{ backgroundColor: prof.color }}
                           >
-                            <span className="text-white font-bold" style={{ fontSize: `${design.elements.avatar.size * 0.4}px` }}>
-                              {card.profile.name.charAt(0).toUpperCase()}
-                            </span>
+                            {prof.name.charAt(0).toUpperCase()}
                           </div>
                         )}
+                        <p className="text-sm font-medium text-white truncate w-full px-1">{prof.name}</p>
+                        <p className="text-xs text-white/60 truncate w-full px-1">{prof.role}</p>
                       </div>
-                    );
-                  case 'name':
-                    return (
-                      <h1 key="name" style={nameStyle as React.CSSProperties}>
-                        {card.profile.name}
-                      </h1>
-                    );
-                  case 'bio':
-                    return card.profile.bio ? (
-                      <p key="bio" style={bioStyle as React.CSSProperties}>
-                        {card.profile.bio}
-                      </p>
-                    ) : null;
-                  default:
-                    return null;
-                }
-              })}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-white/50 text-sm">
+                  No hay profesionales disponibles
+                </div>
+              )}
             </div>
           )}
-          {isPoster && (
-            <div className="mt-4 flex justify-center">
-              <button className="px-5 py-3 rounded-full bg-[#0b0f12] text-[#e8efe8] text-sm font-semibold">
-                GET THE APP FOR FREE
+
+          {/* Botón de Reservar */}
+          {card.calendar.allowDirectBooking && (
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <button
+                onClick={() => setShowBookingFlow(true)}
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white px-4 py-3 rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+              >
+                📅 Reservar Cita
               </button>
             </div>
           )}
@@ -327,351 +466,103 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
     );
   };
 
-  const LinksSection = () => (
-    <div className="space-y-1 mb-6">
-      {card.links
-        .filter(link => link.isVisible)
-        .sort((a, b) => a.order - b.order)
-        .map((link) => (
-          <SectionRenderer
-            key={link.id}
-            card={card}
-            sectionType={'links'}
-            className="mb-0"
-            targetItemId={link.id}
-            defaultContent={(
-              <button
-                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-white hover:bg-white/20 transition-all duration-200 shadow-lg"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    {link.icon && (
-                      <div className="w-6 h-6 mr-3 flex items-center justify-center">
-                        {link.iconType === 'emoji' ? (
-                          <span className="text-lg">{link.icon}</span>
-                        ) : (
-                          <ExternalLink className="w-5 h-5" />
-                        )}
-                      </div>
-                    )}
-                    <div className="text-left">
-                      <div className="font-medium text-sm">{link.title}</div>
-                      {link.description && (
-                        <div className="text-xs text-white/70">{link.description}</div>
-                      )}
-                    </div>
-                  </div>
-                  <ExternalLink className="w-4 h-4 opacity-70" />
-                </div>
+  const BookingSection = () => (
+    <SectionRenderer
+      card={card}
+      sectionType="booking"
+      defaultContent={
+        card.booking && card.booking.enabled ? (
+          <div className="mb-6">
+            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-white shadow-lg text-center">
+              <h4 className="font-medium text-sm mb-2">{card.booking.title || 'Reservar Cita'}</h4>
+              {card.booking.description && (
+                <p className="text-xs text-white/70 mb-3">{card.booking.description}</p>
+              )}
+              <button className="bg-white text-black px-4 py-2 rounded-lg text-sm font-medium hover:bg-white/90 transition-colors">
+                Reservar Ahora
               </button>
-            )}
-          />
-        ))}
-    </div>
+            </div>
+          </div>
+        ) : null
+      }
+    />
   );
 
-  const SocialSection = () => {
-    const visibleSocials = card.socialLinks?.filter(social => social.isVisible) || [];
-    
-    if (visibleSocials.length === 0) return null;
-
-    return (
-      <div className="mb-6">
-        <h3 className="text-white font-semibold mb-3 text-center">Sígueme</h3>
-        <div className="flex justify-center space-x-4">
-          {visibleSocials
-            .sort((a, b) => a.order - b.order)
-            .slice(0, 6) // Máximo 6 iconos por fila
-            .map((social) => (
-              <button
-                key={social.id}
-                className="w-12 h-12 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200 shadow-lg"
-              >
-                {getSocialIcon(social.platform)}
-              </button>
-            ))}
-        </div>
-      </div>
-    );
+  // Mapeo de secciones
+  const sectionComponents: Record<string, () => JSX.Element | null> = {
+    profile: ProfileSection,
+    social: SocialSection,
+    links: LinksSection,
+    services: ServicesSection,
+    portfolio: PortfolioSection,
+    calendar: CalendarSection,
+    booking: BookingSection,
   };
 
-  const ServicesSection = () => {
-    const visibleServices = card.services?.filter(service => service.isVisible) || [];
-    
-    if (visibleServices.length === 0) return null;
+  // Renderizar secciones en el orden definido
+  const renderSections = () => {
+    // Obtener orden de secciones o usar orden por defecto
+    const sectionsOrder = card.settings?.sectionsOrder || [
+      { id: 'profile', type: 'profile', label: 'Perfil', isVisible: true, order: 0 },
+      { id: 'social', type: 'social', label: 'Redes Sociales', isVisible: true, order: 1 },
+      { id: 'links', type: 'links', label: 'Enlaces', isVisible: true, order: 2 },
+      { id: 'services', type: 'services', label: 'Servicios', isVisible: true, order: 3 },
+      { id: 'portfolio', type: 'portfolio', label: 'Portfolio', isVisible: true, order: 4 },
+      { id: 'calendar', type: 'calendar', label: 'Calendario', isVisible: true, order: 5 },
+      { id: 'booking', type: 'booking', label: 'Reservas', isVisible: true, order: 6 },
+    ];
 
-    return (
-      <div className="mb-6">
-        <h3 className="text-white font-semibold mb-4 text-center">Servicios</h3>
-        <div className="space-y-3">
-          {visibleServices
-            .sort((a, b) => a.order - b.order)
-            .map((service) => (
-              <div
-                key={service.id}
-                className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 shadow-lg"
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <h4 className="font-medium text-white text-sm">{service.name}</h4>
-                  <div className="text-right">
-                    <div className="text-white font-bold text-sm">
-                      {service.price} {service.currency}
-                    </div>
-                    {service.duration && (
-                      <div className="text-white/70 text-xs">
-                        {service.duration}min
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <p className="text-white/80 text-xs mb-3">{service.description}</p>
-                {service.booking?.enabled && (
-                  <button className="w-full bg-white/20 text-white text-xs font-medium py-2 px-4 rounded-lg hover:bg-white/30 transition-colors flex items-center justify-center">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Reservar
-                  </button>
-                )}
-              </div>
-            ))}
-        </div>
-      </div>
-    );
-  };
-
-  const PortfolioSection = () => {
-    if (!card.portfolio?.isVisible || !card.portfolio.items.length) return null;
-
-    const visibleItems = card.portfolio.items
-      .filter(item => item.isVisible)
-      .sort((a, b) => a.order - b.order);
-
-    return (
-      <div className="mb-6">
-        {card.portfolio.showTitle && card.portfolio.title && (
-          <h3 className="text-white font-semibold mb-4 text-center">
-            {card.portfolio.title}
-          </h3>
-        )}
-        <div className={`grid gap-2 ${
-          card.portfolio.style.columns === 1 ? 'grid-cols-1' :
-          card.portfolio.style.columns === 2 ? 'grid-cols-2' :
-          'grid-cols-3'
-        }`}>
-          {visibleItems.slice(0, 6).map((item) => (
-            <div
-              key={item.id}
-              className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg overflow-hidden aspect-square shadow-lg"
-            >
-              {item.type === 'image' ? (
-                <img
-                  src={item.url}
-                  alt={item.title || ''}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-black/20 flex items-center justify-center">
-                  {item.thumbnail ? (
-                    <img
-                      src={item.thumbnail}
-                      alt={item.title || ''}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Play className="w-8 h-8 text-white/70" />
-                  )}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Play className="w-6 h-6 text-white bg-black/50 rounded-full p-1" />
-                  </div>
-                </div>
-              )}
-              
-              {/* Overlay con título */}
-              {item.title && (
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-                  <p className="text-white text-xs font-medium truncate">
-                    {item.title}
-                  </p>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const BookingSection = () => {
-    if (!card.booking?.enabled) return null;
-
-    return (
-      <div className="mb-6">
-        <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-center shadow-lg">
-          <h3 className="text-white font-semibold mb-2">{card.booking.title}</h3>
-          {card.booking.description && (
-            <p className="text-white/80 text-sm mb-4">{card.booking.description}</p>
-          )}
-          <button className="w-full bg-white text-gray-900 font-medium py-3 px-4 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-center shadow-md">
-            <Calendar className="w-4 h-4 mr-2" />
-            Reservar Cita
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const CustomElement = ({ element }: { element: any }) => {
-    switch (element.type) {
-      case 'text':
-        // Verificar si es la descripción de carrera y si está deshabilitada
-        const isCareerDescription = element.content.text && 
-          element.content.text.includes('Full Stack Developer especializado en') &&
-          element.content.text.includes('Construyendo el futuro con código');
-        
-        const shouldShowCareerDesc = card.profile.design?.showCareerDescription ?? false;
-        
-        // Si es la descripción de carrera y está deshabilitada, no mostrarla
-        if (isCareerDescription && !shouldShowCareerDesc) {
-          return null;
-        }
-        
-        return (
-          <div className="mb-4">
-            <div 
-              className="text-white/90 text-sm leading-relaxed text-center"
-              dangerouslySetInnerHTML={{ __html: element.content.text || '' }}
-            />
-          </div>
-        );
-      case 'divider':
-        return (
-          <div className="mb-6 flex justify-center">
-            <div className="w-16 h-px bg-white/30"></div>
-          </div>
-        );
-      case 'spacer':
-        return <div className={`mb-${element.content.size || 4}`}></div>;
-      case 'custom-code': {
-        const { html = '', css = '', js = '', height = 320 } = element.content || {};
-        return (
-          <div className="mb-6">
-            <CustomHtmlSandbox html={html} css={css} js={js} height={height} />
-          </div>
-        );
-      }
-      default:
-        return null;
-    }
+    // Ordenar y filtrar secciones visibles
+    return sectionsOrder
+      .sort((a, b) => a.order - b.order)
+      .filter(section => section.isVisible)
+      .map(section => {
+        const SectionComponent = sectionComponents[section.type];
+        return SectionComponent ? <SectionComponent key={section.id} /> : null;
+      });
   };
 
   return (
-    <div className="relative h-full w-full" ref={containerRef}>
-      {/* iPhone Frame */}
-      <div className="mx-auto" style={{ width: `${frameSize.width}px`, height: `${frameSize.height}px` }}>
-        {/* iPhone Outer Frame */}
-        <div className="w-full h-full bg-black rounded-[3rem] p-2 shadow-2xl">
-          {/* Screen */}
-          <div className="w-full h-full bg-white rounded-[2.5rem] overflow-hidden relative">
-            {/* Status Bar */}
-            <div className="absolute top-0 left-0 right-0 z-20">
-              <div className="h-6 bg-black rounded-t-[2.5rem] flex items-center justify-center">
-                <div className="w-20 h-1 bg-gray-800 rounded-full"></div>
-              </div>
-              <div className="h-6 bg-gradient-to-r from-gray-900 to-black text-white text-xs flex items-center justify-between px-6">
-                <span>9:41</span>
-                <div className="flex items-center space-x-1">
-                  <div className="w-4 h-2 border border-white rounded-sm">
-                    <div className="w-3 h-1 bg-white rounded-sm"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Card Background */}
-            <div
-              className="absolute inset-0 pt-12"
-              style={
-                card.profile.backgroundType === 'gradient' 
-                  ? {
-                      backgroundImage: card.profile.backgroundGradient || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-                    }
-                  : card.profile.backgroundType === 'image' && card.profile.backgroundImage
-                    ? {
-                        backgroundImage: `url(${card.profile.backgroundImage})`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                        backgroundRepeat: 'no-repeat'
-                      }
-                    : {
-                        backgroundColor: card.profile.backgroundColor || '#667eea'
-                      }
-              }
-            >
-              {/* Content Overlay */}
-              <div className="absolute inset-0 bg-black/20"></div>
-              
-              {/* CSS personalizado */}
-              {customCSS && (
-                <style dangerouslySetInnerHTML={{ __html: customCSS }} />
-              )}
-              
-              {/* Scrollable Content with adjustable side padding (0–10px) controlled from ProfileEditor */}
-              <div className="relative z-10 h-full overflow-y-auto py-6"
-                   style={{ paddingLeft: `${Math.max(0, Math.min(10, Number((card as any)?.settings?.branding?.customFooter ?? 10)))}px`,
-                            paddingRight: `${Math.max(0, Math.min(10, Number((card as any)?.settings?.branding?.customFooter ?? 10)))}px` }}>
-                {templateComponent ? (
-                  templateComponent
-                ) : (
-                  sortedElements.map((element, index) => {
-                    // Verificar si esta sección tiene una plantilla aplicada
-                    const sectionType = element.type as 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
-                    
-                    // Crear el contenido por defecto
-                    const defaultContent = (() => {
-                      switch (element.component) {
-                        case 'ProfileSection':
-                          return <ProfileSection />;
-                        case 'LinksSection':
-                          return <LinksSection />;
-                        case 'SocialSection':
-                          return <SocialSection />;
-                        case 'ServicesSection':
-                          return <ServicesSection />;
-                        case 'PortfolioSection':
-                          return <PortfolioSection />;
-                        case 'BookingSection':
-                          return <BookingSection />;
-                        case 'CustomElement': {
-                          const el = (element as any).element as CardElement | undefined;
-                          return el ? <CustomElement element={el} /> : null;
-                        }
-                        default:
-                          return null;
-                      }
-                    })();
-
-                    return (
-                      <SectionRenderer
-                        key={`${element.type}-${index}`}
-                        card={card}
-                        sectionType={sectionType}
-                        defaultContent={defaultContent}
-                        className="mb-6"
-                      />
-                    );
-                  })
-                )}
-                
-                {/* Footer Spacer */}
-                <div className="h-8"></div>
-              </div>
-            </div>
-
-            {/* Home Indicator */}
-            <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 w-32 h-1 bg-black rounded-full"></div>
+    <>
+      <div ref={containerRef} className="h-full flex items-center justify-center overflow-auto bg-[#1f1f1f]">
+        <div
+        className="relative bg-gradient-to-br from-gray-200 via-gray-300 to-gray-500 rounded-[36px] p-2 shadow-[0_20px_45px_rgba(0,0,0,0.45)]"
+        style={{ width: frameSize.width, height: frameSize.height }}
+      >
+        {/* Phone Frame */}
+        <div className="relative w-full h-full bg-orange-500 rounded-[30px] overflow-hidden border border-orange-100/40">
+          {/* Content */}
+          <div
+            className="relative z-10 h-full overflow-y-auto py-6"
+            style={{ 
+              paddingLeft: '10px', 
+              paddingRight: '10px',
+              ...getBackgroundStyle()
+            }}
+          >
+            {/* Renderizar secciones dinámicamente */}
+            {renderSections()}
+            
+            {/* Spacer */}
+            <div className="h-8"></div>
           </div>
         </div>
+
+        {/* Custom CSS */}
+        {customCSS && (
+          <style dangerouslySetInnerHTML={{ __html: customCSS }} />
+        )}
+        </div>
       </div>
-    </div>
+
+      {/* Booking Flow Modal */}
+      {showBookingFlow && (
+        <BookingFlow
+          card={card}
+          onClose={() => setShowBookingFlow(false)}
+        />
+      )}
+    </>
   );
 };
 

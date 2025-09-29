@@ -56,7 +56,7 @@ interface TemplateData {
   cssCode: string;
   jsonConfig: TemplateField[];
   previewType: 'mobile' | 'desktop';
-  targetSection: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+  targetSection: 'profile' | 'links' | 'social' | 'services' | 'portfolio' | 'booking' | 'elements' | 'design';
 }
 
 const sections: Section[] = [
@@ -708,8 +708,8 @@ export const AdminTemplateCreator: React.FC = () => {
                   <option value="links">🔗 Enlaces</option>
                   <option value="social">📱 Redes Sociales</option>
                   <option value="services">💼 Servicios</option>
-                  <option value="booking">📅 Reservas</option>
                   <option value="portfolio">🖼️ Portfolio</option>
+                  <option value="booking">📅 Reservas</option>
                   <option value="elements">🧩 Elementos</option>
                   <option value="design">🎨 Diseño</option>
                 </select>

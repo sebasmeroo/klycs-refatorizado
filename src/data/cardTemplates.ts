@@ -512,7 +512,7 @@ export const cardTemplates: CardTemplate[] = [
     id: 'tech-developer',
     name: 'Desarrollador Tech',
     description: 'Para programadores y profesionales tech',
-    category: 'portfolio',
+    category: 'creative',
     preview: '/templates/tech-developer.jpg',
     theme: cardThemes[3], // neon-cyber
     defaultLinks: [
@@ -647,18 +647,17 @@ export const createCardFromTemplate = (template: CardTemplate, userId: string, c
     
     // Redes sociales vacías inicialmente
     socialLinks: [],
-    
+   
     // Servicios vacíos inicialmente
     services: [],
-    
-    // Portfolio vacío inicialmente
+
     portfolio: {
       items: [],
       style: {
-        layout: 'grid' as const,
-        columns: 2 as const,
-        spacing: 'normal' as const,
-        aspectRatio: 'square' as const,
+        layout: 'grid',
+        columns: 2,
+        spacing: 'normal',
+        aspectRatio: 'auto',
         showTitles: true,
         showDescriptions: false,
         borderRadius: '12px',
@@ -666,10 +665,9 @@ export const createCardFromTemplate = (template: CardTemplate, userId: string, c
       },
       isVisible: false,
       showTitle: false,
-      title: 'Mi Trabajo',
+      title: 'Portfolio',
       order: 5
     },
-    
     // Sistema de reservas desactivado inicialmente
     booking: {
       enabled: false,

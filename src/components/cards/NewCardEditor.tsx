@@ -3,24 +3,19 @@ import { useAuth } from '@/hooks/useAuth';
 import { CardsService } from '@/services/cards';
 import { Card } from '@/types';
 import { toast } from '@/utils/toast';
-import { 
-  Save, 
-  Eye, 
-  Smartphone, 
-  Monitor, 
-  User, 
-  Link, 
-  Share, 
+import {
+  Save,
+  Eye,
+  User,
+  Link,
+  Share,
   Briefcase, 
   Calendar, 
-  Image, 
-  Layers, 
-  Palette, 
+  Image,
   Settings,
   ArrowLeft,
   ChevronRight,
-  ChevronDown,
-  Wand2
+  ChevronDown
 } from 'lucide-react';
 
 // Componentes de cada sección
@@ -30,16 +25,14 @@ import { SocialLinksEditor } from './sections/SocialLinksEditor';
 import { ServicesEditor } from './sections/ServicesEditor';
 import { BookingEditor } from './sections/BookingEditor';
 import { PortfolioEditor } from './sections/PortfolioEditor';
-import { ElementsEditor } from './sections/ElementsEditor';
-import { DesignEditor } from './sections/DesignEditor';
 import { SettingsEditor } from './sections/SettingsEditor';
+import { CalendarEditor } from './sections/CalendarEditor';
+import { SectionOrderEditor } from './sections/SectionOrderEditor';
+import { AdvancedSettingsEditor } from './sections/AdvancedSettingsEditor';
 
 // Preview components
 import { MobilePreview } from './preview/MobilePreview';
-import { DesktopPreview } from './preview/DesktopPreview';
 
-// Template gallery
-import TemplatesGallery from './sections/TemplatesGallery';
 
 interface NewCardEditorProps {
   card: Card;
@@ -53,12 +46,11 @@ type EditorSection =
   | 'social' 
   | 'services' 
   | 'booking' 
-  | 'portfolio' 
-  | 'elements' 
-  | 'design' 
-  | 'settings';
+  | 'portfolio'
+  | 'calendar'
+  | 'section-order'
+  | 'advanced-settings';
 
-type PreviewMode = 'mobile' | 'desktop';
 
 const sidebarSections = [
   {
@@ -90,13 +82,6 @@ const sidebarSections = [
     color: 'from-purple-500 to-purple-600'
   },
   {
-    id: 'booking' as EditorSection,
-    label: 'Reservas',
-    icon: Calendar,
-    description: 'Sistema de citas',
-    color: 'from-orange-500 to-orange-600'
-  },
-  {
     id: 'portfolio' as EditorSection,
     label: 'Portfolio',
     icon: Image,
@@ -104,25 +89,32 @@ const sidebarSections = [
     color: 'from-cyan-500 to-cyan-600'
   },
   {
-    id: 'elements' as EditorSection,
-    label: 'Elementos',
-    icon: Layers,
-    description: 'Componentes adicionales',
-    color: 'from-teal-500 to-teal-600'
+    id: 'booking' as EditorSection,
+    label: 'Reservas',
+    icon: Calendar,
+    description: 'Sistema de citas',
+    color: 'from-orange-500 to-orange-600'
   },
   {
-    id: 'design' as EditorSection,
-    label: 'Diseño',
-    icon: Palette,
-    description: 'Temas y estilos',
-    color: 'from-indigo-500 to-indigo-600'
+    id: 'calendar' as EditorSection,
+    label: 'Calendario',
+    icon: Calendar,
+    description: 'Profesionales y reservas',
+    color: 'from-blue-500 to-blue-600'
   },
   {
-    id: 'settings' as EditorSection,
-    label: 'Configuración',
+    id: 'section-order' as EditorSection,
+    label: 'Orden de Secciones',
     icon: Settings,
-    description: 'SEO, analytics y más',
-    color: 'from-gray-500 to-gray-600'
+    description: 'Reordenar secciones',
+    color: 'from-purple-500 to-purple-600'
+  },
+  {
+    id: 'advanced-settings' as EditorSection,
+    label: 'Configuración Avanzada',
+    icon: Settings,
+    description: 'SEO, Analytics, Sharing',
+    color: 'from-indigo-500 to-indigo-600'
   }
 ];
 
@@ -134,14 +126,12 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
   const { user, firebaseUser } = useAuth();
   const [currentCard, setCurrentCard] = useState<Card>(card);
   const [activeSection, setActiveSection] = useState<EditorSection>('profile');
-  const [previewMode, setPreviewMode] = useState<PreviewMode>('mobile');
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [unsavedChanges, setUnsavedChanges] = useState(false);
   const [sidebarQuery, setSidebarQuery] = useState('');
   const [activeSubsection, setActiveSubsection] = useState<string | null>(null);
   const [openSubmenus, setOpenSubmenus] = useState<Partial<Record<EditorSection, boolean>>>({});
-  const [showTemplatesGallery, setShowTemplatesGallery] = useState(false);
 
   const handleCardUpdate = useCallback((updates: Partial<Card>) => {
     setCurrentCard(prev => ({ ...prev, ...updates }));
@@ -167,18 +157,6 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
     }
   };
 
-  const handleTemplateApplied = useCallback((template: any, data: any) => {
-    // Aquí integraremos los datos de la plantilla con la tarjeta del usuario
-    setCurrentCard(prev => ({
-      ...prev,
-      templateData: {
-        templateId: template.id,
-        data: data
-      }
-    }));
-    setUnsavedChanges(true);
-    toast.success(`Plantilla "${template.name}" aplicada exitosamente`);
-  }, []);
 
   const renderActiveSection = () => {
     const commonProps = {
@@ -195,16 +173,16 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
         return <SocialLinksEditor {...commonProps} />;
       case 'services':
         return <ServicesEditor {...commonProps} />;
-      case 'booking':
-        return <BookingEditor {...commonProps} />;
       case 'portfolio':
         return <PortfolioEditor {...commonProps} />;
-      case 'elements':
-        return <ElementsEditor {...commonProps} />;
-      case 'design':
-        return <DesignEditor {...commonProps} />;
-      case 'settings':
-        return <SettingsEditor {...commonProps} />;
+      case 'booking':
+        return <BookingEditor {...commonProps} />;
+      case 'calendar':
+        return <CalendarEditor {...commonProps} />;
+      case 'section-order':
+        return <SectionOrderEditor {...commonProps} />;
+      case 'advanced-settings':
+        return <AdvancedSettingsEditor {...commonProps} />;
       default:
         return <ProfileEditor {...commonProps} />;
     }
@@ -215,7 +193,6 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
     profile: [
       { id: 'profile-info', label: 'Información del Perfil' },
       { id: 'basic-info', label: 'Información Básica' },
-      { id: 'design-templates', label: 'Plantillas de Diseño' },
       { id: 'profile-background', label: 'Fondo de Perfil' },
     ],
     links: [{ id: 'links-main', label: 'Enlaces principales' }],
@@ -242,8 +219,6 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
           return currentCard.portfolio?.items?.length || 0;
         case 'booking':
           return currentCard.booking?.enabled ? 1 : 0;
-        case 'elements':
-          return currentCard.elements?.length || 0;
         default:
           return undefined;
       }
@@ -421,18 +396,6 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
                 </p>
               </div>
 
-              {/* Botón de Plantillas */}
-              {activeSection !== 'settings' && (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setShowTemplatesGallery(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
-                  >
-                    <Wand2 className="w-4 h-4" />
-                    Plantillas
-                  </button>
-                </div>
-              )}
               
               <div className="flex items-center space-x-3">
                 <button
@@ -450,69 +413,23 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
           <div className="flex-1 overflow-y-auto p-6">
             <div className="max-w-4xl mx-auto">
               {renderActiveSection()}
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile Preview */}
-        <div className="w-[420px] bg-[#121218] border-l border-black/20 flex flex-col">
-          {/* Preview Header */}
-          <div className="bg-[#1b1b22] border-b border-black/20 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-medium text-white">Vista Previa</h3>
-              <div className="flex items-center space-x-1 bg-[#262631] rounded-lg p-1">
-                <button
-                  onClick={() => setPreviewMode('mobile')}
-                   className={`p-2 rounded-md transition-colors ${
-                    previewMode === 'mobile'
-                      ? 'bg-[#2f2f3b] text-blue-400 shadow-sm'
-                      : 'text-gray-400 hover:text-gray-200'
-                  }`}
-                  title="Vista móvil"
-                >
-                  <Smartphone className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setPreviewMode('desktop')}
-                   className={`p-2 rounded-md transition-colors ${
-                    previewMode === 'desktop'
-                      ? 'bg-[#2f2f3b] text-blue-400 shadow-sm'
-                      : 'text-gray-400 hover:text-gray-200'
-                  }`}
-                  title="Vista escritorio"
-                >
-                  <Monitor className="w-4 h-4" />
-                </button>
+              <div className="mt-8 xl:hidden">
+                <div className="bg-[#0b0b0f] rounded-3xl p-4 shadow-2xl border border-black/20">
+                  <MobilePreview card={currentCard} customCSS={currentCard?.theme?.customCSS} />
+                </div>
               </div>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Los cambios se reflejan en tiempo real
-            </p>
-          </div>
-
-          {/* Preview Content */}
-          <div className="flex-1 p-4 overflow-hidden bg-[#0b0b0f]">
-            <div className="h-full flex items-center justify-center">
-              {previewMode === 'mobile' ? (
-                <MobilePreview card={currentCard} />
-              ) : (
-                <DesktopPreview card={currentCard} />
-              )}
-            </div>
           </div>
         </div>
+
+        {/* Preview Column */}
+        <aside className="hidden xl:flex w-[420px] bg-[#0b0b0f] border-l border-black/20">
+          <div className="sticky top-0 flex flex-col items-center justify-center w-full h-screen px-6 py-10">
+            <MobilePreview card={currentCard} customCSS={currentCard?.theme?.customCSS} />
+          </div>
+        </aside>
       </div>
 
-      {/* Templates Gallery Modal */}
-      {showTemplatesGallery && user && (
-        <TemplatesGallery
-          section={activeSection}
-          cardId={currentCard.id}
-          userId={user.uid}
-          onTemplateApplied={handleTemplateApplied}
-          onClose={() => setShowTemplatesGallery(false)}
-        />
-      )}
     </div>
   );
 };

@@ -33,7 +33,7 @@ export interface Template {
   downloads: number;
   usage: number;
   trend: number;
-  targetSection?: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+  targetSection?: 'profile' | 'links' | 'social' | 'services' | 'portfolio' | 'booking' | 'elements' | 'design';
   reactCode?: string;
   cssCode?: string;
   jsonConfig?: any[];
@@ -49,7 +49,7 @@ export interface AdminTemplate {
   category: string;
   version: string;
   author: string;
-  targetSection: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+  targetSection: 'profile' | 'links' | 'social' | 'services' | 'portfolio' | 'booking' | 'elements' | 'design';
   reactCode: string;
   cssCode: string;
   jsonConfig: any[];

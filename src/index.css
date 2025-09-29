@@ -9,6 +9,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide scrollbar but keep functionality for carousel */
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 :root {
   --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   --gradient-secondary: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);

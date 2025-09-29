@@ -1,0 +1,51 @@
+╔═══════════════════════════════════════════════════════════════════════╗
+║                  🔥 CONFIGURAR CORS - 3 PASOS                          ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+📍 PASO 1: Ir al bucket
+   → En la ventana que se abrió de Google Cloud Console
+   → Haz clic en: klycs-58190.appspot.com
+
+📍 PASO 2: Ir a configuración CORS
+   → Haz clic en la pestaña: "CONFIGURATION" (arriba)
+   → Busca la sección: "CORS configuration"
+   → Haz clic en: "EDIT" o "EDITAR"
+
+📍 PASO 3: Pegar esta configuración
+   → Copia y pega EXACTAMENTE esto:
+
+[
+  {
+    "origin": ["*"],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "maxAgeSeconds": 3600
+  }
+]
+
+   → Haz clic en: "SAVE" o "GUARDAR"
+
+╔═══════════════════════════════════════════════════════════════════════╗
+║                    ✅ DESPUÉS DE GUARDAR                               ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+1. Vuelve a tu app: http://localhost:3000
+2. Presiona F12
+3. Ve a: Application → Service Workers
+4. Haz clic en: "Unregister" en todos los Service Workers
+5. Cierra DevTools
+6. Recarga la página: Ctrl + Shift + R
+7. Ve a tu tarjeta → Portfolio → Sube una imagen
+
+🎉 ¡DEBERÍA FUNCIONAR!
+
+═══════════════════════════════════════════════════════════════════════
+
+📝 SI SIGUE FALLANDO:
+
+En la consola del navegador (F12 → Console) pega esto:
+
+navigator.serviceWorker.getRegistrations().then(r => r.forEach(reg => reg.unregister())).then(() => location.reload());
+
+Presiona Enter y la página se recargará limpia.
+
+═══════════════════════════════════════════════════════════════════════

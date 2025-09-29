@@ -36,7 +36,7 @@ export interface TemplatePackSections {
   social: Record<string, any>;
   services: any[];
   booking: Record<string, any>;
-  portfolio: any[];
+  portfolio?: any[];
   elements: any[];
   design: {
     globalStyles?: string;

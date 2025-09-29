@@ -458,6 +458,117 @@ export class CollaborativeCalendarService {
     }
   }
 
+  // ===== OBTENER PROFESIONALES =====
+  
+  static async getProfessionals(userId: string): Promise<import('@/types').TeamProfessional[]> {
+    try {
+      console.log('👥 Obteniendo profesionales para usuario:', userId);
+      
+      // Obtener los calendarios del usuario
+      const calendars = await this.getUserCalendars(userId);
+      console.log('📅 Calendarios encontrados:', calendars.length);
+      
+      const professionals: import('@/types').TeamProfessional[] = [];
+      
+      // Convertir cada calendario profesional en un profesional
+      for (const calendar of calendars) {
+        // Si el calendario tiene linkedEmail, es un calendario profesional
+        if (calendar.linkedEmail) {
+          // Extraer el nombre del profesional del nombre del calendario
+          // "Calendario de Juan" -> "Juan"
+          let professionalName = calendar.name;
+          if (professionalName.startsWith('Calendario de ')) {
+            professionalName = professionalName.replace('Calendario de ', '');
+          }
+          
+          // Buscar si hay un miembro con ese email
+          const member = calendar.members.find(m => m.email === calendar.linkedEmail);
+          
+          const professional: import('@/types').TeamProfessional = {
+            id: calendar.id, // Usar ID del calendario como ID del profesional
+            name: professionalName,
+            email: calendar.linkedEmail,
+            avatar: member?.avatar, // Avatar del miembro si existe
+            role: 'Profesional',
+            color: calendar.color,
+            linkedCalendarId: calendar.id,
+            permissions: {
+              canViewBookings: true,
+              canEditBookings: true,
+              canDeleteBookings: false,
+              canManageServices: true,
+              canAccessAnalytics: true
+            },
+            isActive: true, // Los calendarios activos = profesionales activos
+            createdAt: calendar.createdAt,
+            updatedAt: calendar.updatedAt
+          };
+          
+          professionals.push(professional);
+          console.log('✅ Profesional agregado:', { 
+            name: professional.name, 
+            email: professional.email,
+            calendarId: calendar.id 
+          });
+        }
+      }
+      
+      console.log('✅ Total profesionales encontrados:', professionals.length);
+      return professionals;
+      
+    } catch (error) {
+      console.error('❌ Error obteniendo profesionales:', error);
+      logError('Error al obtener profesionales', error as Error, { userId });
+      return [];
+    }
+  }
+
+  // ===== ACTUALIZAR PROFESIONAL =====
+  
+  static async updateProfessional(
+    calendarId: string,
+    professionalId: string,
+    updates: { avatar?: string; name?: string; role?: string; color?: string }
+  ): Promise<void> {
+    try {
+      console.log('✏️ Actualizando profesional:', { calendarId, professionalId, updates });
+      
+      const calendarDoc = await getDoc(doc(db, 'shared_calendars', calendarId));
+      if (!calendarDoc.exists()) {
+        throw new Error('Calendario no encontrado');
+      }
+
+      const calendar = calendarDoc.data() as SharedCalendarFirestore;
+      
+      // Buscar el miembro con el linkedEmail del calendario
+      const linkedEmail = calendar.linkedEmail;
+      const updatedMembers = calendar.members.map(member => {
+        if (member.email === linkedEmail || member.id === professionalId) {
+          return {
+            ...member,
+            ...(updates.avatar && { avatar: updates.avatar }),
+            ...(updates.name && { name: updates.name }),
+            ...(updates.color && { color: updates.color })
+          };
+        }
+        return member;
+      });
+
+      await updateDoc(doc(db, 'shared_calendars', calendarId), {
+        members: updatedMembers,
+        updatedAt: Timestamp.now()
+      });
+
+      console.log('✅ Profesional actualizado exitosamente');
+      info('Profesional actualizado', { calendarId, professionalId });
+      
+    } catch (error) {
+      console.error('❌ Error actualizando profesional:', error);
+      logError('Error al actualizar profesional', error as Error, { calendarId, professionalId });
+      throw error;
+    }
+  }
+
   // ===== ELIMINAR CALENDARIO =====
   
   static async deleteCalendar(calendarId: string): Promise<void> {

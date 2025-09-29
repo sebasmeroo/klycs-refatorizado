@@ -51,11 +51,16 @@ export const useRealTimeStats = () => {
   const [error, setError] = useState<string | null>(null);
 
   const fetchStats = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
       setError(null);
+
+      console.log('📊 Cargando estadísticas para usuario:', user.id);
 
       // Obtener estadísticas de los últimos 30 días
       const endDate = new Date();
@@ -67,27 +72,48 @@ export const useRealTimeStats = () => {
       const previousStartDate = new Date();
       previousStartDate.setDate(previousEndDate.getDate() - 30);
 
-      // Ejecutar consultas en paralelo
+      // Ejecutar consultas en paralelo con manejo de errores individual
       const [
         currentMetrics,
         previousMetrics,
         recentAnalytics,
         userCards,
         bookingStats
-      ] = await Promise.all([
-        analyticsService.getMetrics(user.id, undefined, 30),
-        analyticsService.getMetrics(user.id, undefined, 30),
-        analyticsService.getAnalytics(user.id, undefined, startDate, endDate, 50),
-        CardsService.getUserCards(user.id),
-        BookingsService.getBookingStats(user.id)
+      ] = await Promise.allSettled([
+        analyticsService.getMetrics(user.id, undefined, 30).catch(e => {
+          console.warn('Error en getMetrics actual:', e);
+          return { success: false, data: null };
+        }),
+        analyticsService.getMetrics(user.id, undefined, 60).catch(e => {
+          console.warn('Error en getMetrics anterior:', e);
+          return { success: false, data: null };
+        }),
+        analyticsService.getAnalytics(user.id, undefined, startDate, endDate, 50).catch(e => {
+          console.warn('Error en getAnalytics:', e);
+          return { success: false, data: [] };
+        }),
+        CardsService.getUserCards(user.id).catch(e => {
+          console.warn('Error en getUserCards:', e);
+          return { success: false, data: [] };
+        }),
+        BookingsService.getBookingStats(user.id).catch(e => {
+          console.warn('Error en getBookingStats:', e);
+          return { success: false, data: { totalRevenue: 0, totalBookings: 0 } };
+        })
       ]);
 
-      if (!currentMetrics.success || !currentMetrics.data) {
-        throw new Error('Error al obtener métricas actuales');
-      }
+      // Extraer valores de las promesas
+      const currentMetricsResult = currentMetrics.status === 'fulfilled' ? currentMetrics.value : { success: false, data: null };
+      const previousMetricsResult = previousMetrics.status === 'fulfilled' ? previousMetrics.value : { success: false, data: null };
+      const recentAnalyticsResult = recentAnalytics.status === 'fulfilled' ? recentAnalytics.value : { success: false, data: [] };
+      const userCardsResult = userCards.status === 'fulfilled' ? userCards.value : { success: false, data: [] };
+      const bookingStatsResult = bookingStats.status === 'fulfilled' ? bookingStats.value : { success: false, data: null };
 
-      const currentData = currentMetrics.data as any;
-      const previousData = previousMetrics.data as any || {};
+      const currentData = currentMetricsResult.data as any || {};
+      const previousData = previousMetricsResult.data as any || {};
+      
+      console.log('📊 Datos actuales:', currentData);
+      console.log('📊 Datos anteriores:', previousData);
 
       // Calcular cambios porcentuales
       const calculateChange = (current: number, previous: number) => {
@@ -97,20 +123,22 @@ export const useRealTimeStats = () => {
 
       // Procesar actividad reciente
       const recentActivity: ActivityItem[] = [];
-      if (recentAnalytics.success && recentAnalytics.data) {
-        const analytics = recentAnalytics.data as any[];
-        analytics.slice(0, 10).forEach((event, index) => {
-          let user = 'Usuario Anónimo';
+      if (recentAnalyticsResult.success && recentAnalyticsResult.data) {
+        const analytics = Array.isArray(recentAnalyticsResult.data) ? recentAnalyticsResult.data : [];
+        console.log('📊 Actividad reciente:', analytics.length, 'eventos');
+        
+        analytics.slice(0, 10).forEach((event: any, index: number) => {
+          let userName = 'Usuario Anónimo';
           let item = 'Desconocido';
           
           if (event.eventType === 'card_view') {
             item = 'Tarjeta';
           } else if (event.eventType === 'link_click') {
             item = 'Enlace';
-            user = 'Visitante';
+            userName = 'Visitante';
           } else if (event.eventType === 'booking_created') {
             item = 'Reserva';
-            user = 'Cliente';
+            userName = 'Cliente';
           }
 
           recentActivity.push({
@@ -118,23 +146,25 @@ export const useRealTimeStats = () => {
             type: event.eventType.includes('view') ? 'view' : 
                   event.eventType.includes('click') ? 'click' : 
                   event.eventType.includes('booking') ? 'booking' : 'view',
-            user,
+            user: userName,
             item,
-            time: formatTimeAgo(event.timestamp),
-            timestamp: event.timestamp
+            time: formatTimeAgo(event.timestamp?.toDate ? event.timestamp.toDate() : new Date(event.timestamp)),
+            timestamp: event.timestamp?.toDate ? event.timestamp.toDate() : new Date(event.timestamp)
           });
         });
       }
 
       // Procesar rendimiento de tarjetas
       const topCards: CardPerformance[] = [];
-      if (userCards.success && userCards.data) {
-        const cards = Array.isArray(userCards.data) ? userCards.data : [userCards.data];
-        cards.slice(0, 5).forEach(card => {
+      if (userCardsResult.success && userCardsResult.data) {
+        const cards = Array.isArray(userCardsResult.data) ? userCardsResult.data : [userCardsResult.data];
+        console.log('📊 Tarjetas del usuario:', cards.length);
+        
+        cards.slice(0, 5).forEach((card: any) => {
           const conversionRate = card.views > 0 ? (card.clicks / card.views) * 100 : 0;
           topCards.push({
             id: card.id,
-            title: card.title,
+            title: card.profile?.name || card.title || 'Tarjeta',
             views: card.views || 0,
             clicks: card.clicks || 0,
             conversionRate: parseFloat(conversionRate.toFixed(2))
@@ -167,11 +197,13 @@ export const useRealTimeStats = () => {
       // Obtener datos de bookings
       let totalRevenue = 0;
       let totalBookings = 0;
-      if (bookingStats.success && bookingStats.data) {
-        const bookingData = bookingStats.data as any;
+      if (bookingStatsResult.success && bookingStatsResult.data) {
+        const bookingData = bookingStatsResult.data as any;
         totalRevenue = bookingData.totalRevenue || 0;
         totalBookings = bookingData.totalBookings || 0;
       }
+      
+      console.log('📊 Bookings:', { totalBookings, totalRevenue });
 
       const dashboardStats: DashboardStats = {
         totalViews: currentData.totalViews || 0,
@@ -187,10 +219,27 @@ export const useRealTimeStats = () => {
         monthlyData
       };
 
+      console.log('✅ Estadísticas cargadas:', dashboardStats);
       setStats(dashboardStats);
     } catch (err) {
+      console.error('❌ Error cargando estadísticas:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar estadísticas');
       logError('Error fetching real-time stats', err as Error, { component: 'useRealTimeStats' });
+      
+      // Establecer datos vacíos en caso de error
+      setStats({
+        totalViews: 0,
+        totalClicks: 0,
+        totalBookings: 0,
+        totalRevenue: 0,
+        viewsChange: 0,
+        clicksChange: 0,
+        bookingsChange: 0,
+        revenueChange: 0,
+        recentActivity: [],
+        topCards: [],
+        monthlyData: []
+      });
     } finally {
       setLoading(false);
     }

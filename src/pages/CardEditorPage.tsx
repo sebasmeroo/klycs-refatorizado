@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { CardsService } from '@/services/cards';
 import { NewCardEditor } from '@/components/cards/NewCardEditor';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card } from '@/types';
 import { toast } from '@/utils/toast';
 
@@ -124,11 +125,13 @@ export const CardEditorPage: React.FC = () => {
   }
 
   return (
-    <NewCardEditor
-      card={card}
-      onSave={handleSave}
-      onClose={handleClose}
-    />
+    <DashboardLayout>
+      <NewCardEditor
+        card={card}
+        onSave={handleSave}
+        onClose={handleClose}
+      />
+    </DashboardLayout>
   );
 };
 

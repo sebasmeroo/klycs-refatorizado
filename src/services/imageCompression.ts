@@ -100,6 +100,16 @@ export class ImageCompressionService {
     large: CompressedImage;
     original: CompressedImage;
   }> {
+    const startTime = performance.now();
+    const originalSize = file.size;
+
+    console.group('📸 Compresión de Imagen - Estilo Instagram');
+    console.log('📦 Archivo original:', {
+      nombre: file.name,
+      tamaño: this.formatFileSize(originalSize),
+      tipo: file.type
+    });
+
     const [thumbnail, medium, large, original] = await Promise.all([
       this.compressImage(file, this.PROFILES.thumbnail),
       this.compressImage(file, this.PROFILES.medium),
@@ -107,7 +117,50 @@ export class ImageCompressionService {
       this.compressImage(file, this.PROFILES.original)
     ]);
 
+    const endTime = performance.now();
+    const compressionTime = ((endTime - startTime) / 1000).toFixed(2);
+    
+    const totalCompressedSize = thumbnail.size + medium.size + large.size + original.size;
+    const compressionRatio = ((1 - totalCompressedSize / (originalSize * 4)) * 100).toFixed(1);
+
+    console.log('✅ Compresión completada:');
+    console.table({
+      'Thumbnail (150px)': {
+        'Tamaño': this.formatFileSize(thumbnail.size),
+        'Dimensiones': `${thumbnail.width}x${thumbnail.height}`,
+        'Compresión': `${((1 - thumbnail.size / originalSize) * 100).toFixed(1)}%`
+      },
+      'Medium (640px)': {
+        'Tamaño': this.formatFileSize(medium.size),
+        'Dimensiones': `${medium.width}x${medium.height}`,
+        'Compresión': `${((1 - medium.size / originalSize) * 100).toFixed(1)}%`
+      },
+      'Large (1080px)': {
+        'Tamaño': this.formatFileSize(large.size),
+        'Dimensiones': `${large.width}x${large.height}`,
+        'Compresión': `${((1 - large.size / originalSize) * 100).toFixed(1)}%`
+      },
+      'Original (1920px)': {
+        'Tamaño': this.formatFileSize(original.size),
+        'Dimensiones': `${original.width}x${original.height}`,
+        'Compresión': `${((1 - original.size / originalSize) * 100).toFixed(1)}%`
+      }
+    });
+
+    console.log(`⚡ Tiempo de compresión: ${compressionTime}s`);
+    console.log(`💾 Ahorro promedio: ${compressionRatio}% por versión`);
+    console.groupEnd();
+
     return { thumbnail, medium, large, original };
+  }
+
+  /**
+   * Formatea el tamaño de archivo para mostrar
+   */
+  private static formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
   /**

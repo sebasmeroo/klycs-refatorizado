@@ -67,13 +67,6 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       color: 'from-pink-500 to-pink-600'
     },
     {
-      icon: Users,
-      label: 'Equipo',
-      path: '/dashboard/team',
-      active: location.pathname.startsWith('/dashboard/team'),
-      color: 'from-indigo-500 to-indigo-600'
-    },
-    {
       icon: Settings,
       label: 'Configuración',
       path: '/dashboard/settings',

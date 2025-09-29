@@ -63,6 +63,9 @@ const createDefaultTemplate = (): Omit<TemplatePack, 'meta'> => ({
       name: '',
       bio: '',
       avatar: '',
+      tagline: '',
+      phone: '',
+      website: '',
       backgroundType: 'gradient',
       backgroundColor: '#667eea',
       backgroundGradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'

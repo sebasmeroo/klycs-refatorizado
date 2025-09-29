@@ -24,7 +24,7 @@ export class StorageService {
   /**
    * Verifica el estado de autenticación y permisos
    */
-  private static async debugAuthState(): Promise<void> {
+  private static async ensureAuthenticated(): Promise<void> {
     const user = auth.currentUser;
     devLog('Debug Auth State', {
       component: 'StorageService',
@@ -33,7 +33,7 @@ export class StorageService {
       userEmail: user?.email,
       storageBucket: storage.app.options.storageBucket
     });
-    
+
     if (!user) {
       throw new Error('Usuario no autenticado. Por favor, inicia sesión.');
     }
@@ -48,10 +48,8 @@ export class StorageService {
     onProgress?: (progress: number) => void
   ): Promise<UploadedImage> {
     try {
-      // Debug: Verificar autenticación
-      await this.debugAuthState();
-      
-      // Validar archivo
+      await this.ensureAuthenticated();
+
       const validation = ImageCompressionService.validateImageFile(file);
       if (!validation.valid) {
         throw new Error(validation.error);
@@ -59,11 +57,9 @@ export class StorageService {
 
       onProgress?.(10);
 
-      // Comprimir en múltiples tamaños
       const compressed = await ImageCompressionService.compressMultipleSizes(file);
       onProgress?.(40);
 
-      // Generar ID único para la imagen
       const imageId = this.generateImageId();
       const baseFileName = ImageCompressionService.generateFileName(file.name);
 
@@ -74,12 +70,23 @@ export class StorageService {
         baseFileName
       });
 
-      // Subir cada tamaño a Firebase Storage
       const uploadPromises = [
-        this.uploadSingleFile(compressed.thumbnail.file, `cards/${cardId}/portfolio/${imageId}/thumbnail_${baseFileName}`),
-        this.uploadSingleFile(compressed.medium.file, `cards/${cardId}/portfolio/${imageId}/medium_${baseFileName}`),
-        this.uploadSingleFile(compressed.large.file, `cards/${cardId}/portfolio/${imageId}/large_${baseFileName}`),
-        this.uploadSingleFile(compressed.original.file, `cards/${cardId}/portfolio/${imageId}/original_${baseFileName}`)
+        this.uploadSingleFile(
+          compressed.thumbnail.file,
+          `cards/${cardId}/portfolio/${imageId}/thumbnail_${baseFileName}`
+        ),
+        this.uploadSingleFile(
+          compressed.medium.file,
+          `cards/${cardId}/portfolio/${imageId}/medium_${baseFileName}`
+        ),
+        this.uploadSingleFile(
+          compressed.large.file,
+          `cards/${cardId}/portfolio/${imageId}/large_${baseFileName}`
+        ),
+        this.uploadSingleFile(
+          compressed.original.file,
+          `cards/${cardId}/portfolio/${imageId}/original_${baseFileName}`
+        )
       ];
 
       onProgress?.(70);
@@ -107,129 +114,104 @@ export class StorageService {
       };
     } catch (err) {
       error('Failed to upload portfolio image', err as Error, { component: 'StorageService', cardId });
-      throw error;
+      throw err;
     }
   }
 
   /**
-   * Sube un archivo individual a Firebase Storage
+   * Sube un video a Firebase Storage
    */
+  static async uploadPortfolioVideo(
+    cardId: string,
+    file: File,
+    onProgress?: (progress: number) => void
+  ): Promise<string> {
+    try {
+      await this.ensureAuthenticated();
+
+      if (!file.type.startsWith('video/')) {
+        throw new Error('El archivo debe ser un video');
+      }
+
+      const maxSize = 50 * 1024 * 1024;
+      if (file.size > maxSize) {
+        throw new Error('El video no debe exceder 50MB');
+      }
+
+      onProgress?.(10);
+
+      const videoId = this.generateImageId();
+      const fileExtension = file.name.split('.').pop() || 'mp4';
+      const fileName = `video_${videoId}.${fileExtension}`;
+      const path = `cards/${cardId}/portfolio/${videoId}/${fileName}`;
+
+      devLog('Starting video upload', {
+        component: 'StorageService',
+        cardId,
+        videoId,
+        fileName,
+        sizeMB: (file.size / 1024 / 1024).toFixed(2)
+      });
+
+      onProgress?.(30);
+
+      const storageRef = ref(storage, path);
+      const snapshot = await uploadBytes(storageRef, file);
+
+      onProgress?.(90);
+
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      onProgress?.(100);
+
+      info('Portfolio video uploaded successfully', { component: 'StorageService', cardId, videoId });
+
+      return downloadURL;
+    } catch (err) {
+      error('Failed to upload portfolio video', err as Error, { component: 'StorageService', cardId });
+      throw err;
+    }
+  }
+
+  /**
+   * Elimina una imagen del portfolio
+   */
+  static async deletePortfolioAsset(cardId: string, imageId: string): Promise<void> {
+    try {
+      await this.ensureAuthenticated();
+
+      const basePath = `cards/${cardId}/portfolio/${imageId}`;
+      const listRef = ref(storage, basePath);
+      const list = await listAll(listRef);
+
+      const deletePromises = list.items.map(item => deleteObject(item));
+      await Promise.all(deletePromises);
+
+      info('Portfolio asset deleted', { component: 'StorageService', cardId, imageId });
+    } catch (err) {
+      error('Failed to delete portfolio image', err as Error, { component: 'StorageService', cardId, imageId });
+      throw err;
+    }
+  }
+
   private static async uploadSingleFile(file: File, path: string): Promise<string> {
     devLog('Uploading file', {
       component: 'StorageService',
       path,
       fileSizeMB: (file.size / 1024 / 1024).toFixed(2)
     });
-    
+
     const storageRef = ref(storage, path);
     const snapshot = await uploadBytes(storageRef, file);
     const downloadURL = await getDownloadURL(snapshot.ref);
-    
+
     devLog('File uploaded successfully', { component: 'StorageService', path });
     return downloadURL;
   }
 
-  /**
-   * Elimina una imagen del portfolio
-   */
-  static async deletePortfolioImage(cardId: string, imageId: string): Promise<void> {
-    try {
-      const basePath = `cards/${cardId}/portfolio/${imageId}`;
-      
-      // Listar todos los archivos de la imagen
-      const listRef = ref(storage, basePath);
-      const list = await listAll(listRef);
-      
-      // Eliminar todos los tamaños
-      const deletePromises = list.items.map(item => deleteObject(item));
-      await Promise.all(deletePromises);
-    } catch (err) {
-      error('Failed to delete portfolio image', err as Error, { component: 'StorageService', cardId, imageId });
-      throw error;
-    }
-  }
-
-  /**
-   * Sube imagen de avatar
-   */
-  static async uploadAvatar(cardId: string, file: File): Promise<string> {
-    try {
-      // Debug: Verificar autenticación
-      await this.debugAuthState();
-      
-      const validation = ImageCompressionService.validateImageFile(file);
-      if (!validation.valid) {
-        throw new Error(validation.error);
-      }
-
-      // Comprimir avatar (tamaño medio es suficiente)
-      const compressed = await ImageCompressionService.compressImage(
-        file, 
-        ImageCompressionService.PROFILES.medium
-      );
-
-      const fileName = ImageCompressionService.generateFileName(file.name, '_avatar');
-      const path = `cards/${cardId}/avatar/${fileName}`;
-      
-      devLog('Uploading avatar image', { component: 'StorageService', cardId, path });
-      
-      return await this.uploadSingleFile(compressed.file, path);
-    } catch (err) {
-      error('Failed to upload avatar image', err as Error, { component: 'StorageService', cardId });
-      throw error;
-    }
-  }
-
-  /**
-   * Sube imagen de cover
-   */
-  static async uploadCoverImage(cardId: string, file: File): Promise<string> {
-    try {
-      // Debug: Verificar autenticación
-      await this.debugAuthState();
-      
-      const validation = ImageCompressionService.validateImageFile(file);
-      if (!validation.valid) {
-        throw new Error(validation.error);
-      }
-
-      // Para cover usar tamaño grande
-      const compressed = await ImageCompressionService.compressImage(
-        file, 
-        ImageCompressionService.PROFILES.large
-      );
-
-      const fileName = ImageCompressionService.generateFileName(file.name, '_cover');
-      const path = `cards/${cardId}/cover/${fileName}`;
-      
-      devLog('Uploading cover image', { component: 'StorageService', cardId, path });
-      
-      return await this.uploadSingleFile(compressed.file, path);
-    } catch (err) {
-      error('Failed to upload cover image', err as Error, { component: 'StorageService', cardId });
-      throw error;
-    }
-  }
-
-  /**
-   * Genera un ID único para las imágenes
-   */
   private static generateImageId(): string {
     return `img_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
   }
-
-  /**
-   * Calcula el tamaño total usado por una tarjeta
-   */
-  static async calculateStorageUsage(_cardId: string): Promise<number> {
-    try {
-      // Firebase Storage no provee tamaños directamente via listAll
-      // Necesitaríamos hacer getMetadata() para cada archivo
-      // Por ahora retornamos 0, se puede implementar si es necesario
-      return 0;
-    } catch (err) {
-      error('Failed to calculate storage usage', err as Error, { component: 'StorageService', cardId: _cardId });
-      return 0;
-    }
-  }
 }
+
+export default StorageService;

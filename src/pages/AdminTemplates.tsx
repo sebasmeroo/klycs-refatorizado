@@ -92,7 +92,6 @@ export const AdminTemplates: React.FC = () => {
           social: {},
           services: [],
           booking: {},
-          portfolio: [],
           elements: [],
           design: {}
         }

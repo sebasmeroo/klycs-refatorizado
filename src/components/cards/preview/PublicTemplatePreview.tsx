@@ -4,7 +4,7 @@ import DirectTemplateRenderer from '@/components/templates/DirectTemplateRendere
 
 interface PublicTemplatePreviewProps {
   card: Card;
-  section?: 'profile' | 'links' | 'social' | 'services' | 'booking' | 'portfolio' | 'elements' | 'design';
+  section?: 'profile' | 'links' | 'social' | 'services' | 'portfolio' | 'booking' | 'elements' | 'design';
   targetItemId?: string;
   // Datos pre-cargados para renderizado inmediato
   preloadedData?: {
@@ -52,6 +52,9 @@ export const PublicTemplatePreview: React.FC<PublicTemplatePreviewProps> = ({
       name: card.profile?.name || '',
       title: card.title || '',
       bio: card.profile?.bio || '',
+      tagline: card.profile?.tagline || '',
+      phone: card.profile?.phone || '',
+      website: card.profile?.website || '',
       profileImage: card.profile?.avatar || '',
       email: '',
       phone: '',
@@ -72,8 +75,23 @@ export const PublicTemplatePreview: React.FC<PublicTemplatePreviewProps> = ({
       services: card.services || [],
       
       // Portfolio data
-      portfolio: card.portfolio?.items || [],
-      
+      portfolio: card.portfolio || {
+        items: [],
+        style: {
+          layout: 'grid',
+          columns: 2,
+          spacing: 'normal',
+          aspectRatio: 'auto',
+          showTitles: false,
+          showDescriptions: false,
+          borderRadius: '12px',
+          shadow: 'md'
+        },
+        isVisible: false,
+        showTitle: false,
+        title: 'Portfolio',
+        order: 4
+      },
       // Booking data
       bookingEnabled: !!card.booking?.enabled,
       availableSlots: card.booking?.calendar?.timeSlots || [],
