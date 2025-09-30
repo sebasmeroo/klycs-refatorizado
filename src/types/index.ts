@@ -441,6 +441,7 @@ export interface CardCalendar {
   // Configuración de visualización
   showProfessionals: boolean; // Si mostrar la lista de profesionales
   allowDirectBooking: boolean; // Permitir reservas directas
+  designVariant?: 'minimal' | 'glass' | 'spotlight';
   
   // Profesionales vinculados (desde el calendario colaborativo)
   linkedCalendarId?: string; // ID del calendario colaborativo vinculado
@@ -666,7 +667,7 @@ export interface CardPortfolioItem {
 }
 
 export interface PortfolioStyle {
-  layout: 'grid' | 'masonry' | 'carousel' | 'list';
+  layout: 'grid' | 'masonry' | 'carousel' | 'list' | 'framedCarousel';
   columns: 1 | 2 | 3 | 4;
   spacing: 'tight' | 'normal' | 'relaxed';
   aspectRatio?: 'square' | '4:3' | '16:9' | 'auto';

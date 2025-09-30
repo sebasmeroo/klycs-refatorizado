@@ -432,6 +432,7 @@ export const PortfolioEditor: React.FC<PortfolioEditorProps> = ({ card, onUpdate
               className="input"
             >
               <option value="carousel">Carrusel</option>
+              <option value="framedCarousel">Carrusel en marco</option>
               <option value="grid">Cuadrícula</option>
               <option value="masonry">Masonry</option>
               <option value="list">Lista</option>

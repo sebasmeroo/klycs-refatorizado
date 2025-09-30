@@ -29,7 +29,12 @@ import {
   Shield,
   CheckCircle,
   XCircle,
-  Edit3
+  Edit3,
+  Trash2,
+  Repeat,
+  Upload,
+  Camera,
+  User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
@@ -48,10 +53,16 @@ import {
   EventCommentService,
   CalendarStatsService
 } from '@/services/collaborativeCalendar';
-import { CreateCalendarModal } from '@/components/calendar/CreateCalendarModal';
+import { CustomFieldsEditor } from '@/components/calendar/CustomFieldsEditor';
+import { RecurrenceSelector } from '@/components/calendar/RecurrenceSelector';
 import { createDemoCalendarData, getDemoStats } from '@/utils/calendarDemoData';
 import { authService } from '@/services/auth';
 import { ProfessionalService } from '@/services/professionalService';
+import { RecurrencePattern, CustomEventField } from '@/types/calendar';
+import { doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { db, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ImageCompressionService } from '@/services/imageCompression';
 
 const GENERAL_CALENDAR_ID = 'general-calendar';
 const PROFESSIONAL_COLOR_PALETTE = [
@@ -122,7 +133,7 @@ const DashboardBookings: React.FC = () => {
   
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [showCreateCalendar, setShowCreateCalendar] = useState(false);
+  const [showFormEditor, setShowFormEditor] = useState(false);
   const [showCreateEvent, setShowCreateEvent] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [newComment, setNewComment] = useState('');
@@ -136,8 +147,29 @@ const DashboardBookings: React.FC = () => {
     description: '',
     startTime: '09:00',
     endTime: '10:00',
-    location: ''
+    location: '',
+    hasEndTime: true // Toggle para hora única vs rango
   });
+  const [recurrence, setRecurrence] = useState<RecurrencePattern | null>(null);
+  const [customFieldsData, setCustomFieldsData] = useState<Record<string, any>>({});
+  const [showCalendarSettings, setShowCalendarSettings] = useState(false);
+  const [globalCustomFields, setGlobalCustomFields] = useState<CustomEventField[]>([]);
+  
+  // Estados para editar eventos
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [showEditEventPanel, setShowEditEventPanel] = useState(false);
+  const [editEventForm, setEditEventForm] = useState({
+    title: '',
+    description: '',
+    startTime: '09:00',
+    endTime: '10:00',
+    location: '',
+    hasEndTime: true
+  });
+  
+  // Estados para ver todos los eventos de un día
+  const [dayEventsView, setDayEventsView] = useState<{date: Date; events: CalendarEvent[]} | null>(null);
+  const [showDayEventsPanel, setShowDayEventsPanel] = useState(false);
 
   // Estados para editar nombre del equipo
   const [isEditingTeamName, setIsEditingTeamName] = useState(false);
@@ -148,6 +180,14 @@ const DashboardBookings: React.FC = () => {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [editingProfessional, setEditingProfessional] = useState<any | null>(null);
   const [showEditProfessionalModal, setShowEditProfessionalModal] = useState(false);
+  const [editProfessionalForm, setEditProfessionalForm] = useState({
+    name: '',
+    role: '',
+    color: ''
+  });
+  const [professionalAvatar, setProfessionalAvatar] = useState<string | null>(null);
+  const [professionalAvatarFile, setProfessionalAvatarFile] = useState<File | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // ===== EFECTOS =====
 
@@ -157,21 +197,18 @@ const DashboardBookings: React.FC = () => {
     // ✅ CARGAR DATOS REALES DE FIREBASE
     const loadRealData = async () => {
       try {
-        console.log('🔄 Cargando calendarios reales desde Firebase...');
-        
-        // Cargar calendarios del usuario desde Firebase
         const userCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid);
-        console.log('📅 Calendarios encontrados:', userCalendars.length);
         
         setCalendars(userCalendars);
         
-        // ✅ CARGAR EVENTOS DESDE FIREBASE
+        if (userCalendars.length > 0 && userCalendars[0].settings?.customFields) {
+          setGlobalCustomFields(userCalendars[0].settings.customFields);
+        }
+        
         if (userCalendars.length > 0) {
-          console.log('📅 Cargando eventos desde Firebase...');
           const calendarIds = userCalendars.map(cal => cal.id);
           try {
             const firebaseEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-            console.log('🎉 Eventos cargados desde Firebase:', firebaseEvents.length);
             setEvents(firebaseEvents);
           } catch (error) {
             console.error('❌ Error cargando eventos:', error);
@@ -199,10 +236,7 @@ const DashboardBookings: React.FC = () => {
           selectedCalendars: [GENERAL_CALENDAR_ID]
         }));
         
-        // Configurar índice de color para próximos profesionales
         setNextColorIndex(userCalendars.length);
-        
-        console.log('✅ Datos reales cargados exitosamente');
 
         // ✅ AUTO-LIMPIAR DUPLICADOS SI EXISTEN
         if (userCalendars.length > 1) {
@@ -215,11 +249,9 @@ const DashboardBookings: React.FC = () => {
           
           const hasDuplicates = Object.values(emailCounts).some(count => count > 1);
           if (hasDuplicates) {
-            console.log('🧹 Detectados calendarios duplicados, limpiando automáticamente...');
             setTimeout(async () => {
               try {
                 const result = await ProfessionalService.cleanDuplicateCalendars(user.uid);
-                console.log(`✅ Limpieza automática completada: ${result.cleaned} eliminados`);
                 
                 // Recargar después de limpiar
                 if (result.cleaned > 0) {
@@ -294,60 +326,34 @@ const DashboardBookings: React.FC = () => {
     setEventComments(eventComments);
   }, [selectedEvent?.id, user]);
 
-  // ===== DEBUGGING RENDERS =====
-  console.log('🔄 DashboardBookings RENDER - Timestamp:', Date.now());
-  console.log('📊 Estado actual:', {
-    showAddProfessional,
-    rightSidebarOpen,
-    newProfessionalName: newProfessionalName?.substring(0, 10) + '...',
-    newProfessionalEmail: newProfessionalEmail?.substring(0, 10) + '...',
-    eventTitle: newEventForm.title?.substring(0, 10) + '...',
-    calendarsLength: calendars.length,
-    eventsLength: events.length,
-    selectedProfessionalId: selectedProfessional?.id || 'none'
-  });
 
   // ===== HANDLERS MEMOIZADOS (para evitar re-renders que causen pérdida de focus) =====
   
   const handleProfessionalNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('✏️ PROFESIONAL NAME CHANGE:', e.target.value);
-    console.log('🎯 Focus element:', document.activeElement?.tagName, (document.activeElement as HTMLInputElement)?.type);
     setNewProfessionalName(e.target.value);
   }, []);
 
   const handleProfessionalEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('✏️ PROFESIONAL EMAIL CHANGE:', e.target.value);
-    console.log('🎯 Focus element:', document.activeElement?.tagName, (document.activeElement as HTMLInputElement)?.type);
     setNewProfessionalEmail(e.target.value);
   }, []);
 
   const handleEventTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('✏️ EVENT TITLE CHANGE:', e.target.value);
-    console.log('🎯 Focus element:', document.activeElement?.tagName, (document.activeElement as HTMLInputElement)?.type);
     setNewEventForm(prev => ({ ...prev, title: e.target.value }));
   }, []);
 
   const handleEventDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    console.log('✏️ EVENT DESCRIPTION CHANGE:', e.target.value?.substring(0, 20));
-    console.log('🎯 Focus element:', document.activeElement?.tagName, (document.activeElement as HTMLInputElement)?.type);
     setNewEventForm(prev => ({ ...prev, description: e.target.value }));
   }, []);
 
   const handleEventLocationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('✏️ EVENT LOCATION CHANGE:', e.target.value);
-    console.log('🎯 Focus element:', document.activeElement?.tagName, (document.activeElement as HTMLInputElement)?.type);
     setNewEventForm(prev => ({ ...prev, location: e.target.value }));
   }, []);
 
   const handleEventStartTimeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('✏️ EVENT START TIME CHANGE:', e.target.value);
-    console.log('🎯 Focus element:', document.activeElement?.tagName, (document.activeElement as HTMLInputElement)?.type);
     setNewEventForm(prev => ({ ...prev, startTime: e.target.value }));
   }, []);
 
   const handleEventEndTimeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('✏️ EVENT END TIME CHANGE:', e.target.value);
-    console.log('🎯 Focus element:', document.activeElement?.tagName, (document.activeElement as HTMLInputElement)?.type);
     setNewEventForm(prev => ({ ...prev, endTime: e.target.value }));
   }, []);
 
@@ -470,7 +476,6 @@ const DashboardBookings: React.FC = () => {
       event.preventDefault();
     }
     
-    console.log('🎯 Iniciando handleAddProfessional');
 
     // Validaciones
     if (!newProfessionalName.trim()) {
@@ -492,13 +497,10 @@ const DashboardBookings: React.FC = () => {
     }
 
       // ✅ SIMPLIFICADO: Cualquier usuario puede agregar profesionales a su equipo
-      console.log('✅ Usuario puede agregar profesionales a su equipo');
 
-    console.log('✅ Validaciones pasadas, procediendo...');
     setIsCreatingProfessional(true);
 
     try {
-      console.log('🔍 Verificando si existe usuario con email:', newProfessionalEmail);
       
       // Verificar si ya existe un usuario con ese email
       const existingUser = await authService.getUserByEmail(newProfessionalEmail);
@@ -509,7 +511,6 @@ const DashboardBookings: React.FC = () => {
         return;
       }
 
-      console.log('✅ Email disponible, agregando profesional...');
 
       // Verificar que el usuario esté disponible
       if (!user?.uid) {
@@ -532,12 +533,9 @@ const DashboardBookings: React.FC = () => {
         }
       });
       
-      console.log('🎉 Profesional agregado con ID:', professionalId);
 
       // Recargar calendarios desde Firebase
-      console.log('🔄 Recargando calendarios desde Firebase...');
       const allCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid!);
-      console.log('📅 Calendarios obtenidos:', allCalendars.length);
       
       setCalendars(allCalendars);
       
@@ -547,7 +545,6 @@ const DashboardBookings: React.FC = () => {
       // Incrementar el índice de color
       setNextColorIndex(prev => prev + 1);
 
-      console.log('✅ ¡Proceso completado exitosamente!');
       alert(`✅ Calendario para "${newProfessionalName}" creado correctamente.\n\n📧 El profesional debe registrarse con el email: ${newProfessionalEmail}`);
 
     } catch (error) {
@@ -558,7 +555,6 @@ const DashboardBookings: React.FC = () => {
       
       alert(`❌ Error al crear el profesional: ${errorMessage}`);
     } finally {
-      console.log('🏁 Finalizando proceso...');
       setIsCreatingProfessional(false);
     }
   };
@@ -585,8 +581,16 @@ const DashboardBookings: React.FC = () => {
   const openCreateEventPanel = useCallback((date: Date, professional?: SharedCalendar) => {
     const normalizedDate = new Date(date);
     setSelectedDate(normalizedDate);
-    setSelectedProfessional(professional || selectedProfessional);
+    const prof = professional || selectedProfessional;
+    setSelectedProfessional(prof);
     setRightSidebarOpen(true);
+
+    // ✅ CARGAR CAMPOS PERSONALIZADOS DEL CALENDARIO
+    if (prof?.settings?.customFields) {
+      setGlobalCustomFields(prof.settings.customFields);
+    } else {
+      setGlobalCustomFields([]);
+    }
 
     const hasCustomHour = normalizedDate.getHours() !== 0 || normalizedDate.getMinutes() !== 0;
     const defaultStartHour = hasCustomHour ? normalizedDate.getHours() : 9;
@@ -601,8 +605,12 @@ const DashboardBookings: React.FC = () => {
       description: '',
       startTime: formatTime(defaultStartHour, defaultStartMinute),
       endTime: formatTime(defaultEndHour, defaultStartMinute),
-      location: ''
+      location: '',
+      hasEndTime: true
     });
+    
+    // Limpiar datos de campos personalizados
+    setCustomFieldsData({});
   }, [selectedProfessional]);
 
   const closeCreateEventPanel = useCallback(() => {
@@ -613,8 +621,78 @@ const DashboardBookings: React.FC = () => {
       description: '',
       startTime: '09:00',
       endTime: '10:00',
-      location: ''
+      location: '',
+      hasEndTime: true
     });
+    setRecurrence(null);
+    setCustomFieldsData({});
+  }, []);
+  
+  // Handler para abrir panel de edición de evento
+  const openEditEventPanel = useCallback((event: CalendarEvent) => {
+    setEditingEvent(event);
+    setShowEditEventPanel(true);
+    
+    // Cargar datos del evento en el formulario
+    const startHours = event.startDate.getHours();
+    const startMinutes = event.startDate.getMinutes();
+    const startTime = `${startHours.toString().padStart(2, '0')}:${startMinutes.toString().padStart(2, '0')}`;
+    
+    let endTime = '10:00';
+    let hasEndTime = false;
+    
+    if (event.endDate && event.hasEndTime) {
+      const endHours = event.endDate.getHours();
+      const endMinutes = event.endDate.getMinutes();
+      endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+      hasEndTime = true;
+    }
+    
+    setEditEventForm({
+      title: event.title,
+      description: event.description || '',
+      startTime,
+      endTime,
+      location: event.location || '',
+      hasEndTime
+    });
+    
+    // Cargar campos personalizados si existen
+    if (event.customFieldsData) {
+      setCustomFieldsData(event.customFieldsData);
+    } else {
+      setCustomFieldsData({});
+    }
+    
+    // Cerrar modal de evento si estaba abierto
+    setSelectedEvent(null);
+  }, []);
+  
+  // Handler para cerrar panel de edición
+  const closeEditEventPanel = useCallback(() => {
+    setShowEditEventPanel(false);
+    setEditingEvent(null);
+    setEditEventForm({
+      title: '',
+      description: '',
+      startTime: '09:00',
+      endTime: '10:00',
+      location: '',
+      hasEndTime: true
+    });
+    setCustomFieldsData({});
+  }, []);
+  
+  // Handler para abrir panel de eventos del día
+  const openDayEventsPanel = useCallback((date: Date, events: CalendarEvent[]) => {
+    setDayEventsView({ date, events });
+    setShowDayEventsPanel(true);
+  }, []);
+  
+  // Handler para cerrar panel de eventos del día
+  const closeDayEventsPanel = useCallback(() => {
+    setShowDayEventsPanel(false);
+    setDayEventsView(null);
   }, []);
   
   const handleCreateEvent = useCallback(async () => {
@@ -629,23 +707,18 @@ const DashboardBookings: React.FC = () => {
     }
     
     try {
-      console.log('📅 Creando evento en Firebase...');
       
       const startDateTime = new Date(selectedDate);
       const [startHour, startMinute] = newEventForm.startTime.split(':').map(Number);
       startDateTime.setHours(startHour, startMinute, 0, 0);
-      
-      const endDateTime = new Date(selectedDate);
-      const [endHour, endMinute] = newEventForm.endTime.split(':').map(Number);
-      endDateTime.setHours(endHour, endMinute, 0, 0);
       
       // ✅ GUARDAR EN FIREBASE usando CalendarEventService (sin undefined)
       const eventDataToSend: any = {
         calendarId: selectedProfessional.id,
         title: newEventForm.title.trim(),
         startDate: startDateTime,
-        endDate: endDateTime,
         isAllDay: false,
+        hasEndTime: newEventForm.hasEndTime,
         color: selectedProfessional.color,
         createdBy: user.uid,
         attendees: [user.uid],
@@ -655,6 +728,21 @@ const DashboardBookings: React.FC = () => {
         visibility: 'public',
         reminders: []
       };
+      
+      // Solo agregar endDate si se especificó hora de fin
+      let endDateTime: Date | undefined;
+      let eventDurationMinutes: number | undefined;
+
+      if (newEventForm.hasEndTime) {
+        endDateTime = new Date(selectedDate);
+        const [endHour, endMinute] = newEventForm.endTime.split(':').map(Number);
+        endDateTime.setHours(endHour, endMinute, 0, 0);
+        eventDataToSend.endDate = endDateTime;
+        eventDurationMinutes = Math.max(0, Math.round((endDateTime.getTime() - startDateTime.getTime()) / 60000));
+        if (eventDurationMinutes > 0) {
+          eventDataToSend.duration = eventDurationMinutes;
+        }
+      }
 
       // Solo agregar campos opcionales si tienen valor
       const description = newEventForm.description?.trim();
@@ -667,18 +755,24 @@ const DashboardBookings: React.FC = () => {
         eventDataToSend.location = location;
       }
 
-      console.log('📤 Enviando evento a Firebase:', eventDataToSend);
+      // Agregar recurrencia si está activada
+      if (recurrence && recurrence.type !== 'none') {
+        eventDataToSend.recurring = recurrence;
+      }
+
+      // Agregar campos personalizados si existen
+      if (Object.keys(customFieldsData).length > 0) {
+        eventDataToSend.customFieldsData = { ...customFieldsData };
+      }
+
 
       const eventId = await CalendarEventService.createEvent(selectedProfessional.id, eventDataToSend);
       
-      console.log('✅ Evento creado en Firebase con ID:', eventId);
       
       // ✅ RECARGAR EVENTOS DESDE FIREBASE para mostrar el nuevo evento
-      console.log('🔄 Recargando eventos desde Firebase...');
       try {
         const calendarIds = calendars.map(cal => cal.id);
         const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-        console.log('🎉 Eventos recargados:', updatedEvents.length);
         setEvents(updatedEvents);
       } catch (error) {
         console.error('❌ Error recargando eventos:', error);
@@ -692,6 +786,8 @@ const DashboardBookings: React.FC = () => {
           startDate: startDateTime,
           endDate: endDateTime,
           isAllDay: false,
+          hasEndTime: newEventForm.hasEndTime,
+          duration: eventDurationMinutes,
           location: eventDataToSend.location || undefined,
           color: selectedProfessional.color,
           createdBy: user.uid,
@@ -701,10 +797,11 @@ const DashboardBookings: React.FC = () => {
           status: 'confirmed',
           visibility: 'public',
           reminders: [],
+          customFieldsData: Object.keys(customFieldsData).length > 0 ? { ...customFieldsData } : undefined,
           createdAt: new Date(),
           updatedAt: new Date()
         };
-        
+
         setEvents(prev => [...prev, newEvent]);
       }
       
@@ -716,6 +813,83 @@ const DashboardBookings: React.FC = () => {
       alert(`❌ Error al crear evento: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   }, [selectedDate, selectedProfessional, newEventForm, user?.uid, calendars, closeCreateEventPanel]);
+  
+  // Handler para actualizar evento
+  const handleUpdateEvent = useCallback(async () => {
+    if (!editingEvent || !editEventForm.title.trim()) {
+      alert('Por favor completa todos los campos requeridos');
+      return;
+    }
+
+    try {
+      
+      const startDateTime = new Date(editingEvent.startDate);
+      const [startHour, startMinute] = editEventForm.startTime.split(':').map(Number);
+      startDateTime.setHours(startHour, startMinute, 0, 0);
+      
+      const updates: any = {
+        title: editEventForm.title.trim(),
+        startDate: startDateTime,
+        hasEndTime: editEventForm.hasEndTime,
+        updatedAt: new Date()
+      };
+      
+      // Solo agregar endDate si se especificó hora de fin
+      let endDateTime: Date | undefined;
+      let eventDurationMinutes: number | undefined;
+
+      if (editEventForm.hasEndTime) {
+        endDateTime = new Date(editingEvent.startDate);
+        const [endHour, endMinute] = editEventForm.endTime.split(':').map(Number);
+        endDateTime.setHours(endHour, endMinute, 0, 0);
+        updates.endDate = endDateTime;
+        eventDurationMinutes = Math.max(0, Math.round((endDateTime.getTime() - startDateTime.getTime()) / 60000));
+        if (eventDurationMinutes > 0) {
+          updates.duration = eventDurationMinutes;
+        }
+      } else {
+        // Si se quitó la hora de fin, limpiar campos relacionados
+        updates.endDate = null;
+        updates.duration = 0;
+      }
+
+      // Campos opcionales
+      const description = editEventForm.description?.trim();
+      if (description) {
+        updates.description = description;
+      } else {
+        updates.description = '';
+      }
+
+      const location = editEventForm.location?.trim();
+      if (location) {
+        updates.location = location;
+      } else {
+        updates.location = '';
+      }
+
+      // Actualizar campos personalizados
+      if (Object.keys(customFieldsData).length > 0) {
+        updates.customFieldsData = { ...customFieldsData };
+      }
+
+
+      await CalendarEventService.updateEvent(editingEvent.id, updates);
+      
+      
+      // Recargar eventos desde Firebase
+      const calendarIds = calendars.map(cal => cal.id);
+      const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
+      setEvents(updatedEvents);
+      
+      closeEditEventPanel();
+      alert(`✅ Evento "${editEventForm.title}" actualizado correctamente`);
+      
+    } catch (error) {
+      console.error('❌ Error actualizando evento:', error);
+      alert(`❌ Error al actualizar evento: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  }, [editingEvent, editEventForm, customFieldsData, calendars, closeEditEventPanel]);
   
   const getCurrentProfessionalInfo = () => {
     if (calendarState.selectedCalendars.includes(GENERAL_CALENDAR_ID)) {
@@ -734,10 +908,16 @@ const DashboardBookings: React.FC = () => {
     return null;
   };
 
+  const teamDisplayName = user?.teamName || `Equipo de ${user?.displayName || 'Usuario'}`;
+  const professionalCount = calendars.length;
+  const totalCalendars = professionalCount + 1;
+  const calendarCountLabel = `${totalCalendars} calendario${totalCalendars === 1 ? '' : 's'}`;
+  const professionalCountLabel = `${professionalCount} profesional${professionalCount === 1 ? '' : 'es'}`;
+
   // ===== GESTIÓN DE NOMBRE DE EQUIPO =====
   
   const startEditingTeamName = () => {
-    setEditingTeamName(user?.teamName || `Equipo de ${user?.displayName || 'Usuario'}`);
+    setEditingTeamName(teamDisplayName);
     setIsEditingTeamName(true);
   };
 
@@ -772,13 +952,194 @@ const DashboardBookings: React.FC = () => {
     return user.professionals.find(p => p.email === calendar.linkedEmail);
   };
 
+  // Helper para obtener el avatar del profesional desde el calendario
+  const getProfessionalAvatar = (calendarId: string): string | null => {
+    const calendar = calendars.find(c => c.id === calendarId);
+    if (!calendar) return null;
+    
+    // 🔧 FIX: Si hay solo 1 member, devolverlo directamente
+    // Si hay más, buscar por linkedEmail
+    const member = calendar.members.length === 1
+      ? calendar.members[0]
+      : calendar.members.find(m => m.email === calendar.linkedEmail);
+    
+    return member?.avatar || null;
+  };
+
+  // Helper para obtener el nombre del profesional
+  const getProfessionalName = (calendarId: string): string => {
+    const calendar = calendars.find(c => c.id === calendarId);
+    if (!calendar) return 'Profesional';
+    
+    // 🔧 FIX: Si hay solo 1 member, devolverlo directamente
+    // Si hay más, buscar por linkedEmail
+    const member = calendar.members.length === 1
+      ? calendar.members[0]
+      : calendar.members.find(m => m.email === calendar.linkedEmail);
+    
+    return member?.name || calendar.name.replace('Calendario de ', '');
+  };
+
   const handleEditProfessional = (calendar: SharedCalendar) => {
     const professional = getProfessionalFromCalendar(calendar);
     if (professional) {
       setEditingProfessional({ ...professional, calendarId: calendar.id });
+      setEditProfessionalForm({
+        name: professional.name || calendar.name,
+        role: professional.role || '',
+        color: calendar.color
+      });
+      
+      // Buscar el avatar en los members del calendario
+      const member = calendar.members.find(m => m.email === calendar.linkedEmail);
+      setProfessionalAvatar(member?.avatar || null);
+      
       setShowEditProfessionalModal(true);
     }
     setOpenMenuId(null);
+  };
+
+  // Handler para cambiar avatar
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo de archivo
+    if (!file.type.startsWith('image/')) {
+      alert('❌ Por favor selecciona una imagen válida');
+      return;
+    }
+
+    // Validar tamaño (máximo 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('❌ La imagen no debe superar 5MB');
+      return;
+    }
+
+    setProfessionalAvatarFile(file);
+    
+    // Crear preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setProfessionalAvatar(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Handler para actualizar información del profesional
+  const handleUpdateProfessional = async () => {
+    if (!editingProfessional || !user?.uid) {
+      alert('❌ Error: Información del profesional no disponible');
+      return;
+    }
+
+    if (!editProfessionalForm.name.trim()) {
+      alert('❌ El nombre es obligatorio');
+      return;
+    }
+
+    try {
+      setUploadingAvatar(true);
+
+      // Obtener el avatar actual del profesional desde el calendario
+      const currentCalendar = calendars.find(c => c.id === editingProfessional.calendarId);
+      const currentMember = currentCalendar?.members.find(m => 
+        m.email === currentCalendar.linkedEmail || 
+        (currentCalendar.members.length === 1)
+      );
+      
+      let avatarUrl = currentMember?.avatar || null;
+
+      // Si hay un nuevo archivo de avatar, subirlo
+      if (professionalAvatarFile) {
+        const startTime = Date.now();
+
+        // Comprimir imagen usando el perfil medium (640x640)
+        const compressed = await ImageCompressionService.compressImage(
+          professionalAvatarFile,
+          ImageCompressionService.PROFILES.medium
+        );
+
+        // Subir a Firebase Storage
+        const fileName = `avatar_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.webp`;
+        const storagePath = `calendars/${editingProfessional.calendarId}/professionals/${fileName}`;
+        const storageRef = ref(storage, storagePath);
+
+        await uploadBytes(storageRef, compressed.file);
+        avatarUrl = await getDownloadURL(storageRef);
+      }
+
+      // Actualizar en Firestore
+      const calendarRef = doc(db, 'shared_calendars', editingProfessional.calendarId);
+      
+      // Obtener el calendario actual
+      const calendar = calendars.find(c => c.id === editingProfessional.calendarId);
+      if (!calendar) {
+        throw new Error('Calendario no encontrado');
+      }
+
+
+      // 🔧 FIX DEFINITIVO: Si hay solo 1 member, actualizarlo directamente
+      // Si hay más, buscar por email coincidente
+      const updatedMembers: CalendarUser[] = calendar.members.length === 1
+        ? [{
+            ...calendar.members[0],
+            name: editProfessionalForm.name.trim(),
+            avatar: avatarUrl,  // ✅ Siempre usar el nuevo avatar si existe
+            color: editProfessionalForm.color,
+            role: editProfessionalForm.role
+          } as CalendarUser]
+        : calendar.members.map(member => {
+            // Buscar coincidencia con linkedEmail o con el email del profesional
+            const shouldUpdate = member.email === calendar.linkedEmail || 
+                                 member.email === editingProfessional.email;
+            
+            if (shouldUpdate) {
+              return {
+                ...member,
+                name: editProfessionalForm.name.trim(),
+                avatar: avatarUrl,  // ✅ Siempre usar el nuevo avatar si existe
+                color: editProfessionalForm.color,
+                role: editProfessionalForm.role
+              } as CalendarUser;
+            }
+            return member;
+          });
+      
+      // Actualizar en Firestore
+      await updateDoc(calendarRef, {
+        name: `Calendario de ${editProfessionalForm.name.trim()}`,
+        color: editProfessionalForm.color,
+        members: updatedMembers,
+        updatedAt: Timestamp.now()
+      });
+
+
+      // RECARGAR CALENDARIOS DESDE FIREBASE para asegurar sincronización
+      if (user?.uid) {
+        const updatedCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid);
+        setCalendars(updatedCalendars);
+
+        // También recargar eventos para actualizar las referencias
+        const calendarIds = updatedCalendars.map(cal => cal.id);
+        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
+        setEvents(updatedEvents);
+      }
+
+      // Cerrar modal
+      setShowEditProfessionalModal(false);
+      setEditingProfessional(null);
+      setProfessionalAvatar(null);
+      setProfessionalAvatarFile(null);
+      
+      alert(`✅ Información de ${editProfessionalForm.name} actualizada correctamente\n\n🔄 La página se actualizará para mostrar los cambios.`);
+
+    } catch (error) {
+      console.error('❌ Error actualizando profesional:', error);
+      alert(`❌ Error al actualizar: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   const handleRemoveProfessional = async (calendar: SharedCalendar) => {
@@ -816,42 +1177,92 @@ const DashboardBookings: React.FC = () => {
   // ===== COMPONENTES =====
   
   const calendarSidebar = useMemo(() => {
-    console.log('📊 SIDEBAR: Renderizando CalendarSidebar');
-    
+
     const sortedCalendars = [...calendars].sort((a, b) =>
       a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })
     );
 
     const generalSelected = calendarState.selectedCalendars.includes(GENERAL_CALENDAR_ID);
     const visibleCalendarIds = getVisibleCalendarIds();
-
   return (
       <div className={`bg-white border-r border-gray-200 transition-all duration-300 ${
         sidebarOpen ? 'w-80' : 'w-0'
-      } overflow-hidden`}>
-        <div className="p-4 space-y-6">
+      } overflow-hidden flex flex-col`}>
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 min-h-0">
           {/* Calendario general */}
           <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-gray-900 flex items-center space-x-2">
-                <CalendarIcon className="w-5 h-5 text-green-600" />
-                <span>Calendario general</span>
-              </h2>
-               <button
-                 onClick={() => selectCalendar(GENERAL_CALENDAR_ID)}
-                 className={`p-1.5 rounded-lg transition-colors ${
-                   generalSelected 
-                     ? 'bg-green-100 text-green-600' 
-                     : 'text-gray-600 hover:text-green-600 hover:bg-green-50'
-                 }`}
-               >
-                 {generalSelected ? (
-                   <Eye className="w-5 h-5" />
-                 ) : (
-                   <EyeOff className="w-5 h-5" />
-                 )}
-               </button>
-      </div>
+            <div className="flex items-start justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="w-5 h-5 text-green-600" />
+                  {isEditingTeamName ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editingTeamName}
+                        onChange={(e) => setEditingTeamName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveTeamName();
+                          if (e.key === 'Escape') cancelEditingTeamName();
+                        }}
+                        className="px-2 py-1 text-sm border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white text-green-900"
+                        placeholder="Nombre del equipo"
+                        disabled={isUpdatingTeamName}
+                        autoFocus
+                      />
+                      <button
+                        onClick={saveTeamName}
+                        disabled={isUpdatingTeamName || !editingTeamName.trim()}
+                        className="p-1 text-green-600 hover:text-green-700 disabled:opacity-50"
+                        title="Guardar nombre del equipo"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={cancelEditingTeamName}
+                        disabled={isUpdatingTeamName}
+                        className="p-1 text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                        title="Cancelar edición"
+                      >
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-900">
+                        {teamDisplayName}
+                      </span>
+                      <button
+                        onClick={startEditingTeamName}
+                        className="p-1 text-green-600 hover:text-green-700 transition-colors"
+                        title="Editar nombre del equipo"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500">
+                  Total: {calendarCountLabel} · {professionalCountLabel}
+                </p>
+              </div>
+
+              <button
+                onClick={() => selectCalendar(GENERAL_CALENDAR_ID)}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  generalSelected
+                    ? 'bg-green-100 text-green-600'
+                    : 'text-gray-600 hover:text-green-600 hover:bg-green-50'
+                }`}
+                title={generalSelected ? 'Ocultar calendario general' : 'Mostrar calendario general'}
+              >
+                {generalSelected ? (
+                  <Eye className="w-5 h-5" />
+                ) : (
+                  <EyeOff className="w-5 h-5" />
+                )}
+              </button>
+            </div>
 
             <div 
               className={`p-3 border rounded-lg cursor-pointer transition-colors ${
@@ -1038,7 +1449,7 @@ const DashboardBookings: React.FC = () => {
 
                   {/* Menú contextual */}
                   {openMenuId === calendar.id && (
-                    <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10 min-w-[160px]">
+                    <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10 min-w-[200px]">
               <button 
                         onClick={() => handleEditProfessional(calendar)}
                         className="w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
@@ -1083,10 +1494,10 @@ const DashboardBookings: React.FC = () => {
               </div>
           </section>
 
-          {/* Acceso a opciones avanzadas */}
+          {/* Acceso a configuración del formulario */}
                 <button 
-            onClick={() => setShowCreateCalendar(true)}
-            className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-green-400 hover:text-green-600 transition-colors flex items-center justify-center space-x-2"
+            onClick={() => setShowFormEditor(true)}
+            className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-purple-400 hover:text-purple-600 transition-colors flex items-center justify-center space-x-2"
           >
             <Settings className="w-4 h-4" />
             <span className="text-sm font-medium">Configuración avanzada</span>
@@ -1107,7 +1518,15 @@ const DashboardBookings: React.FC = () => {
     handleProfessionalNameChange,
     handleProfessionalEmailChange,
     selectCalendar,
-    toggleMenu
+    toggleMenu,
+    isEditingTeamName,
+    editingTeamName,
+    isUpdatingTeamName,
+    startEditingTeamName,
+    saveTeamName,
+    cancelEditingTeamName,
+    user?.teamName,
+    user?.displayName
   ]);
   
   const WEEK_START_HOUR = 7;
@@ -1201,7 +1620,7 @@ const DashboardBookings: React.FC = () => {
                                 key={event.id}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setSelectedEvent(event);
+                                  openEditEventPanel(event);
                                 }}
                                 className="w-full text-left bg-blue-500/90 hover:bg-blue-600 text-white rounded-lg px-2 py-1 transition-colors shadow-sm"
                                 style={{ backgroundColor: getCalendarColor(event.calendarId) }}
@@ -1209,8 +1628,12 @@ const DashboardBookings: React.FC = () => {
                                 <div className="text-xs font-semibold truncate">{event.title}</div>
                                 <div className="text-[10px] text-white/80">
                                   {event.startDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                                  {' - '}
-                                  {event.endDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                                  {event.endDate && event.hasEndTime ? (
+                                    <>
+                                      {' - '}
+                                      {event.endDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                                    </>
+                                  ) : null}
                                 </div>
                               </button>
                             ))}
@@ -1265,12 +1688,12 @@ const DashboardBookings: React.FC = () => {
                 {day.isToday && <div className="w-2 h-2 bg-blue-500 rounded-full" />}
               </div>
               <div className="space-y-1">
-                {day.events.slice(0, 3).map(event => (
+                {day.events.slice(0, 2).map(event => (
                   <div
                     key={event.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedEvent(event);
+                      openEditEventPanel(event);
                     }}
                     className="px-2 py-1 rounded text-xs font-medium text-white truncate cursor-pointer hover:opacity-80 transition-opacity"
                     style={{ backgroundColor: getCalendarColor(event.calendarId) }}
@@ -1278,9 +1701,15 @@ const DashboardBookings: React.FC = () => {
                     {event.title}
                   </div>
                 ))}
-                {day.events.length > 3 && (
-                  <div className="text-xs text-gray-500 px-2">
-                    +{day.events.length - 3} más
+                {day.events.length > 2 && (
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openDayEventsPanel(day.date, day.events);
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 cursor-pointer hover:underline"
+                  >
+                    +{day.events.length - 2} más
                   </div>
                 )}
               </div>
@@ -1295,6 +1724,8 @@ const DashboardBookings: React.FC = () => {
     selectedProfessional,
     events,
     openCreateEventPanel,
+    openEditEventPanel,
+    openDayEventsPanel,
     getCalendarColor,
     setSelectedEvent,
     calendars,
@@ -1306,7 +1737,15 @@ const DashboardBookings: React.FC = () => {
     if (!selectedEvent) return null;
     
     const calendar = calendars.find(c => c.id === selectedEvent.calendarId);
-    
+    const customFieldDefinitions = new Map(globalCustomFields.map(field => [field.id, field]));
+    const customFieldEntries = Object.entries(selectedEvent.customFieldsData || {}).filter(([, value]) => {
+      if (value === null || value === undefined) return false;
+      if (typeof value === 'string') return value.trim().length > 0;
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === 'object') return Object.keys(value).length > 0;
+      return true;
+    });
+
     return (
       <AnimatePresence>
         <motion.div
@@ -1373,7 +1812,199 @@ const DashboardBookings: React.FC = () => {
                 <p className="text-sm text-gray-700 mt-3">
                   {selectedEvent.description}
                 </p>
-                        )}
+              )}
+
+              {customFieldEntries.length > 0 && (
+                <div className="pt-3 border-t border-gray-200 space-y-2">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Información adicional
+                  </h3>
+                  <div className="space-y-2">
+                    {customFieldEntries.map(([fieldId, value]) => {
+                      const definition = customFieldDefinitions.get(fieldId);
+                      const label = definition?.label || fieldId;
+                      const type = definition?.type;
+                      let displayValue: React.ReactNode;
+
+                      if (type === 'url' && typeof value === 'string') {
+                        displayValue = (
+                          <a
+                            href={value.startsWith('http') ? value : `https://${value}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center text-sm text-blue-600 hover:text-blue-700"
+                          >
+                            {value}
+                            <ExternalLink className="w-3 h-3 ml-1" />
+                          </a>
+                        );
+                      } else if (Array.isArray(value)) {
+                        displayValue = (
+                          <span className="text-sm text-gray-700">
+                            {value.join(', ')}
+                          </span>
+                        );
+                      } else if (typeof value === 'object') {
+                        displayValue = (
+                          <span className="text-sm text-gray-700">
+                            {JSON.stringify(value)}
+                          </span>
+                        );
+                      } else {
+                        displayValue = (
+                          <span className="text-sm text-gray-700 break-words">
+                            {value as string}
+                          </span>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={fieldId}
+                          className="bg-gray-50 border border-gray-200 rounded-lg p-2"
+                        >
+                          <p className="text-xs font-medium text-gray-500 mb-1">
+                            {label}
+                          </p>
+                          {displayValue}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Indicador de evento recurrente */}
+              {(selectedEvent.recurring || selectedEvent.isRecurringInstance) && (
+                <div className="flex items-center space-x-2 p-2 bg-purple-50 border border-purple-200 rounded-lg">
+                  <Repeat className="w-4 h-4 text-purple-600" />
+                  <span className="text-xs font-medium text-purple-700">
+                    {selectedEvent.recurring ? 'Evento recurrente (padre)' : 'Parte de serie recurrente'}
+                  </span>
+                </div>
+              )}
+          </div>
+
+          {/* Acciones de eliminación */}
+          <div className="px-4 pb-4 space-y-2 border-b border-gray-200">
+            {selectedEvent.recurring && !selectedEvent.isRecurringInstance ? (
+              // Es el evento padre - opción de eliminar toda la serie
+              <button
+                onClick={async () => {
+                  if (confirm('¿Eliminar TODA la serie de eventos recurrentes?\n\nEsto eliminará todas las ocurrencias futuras.')) {
+                    try {
+                      await CalendarEventService.deleteRecurringSeries(selectedEvent.id);
+                      setSelectedEvent(null);
+                      // Recargar eventos
+                      const calendarIds = calendars.map(cal => cal.id);
+                      const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
+                      setEvents(updatedEvents);
+                    } catch (error) {
+                      console.error('Error eliminando serie:', error);
+                      alert('Error al eliminar la serie de eventos');
+                    }
+                  }
+                }}
+                className="w-full px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Eliminar serie completa</span>
+              </button>
+            ) : selectedEvent.isRecurringInstance ? (
+              // Es una instancia - tres opciones: solo esta, desde aquí, o toda la serie
+              <div className="space-y-2">
+                <button
+                  onClick={async () => {
+                    if (confirm('¿Eliminar solo este evento?\n\nLos demás eventos de la serie se mantendrán.')) {
+                      try {
+                        await CalendarEventService.deleteEvent(selectedEvent.id);
+                        setSelectedEvent(null);
+                        // Recargar eventos
+                        const calendarIds = calendars.map(cal => cal.id);
+                        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
+                        setEvents(updatedEvents);
+                      } catch (error) {
+                        console.error('Error eliminando evento:', error);
+                        alert('Error al eliminar el evento');
+                      }
+                    }
+                  }}
+                  className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Eliminar solo este evento</span>
+                </button>
+                <button
+                  onClick={async () => {
+                    const eventDate = selectedEvent.startDate.toLocaleDateString('es-ES');
+                    if (confirm(`¿Eliminar desde este evento hacia adelante?\n\nSe eliminarán desde ${eventDate} en adelante.\nEl historial anterior se mantendrá.`)) {
+                      try {
+                        await CalendarEventService.deleteRecurringSeriesFromDate(
+                          selectedEvent.parentEventId!,
+                          selectedEvent.startDate
+                        );
+                        setSelectedEvent(null);
+                        // Recargar eventos
+                        const calendarIds = calendars.map(cal => cal.id);
+                        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
+                        setEvents(updatedEvents);
+                      } catch (error) {
+                        console.error('Error eliminando serie desde fecha:', error);
+                        alert('Error al eliminar los eventos desde esta fecha');
+                      }
+                    }
+                  }}
+                  className="w-full px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Eliminar desde aquí →</span>
+                </button>
+                <button
+                  onClick={async () => {
+                    if (confirm('¿Eliminar TODA la serie de eventos?\n\nEsto eliminará TODAS las ocurrencias, incluyendo el historial.')) {
+                      try {
+                        await CalendarEventService.deleteRecurringSeries(selectedEvent.parentEventId!);
+                        setSelectedEvent(null);
+                        // Recargar eventos
+                        const calendarIds = calendars.map(cal => cal.id);
+                        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
+                        setEvents(updatedEvents);
+                      } catch (error) {
+                        console.error('Error eliminando serie:', error);
+                        alert('Error al eliminar la serie de eventos');
+                      }
+                    }
+                  }}
+                  className="w-full px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Eliminar serie completa</span>
+                </button>
+              </div>
+            ) : (
+              // Evento normal - solo eliminar este
+              <button
+                onClick={async () => {
+                  if (confirm('¿Eliminar este evento?')) {
+                    try {
+                      await CalendarEventService.deleteEvent(selectedEvent.id);
+                      setSelectedEvent(null);
+                      // Recargar eventos
+                      const calendarIds = calendars.map(cal => cal.id);
+                      const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
+                      setEvents(updatedEvents);
+                    } catch (error) {
+                      console.error('Error eliminando evento:', error);
+                      alert('Error al eliminar el evento');
+                    }
+                  }
+                }}
+                className="w-full px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Eliminar evento</span>
+              </button>
+            )}
           </div>
           
             {/* Comentarios */}
@@ -1443,7 +2074,7 @@ const DashboardBookings: React.FC = () => {
         </motion.div>
       </AnimatePresence>
     );
-  }, [selectedEvent, calendars, eventComments, newComment]);
+  }, [selectedEvent, calendars, eventComments, newComment, globalCustomFields]);
 
   // Panel lateral derecho para crear eventos  
   const createEventSidebar = useMemo(() => {
@@ -1503,10 +2134,43 @@ const DashboardBookings: React.FC = () => {
             />
                         </div>
                         
-          <div className="grid grid-cols-2 gap-3">
+          {/* Toggle para tipo de duración */}
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-2">
+              <Clock className="w-5 h-5 text-gray-600" />
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {newEventForm.hasEndTime ? 'Rango de horas' : 'Hora única'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {newEventForm.hasEndTime 
+                    ? 'Se calculará duración para analytics' 
+                    : 'Evento sin duración específica'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNewEventForm(prev => ({ 
+                ...prev, 
+                hasEndTime: !prev.hasEndTime 
+              }))}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                newEventForm.hasEndTime ? 'bg-blue-600' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  newEventForm.hasEndTime ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className={`grid ${newEventForm.hasEndTime ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Hora inicio
+                Hora {newEventForm.hasEndTime ? 'inicio' : ''}
               </label>
               <input
                 key="event-start-time-stable-input" 
@@ -1515,21 +2179,23 @@ const DashboardBookings: React.FC = () => {
                 onChange={handleEventStartTimeChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
-                          </div>
+            </div>
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Hora fin
-              </label>
-              <input
-                key="event-end-time-stable-input" 
-                type="time"
-                value={newEventForm.endTime}
-                onChange={handleEventEndTimeChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-                      </div>
-                    </div>
+            {newEventForm.hasEndTime && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Hora fin
+                </label>
+                <input
+                  key="event-end-time-stable-input" 
+                  type="time"
+                  value={newEventForm.endTime}
+                  onChange={handleEventEndTimeChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            )}
+          </div>
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1557,8 +2223,128 @@ const DashboardBookings: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Ej: Consultorio 2, Online, etc."
             />
-            </div>
           </div>
+
+          {/* Divider */}
+          <div className="border-t border-gray-200 my-4"></div>
+
+          {/* Recurrencia */}
+          <RecurrenceSelector
+            value={recurrence}
+            onChange={setRecurrence}
+          />
+
+          {/* Campos Personalizados Dinámicos */}
+          {globalCustomFields && 
+           globalCustomFields.filter(f => f.isVisible).length > 0 && (
+            <>
+              <div className="border-t border-gray-200 my-4"></div>
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-gray-900">Información Adicional</h4>
+                {globalCustomFields
+                  .filter(f => f.isVisible)
+                  .sort((a, b) => a.order - b.order)
+                  .map(field => (
+                    <div key={field.id}>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        {field.label} {field.required && <span className="text-red-500">*</span>}
+                      </label>
+                      
+                      {field.type === 'text' && (
+                        <input
+                          type="text"
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          value={customFieldsData[field.id] || ''}
+                          onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
+                      
+                      {field.type === 'textarea' && (
+                        <textarea
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          value={customFieldsData[field.id] || ''}
+                          onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          rows={3}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        />
+                      )}
+                      
+                      {field.type === 'url' && (
+                        <input
+                          type="url"
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          value={customFieldsData[field.id] || ''}
+                          onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
+                      
+                      {field.type === 'email' && (
+                        <input
+                          type="email"
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          value={customFieldsData[field.id] || ''}
+                          onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
+                      
+                      {field.type === 'phone' && (
+                        <input
+                          type="tel"
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          value={customFieldsData[field.id] || ''}
+                          onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
+                      
+                      {field.type === 'number' && (
+                        <input
+                          type="number"
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          value={customFieldsData[field.id] || ''}
+                          onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
+                      
+                      {field.type === 'select' && (
+                        <select
+                          required={field.required}
+                          value={customFieldsData[field.id] || ''}
+                          onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Seleccionar...</option>
+                          {field.options?.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      )}
+                      
+                      {field.type === 'date' && (
+                        <input
+                          type="date"
+                          required={field.required}
+                          value={customFieldsData[field.id] || ''}
+                          onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
         
         {/* Footer con botones */}
         <div className="p-4 border-t border-gray-200">
@@ -1586,6 +2372,9 @@ const DashboardBookings: React.FC = () => {
     selectedDate,
     selectedProfessional,
     newEventForm,
+    recurrence,
+    customFieldsData,
+    globalCustomFields,
     handleCreateEvent,
     closeCreateEventPanel,
     handleEventTitleChange,
@@ -1596,70 +2385,12 @@ const DashboardBookings: React.FC = () => {
   ]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="h-screen bg-gray-50 flex overflow-hidden">
       {/* Sidebar de calendarios */}
       {calendarSidebar}
       
       {/* Contenido principal */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header del equipo (editable) */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-200 px-6 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Users className="w-5 h-5 text-blue-600" />
-              
-              {isEditingTeamName ? (
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={editingTeamName}
-                    onChange={(e) => setEditingTeamName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveTeamName();
-                      if (e.key === 'Escape') cancelEditingTeamName();
-                    }}
-                    className="px-3 py-1 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-blue-900 font-medium"
-                    placeholder="Nombre del equipo"
-                    disabled={isUpdatingTeamName}
-                    autoFocus
-                  />
-            <button 
-                    onClick={saveTeamName}
-                    disabled={isUpdatingTeamName || !editingTeamName.trim()}
-                    className="p-1 text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={cancelEditingTeamName}
-                    disabled={isUpdatingTeamName}
-                    className="p-1 text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                  >
-                    <XCircle className="w-4 h-4" />
-                  </button>
-              </div>
-            ) : (
-                <div className="flex items-center space-x-2">
-                  <h2 className="text-lg font-semibold text-blue-900">
-                    {user?.teamName || `Equipo de ${user?.displayName || 'Usuario'}`}
-                  </h2>
-                  <button
-                    onClick={startEditingTeamName}
-                    className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
-                    title="Editar nombre del equipo"
-                  >
-                    <Edit3 className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-                        </div>
-                        
-            <div className="text-sm text-blue-700">
-              {calendars.length} calendario{calendars.length !== 1 ? 's' : ''}
-            </div>
-          </div>
-                </div>
-                        
+      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
         {/* Header estilo TimeTree */}
         <div className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -1783,15 +2514,94 @@ const DashboardBookings: React.FC = () => {
       {/* Modal de evento con chat */}
       {eventModal}
       
-      {/* Modal crear calendario */}
-      <CreateCalendarModal 
-        isOpen={showCreateCalendar}
-        onClose={() => setShowCreateCalendar(false)}
-        onCalendarCreated={() => {
-          // Recargar calendario se hará automáticamente por el subscription
-          setShowCreateCalendar(false);
-        }}
-      />
+      {/* Modal Editor de Formularios */}
+      {showFormEditor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center">
+                    <Settings className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      Configuración Avanzada
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Personaliza el formulario de eventos para todos los profesionales
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowFormEditor(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <CustomFieldsEditor
+                fields={globalCustomFields}
+                onUpdate={async (fields) => {
+                  if (!user?.uid) return;
+                  
+                  try {
+                    const sanitizedFields = fields.map(field => ({ ...field }));
+
+                    await updateDoc(doc(db, 'users', user.uid), {
+                      eventFormCustomFields: sanitizedFields
+                    });
+
+                    await Promise.all(
+                      calendars.map(calendar =>
+                        updateDoc(doc(db, 'shared_calendars', calendar.id), {
+                          'settings.customFields': sanitizedFields,
+                          updatedAt: Timestamp.now()
+                        })
+                      )
+                    );
+                    
+                    setGlobalCustomFields(sanitizedFields);
+                    setCalendars(prev => prev.map(calendar => ({
+                      ...calendar,
+                      settings: {
+                        ...calendar.settings,
+                        customFields: sanitizedFields
+                      },
+                      updatedAt: new Date()
+                    })));
+
+                  } catch (error) {
+                    console.error('❌ Error al guardar campos:', error);
+                    alert('Error al guardar los campos personalizados');
+                  }
+                }}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-200">
+              <button
+                onClick={() => setShowFormEditor(false)}
+                className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors font-medium"
+              >
+                Cerrar
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
       
       {/* FAB para crear evento */}
       {selectedProfessional && (
@@ -1805,93 +2615,595 @@ const DashboardBookings: React.FC = () => {
 
       {/* Modal para editar profesional */}
       {showEditProfessionalModal && editingProfessional && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center gap-2">
+              <Edit3 className="w-5 h-5 text-blue-600" />
               Editar información del profesional
             </h3>
             
-            <div className="space-y-4">
+            <div className="space-y-5">
+              {/* Avatar Upload */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nombre
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Foto de perfil
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="relative group">
+                    <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center border-2 border-gray-200">
+                      {professionalAvatar ? (
+                        <img 
+                          src={professionalAvatar} 
+                          alt="Avatar" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-12 h-12 text-gray-400" />
+                      )}
+                    </div>
+                    
+                    {/* Hover overlay */}
+                    <label className="absolute inset-0 bg-black bg-opacity-50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                      <Camera className="w-6 h-6 text-white" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                  
+                  <div className="flex-1">
+                    <label className="cursor-pointer">
+                      <div className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                        <Upload className="w-4 h-4 text-gray-600" />
+                        <span className="text-sm text-gray-600">
+                          {professionalAvatarFile ? professionalAvatarFile.name : 'Subir nueva foto'}
+                        </span>
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarChange}
+                        className="hidden"
+                      />
+                    </label>
+                    <p className="text-xs text-gray-500 mt-2">
+                      JPG, PNG o WEBP. Máx 5MB. Se comprimirá automáticamente.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 my-4"></div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nombre completo *
                 </label>
                 <input
                   type="text"
-                  defaultValue={editingProfessional.name}
+                  value={editProfessionalForm.name}
+                  onChange={(e) => setEditProfessionalForm(prev => ({ ...prev, name: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ej: Dr. Juan Pérez"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Email
                 </label>
                 <input
                   type="email"
-                  defaultValue={editingProfessional.email}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                  value={editingProfessional.email}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
                   disabled
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  El email no se puede modificar
+                  ℹ️ El email no se puede modificar
                 </p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Especialidad/Rol
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Especialidad / Rol
                 </label>
                 <input
                   type="text"
-                  defaultValue={editingProfessional.role}
+                  value={editProfessionalForm.role}
+                  onChange={(e) => setEditProfessionalForm(prev => ({ ...prev, role: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ej: Médico General, Dentista, Coach, etc."
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Color del calendario
                 </label>
-                <div className="flex space-x-2 mt-2">
-                  {PROFESSIONAL_COLOR_PALETTE.slice(0, 8).map(color => (
-                          <button 
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {PROFESSIONAL_COLOR_PALETTE.map(color => (
+                    <button 
                       key={color}
-                      className={`w-8 h-8 rounded-full border-2 ${
-                        editingProfessional.color === color ? 'border-gray-400' : 'border-gray-200'
+                      className={`w-10 h-10 rounded-lg border-2 transition-all ${
+                        editProfessionalForm.color === color 
+                          ? 'border-gray-900 scale-110 shadow-md' 
+                          : 'border-gray-200 hover:scale-105'
                       }`}
                       style={{ backgroundColor: color }}
-                      onClick={() => setEditingProfessional((prev: any) => ({ ...prev, color }))}
+                      onClick={() => setEditProfessionalForm(prev => ({ ...prev, color }))}
                     />
                   ))}
                 </div>
               </div>
             </div>
             
-            <div className="flex justify-end space-x-3 mt-6">
+            <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
               <button
                 onClick={() => {
                   setShowEditProfessionalModal(false);
                   setEditingProfessional(null);
+                  setProfessionalAvatar(null);
+                  setProfessionalAvatarFile(null);
                 }}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                disabled={uploadingAvatar}
               >
                 Cancelar
-                          </button>
-                      <button 
-                onClick={() => {
-                  alert('🚧 Función de editar profesional en desarrollo\n\n✅ La interfaz ya está lista, solo falta conectar con Firebase');
-                  setShowEditProfessionalModal(false);
-                  setEditingProfessional(null);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              </button>
+              <button 
+                onClick={handleUpdateProfessional}
+                disabled={uploadingAvatar}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Guardar cambios
-                      </button>
+                {uploadingAvatar ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Guardando...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Guardar cambios
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Panel lateral derecho para EDITAR evento */}
+      <AnimatePresence>
+        {showEditEventPanel && editingEvent && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col border-l border-gray-200"
+          >
+            {/* Header */}
+            <div className="p-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                  {/* Avatar del profesional */}
+                  {getProfessionalAvatar(editingEvent.calendarId) ? (
+                    <img 
+                      src={getProfessionalAvatar(editingEvent.calendarId)!} 
+                      alt={getProfessionalName(editingEvent.calendarId)}
+                      className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-md"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                      <User className="w-6 h-6 text-white" />
                     </div>
+                  )}
+                  
+                  <div>
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Edit3 className="w-4 h-4" />
+                      Editar Evento
+                    </h3>
+                    <p className="text-xs text-blue-100">
+                      {getProfessionalName(editingEvent.calendarId)}
+                    </p>
                   </div>
                 </div>
-            )}
+                <button 
+                  onClick={closeEditEventPanel}
+                  className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-sm text-blue-100 ml-13">
+                📅 {editingEvent.startDate.toLocaleDateString('es-ES', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </p>
+            </div>
+            
+            {/* Formulario */}
+            <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Título del evento *
+                </label>
+                <input
+                  type="text"
+                  value={editEventForm.title}
+                  onChange={(e) => setEditEventForm(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Ej: Consulta con María García"
+                />
+              </div>
+              
+              {/* Toggle para tipo de duración */}
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <Clock className="w-5 h-5 text-gray-600" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {editEventForm.hasEndTime ? 'Rango de horas' : 'Hora única'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {editEventForm.hasEndTime 
+                        ? 'Se calculará duración para analytics' 
+                        : 'Evento sin duración específica'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditEventForm(prev => ({ 
+                    ...prev, 
+                    hasEndTime: !prev.hasEndTime 
+                  }))}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    editEventForm.hasEndTime ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      editEventForm.hasEndTime ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className={`grid ${editEventForm.hasEndTime ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Hora {editEventForm.hasEndTime ? 'inicio' : ''}
+                  </label>
+                  <input
+                    type="time"
+                    value={editEventForm.startTime}
+                    onChange={(e) => setEditEventForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                
+                {editEventForm.hasEndTime && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Hora fin
+                    </label>
+                    <input
+                      type="time"
+                      value={editEventForm.endTime}
+                      onChange={(e) => setEditEventForm(prev => ({ ...prev, endTime: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Descripción
+                </label>
+                <textarea
+                  value={editEventForm.description}
+                  onChange={(e) => setEditEventForm(prev => ({ ...prev, description: e.target.value }))}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  placeholder="Detalles adicionales del evento..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Ubicación
+                </label>
+                <input
+                  type="text"
+                  value={editEventForm.location}
+                  onChange={(e) => setEditEventForm(prev => ({ ...prev, location: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Ej: Consultorio 2, Online, etc."
+                />
+              </div>
+
+              {/* Campos Personalizados */}
+              {globalCustomFields && 
+               globalCustomFields.filter(f => f.isVisible).length > 0 && (
+                <>
+                  <div className="border-t border-gray-200 my-4"></div>
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-gray-900">Información Adicional</h4>
+                    {globalCustomFields
+                      .filter(f => f.isVisible)
+                      .sort((a, b) => a.order - b.order)
+                      .map(field => (
+                        <div key={field.id}>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            {field.label} {field.required && <span className="text-red-500">*</span>}
+                          </label>
+                          
+                          {field.type === 'text' && (
+                            <input
+                              type="text"
+                              placeholder={field.placeholder}
+                              required={field.required}
+                              value={customFieldsData[field.id] || ''}
+                              onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          )}
+                          
+                          {field.type === 'textarea' && (
+                            <textarea
+                              placeholder={field.placeholder}
+                              required={field.required}
+                              value={customFieldsData[field.id] || ''}
+                              onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                              rows={3}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                            />
+                          )}
+                          
+                          {field.type === 'url' && (
+                            <input
+                              type="url"
+                              placeholder={field.placeholder}
+                              required={field.required}
+                              value={customFieldsData[field.id] || ''}
+                              onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          )}
+                          
+                          {field.type === 'email' && (
+                            <input
+                              type="email"
+                              placeholder={field.placeholder}
+                              required={field.required}
+                              value={customFieldsData[field.id] || ''}
+                              onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          )}
+                          
+                          {field.type === 'phone' && (
+                            <input
+                              type="tel"
+                              placeholder={field.placeholder}
+                              required={field.required}
+                              value={customFieldsData[field.id] || ''}
+                              onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          )}
+                          
+                          {field.type === 'number' && (
+                            <input
+                              type="number"
+                              placeholder={field.placeholder}
+                              required={field.required}
+                              value={customFieldsData[field.id] || ''}
+                              onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          )}
+                          
+                          {field.type === 'select' && (
+                            <select
+                              required={field.required}
+                              value={customFieldsData[field.id] || ''}
+                              onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="">Seleccionar...</option>
+                              {field.options?.map(opt => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          )}
+                          
+                          {field.type === 'date' && (
+                            <input
+                              type="date"
+                              required={field.required}
+                              value={customFieldsData[field.id] || ''}
+                              onChange={(e) => setCustomFieldsData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                </>
+              )}
+            </div>
+            
+            {/* Footer con botones */}
+            <div className="p-4 border-t border-gray-200">
+              <div className="flex items-center justify-end space-x-3">
+                <button 
+                  onClick={closeEditEventPanel}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleUpdateEvent}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  Guardar Cambios
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Panel lateral derecho para VER TODOS LOS EVENTOS DEL DÍA */}
+      <AnimatePresence>
+        {showDayEventsPanel && dayEventsView && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col border-l border-gray-200"
+          >
+            {/* Header */}
+            <div className="p-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <CalendarIcon className="w-5 h-5" />
+                  Eventos del Día
+                </h3>
+                <button 
+                  onClick={closeDayEventsPanel}
+                  className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-sm text-purple-100">
+                📅 {dayEventsView.date.toLocaleDateString('es-ES', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </p>
+              <p className="text-xs text-purple-200 mt-1">
+                {dayEventsView.events.length} evento{dayEventsView.events.length !== 1 ? 's' : ''} programado{dayEventsView.events.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            
+            {/* Lista de eventos */}
+            <div className="flex-1 p-4 space-y-3 overflow-y-auto">
+              {dayEventsView.events
+                .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
+                .map(event => (
+                  <div
+                    key={event.id}
+                    onClick={() => {
+                      closeDayEventsPanel();
+                      openEditEventPanel(event);
+                    }}
+                    className="p-4 rounded-lg border-2 border-gray-200 hover:border-blue-400 cursor-pointer transition-all hover:shadow-md group"
+                  >
+                    <div className="flex items-start gap-3 mb-2">
+                      {/* Avatar del profesional */}
+                      {getProfessionalAvatar(event.calendarId) ? (
+                        <img 
+                          src={getProfessionalAvatar(event.calendarId)!} 
+                          alt={getProfessionalName(event.calendarId)}
+                          className="w-10 h-10 rounded-full object-cover border-2 flex-shrink-0"
+                          style={{ borderColor: getCalendarColor(event.calendarId) }}
+                        />
+                      ) : (
+                        <div 
+                          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border-2"
+                          style={{ 
+                            backgroundColor: getCalendarColor(event.calendarId) + '20',
+                            borderColor: getCalendarColor(event.calendarId)
+                          }}
+                        >
+                          <User className="w-5 h-5" style={{ color: getCalendarColor(event.calendarId) }} />
+                        </div>
+                      )}
+                      
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                          {event.title}
+                        </h4>
+                        <p className="text-xs text-gray-500">
+                          {getProfessionalName(event.calendarId)}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Clock className="w-4 h-4 mr-2 flex-shrink-0" />
+                        <span>
+                          {event.startDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                          {event.endDate && event.hasEndTime && (
+                            <>
+                              {' - '}
+                              {event.endDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      
+                      {event.location && (
+                        <div className="flex items-center text-sm text-gray-600">
+                          <MapPin className="w-4 h-4 mr-2 flex-shrink-0" />
+                          <span className="truncate">{event.location}</span>
+                        </div>
+                      )}
+                      
+                      {event.description && (
+                        <p className="text-xs text-gray-500 mt-2 line-clamp-2">
+                          {event.description}
+                        </p>
+                      )}
+                      
+                      {event.isRecurringInstance && (
+                        <div className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 mt-2">
+                          <Repeat className="w-3 h-3 mr-1" />
+                          Recurrente
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                      <span className="text-xs text-gray-500">
+                        Haz clic para editar
+                      </span>
+                      <Edit3 className="w-4 h-4 text-gray-400 group-hover:text-blue-500 transition-colors" />
+                    </div>
+                  </div>
+                ))}
+            </div>
+            
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              <button 
+                onClick={closeDayEventsPanel}
+                className="w-full px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 };

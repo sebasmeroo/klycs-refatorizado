@@ -29,6 +29,18 @@ export interface SharedCalendar {
   inviteExpiresAt?: Date;
 }
 
+export interface CustomEventField {
+  id: string;
+  label: string;
+  type: 'text' | 'textarea' | 'url' | 'email' | 'phone' | 'number' | 'select' | 'date';
+  placeholder?: string;
+  required: boolean;
+  options?: string[]; // Para type='select'
+  order: number;
+  isVisible: boolean;
+  icon?: string; // Nombre del icono Lucide
+}
+
 export interface CalendarSettings {
   allowMemberInvites: boolean;
   allowEventEditing: boolean;
@@ -48,6 +60,26 @@ export interface CalendarSettings {
     comments: boolean;
   };
   timezone: string;
+  customFields?: CustomEventField[]; // Campos personalizados del formulario
+  analytics?: {
+    enabled: boolean; // Si se calculan horas trabajadas
+    trackWorkingHours: boolean; // Si se rastrea el tiempo
+    monthlyReports: boolean; // Si se generan reportes mensuales
+  };
+}
+
+// Analytics de horas trabajadas
+export interface WorkHoursStats {
+  professionalId: string;
+  professionalName: string;
+  totalHours: number;
+  monthlyBreakdown: {
+    month: string; // "2025-10"
+    hours: number;
+    events: number;
+  }[];
+  yearlyTotal: number;
+  averagePerMonth: number;
 }
 
 export interface CalendarEvent {
@@ -56,10 +88,14 @@ export interface CalendarEvent {
   title: string;
   description?: string;
   startDate: Date;
-  endDate: Date;
+  endDate?: Date; // Ahora es opcional para eventos de hora única
   isAllDay: boolean;
   location?: string;
   color?: string; // Si no se especifica, usa el del calendario
+  
+  // Duración y horas trabajadas
+  hasEndTime?: boolean; // Si tiene hora de fin o es solo hora de inicio
+  duration?: number; // Duración en minutos (calculada)
   
   // Colaboración
   createdBy: string; // userId
@@ -69,6 +105,8 @@ export interface CalendarEvent {
   
   // Recurrencia
   recurring?: RecurrencePattern;
+  isRecurringInstance?: boolean; // Si es una instancia generada de un evento recurrente
+  parentEventId?: string; // ID del evento recurrente padre
   
   // Estado
   status: 'confirmed' | 'tentative' | 'cancelled';
@@ -76,6 +114,9 @@ export interface CalendarEvent {
   
   // Recordatorios
   reminders: EventReminder[];
+  
+  // Campos personalizados
+  customFieldsData?: Record<string, any>; // Valores de campos personalizados
   
   // Metadatos
   createdAt: Date;
@@ -105,12 +146,12 @@ export interface EventAttachment {
 }
 
 export interface RecurrencePattern {
-  type: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+  type: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom' | 'none';
   interval: number; // cada X días/semanas/meses/años
-  weekdays?: number[]; // para recurrencia semanal [0,1,2,3,4,5,6]
+  weekdays?: number[]; // para recurrencia semanal [0=Dom, 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb]
   monthDay?: number; // día del mes para recurrencia mensual
   endDate?: Date;
-  count?: number; // número de repeticiones
+  count?: number; // número de repeticiones (máximo 52 para evitar crear demasiados eventos)
 }
 
 export interface EventReminder {

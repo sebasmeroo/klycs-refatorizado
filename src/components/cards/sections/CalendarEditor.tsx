@@ -19,7 +19,7 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const calendar: CardCalendar = card.calendar || {
+  const defaultCalendar: CardCalendar = {
     enabled: false,
     isVisible: true,
     title: 'Reserva tu Cita',
@@ -27,6 +27,7 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
     order: 5,
     showProfessionals: true,
     allowDirectBooking: true,
+    designVariant: 'minimal',
     linkedCalendarId: undefined,
     bookingConfig: {
       requireApproval: false,
@@ -42,6 +43,22 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
       accentColor: '#3B82F6'
     }
   };
+
+  const calendar: CardCalendar = card.calendar
+    ? {
+        ...defaultCalendar,
+        ...card.calendar,
+        designVariant: card.calendar.designVariant || 'minimal',
+        bookingConfig: {
+          ...defaultCalendar.bookingConfig,
+          ...card.calendar.bookingConfig
+        },
+        style: {
+          ...defaultCalendar.style,
+          ...card.calendar.style
+        }
+      }
+    : defaultCalendar;
 
   useEffect(() => {
     if (user) {
@@ -315,6 +332,32 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
                   <option value="grid">Cuadrícula</option>
                   <option value="carousel">Carrusel</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Diseño
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { value: 'minimal', label: 'Minimal', description: 'Botón limpio y pasos compactos' },
+                    { value: 'glass', label: 'Glass Hero', description: 'Hero degradado con resúmenes' },
+                    { value: 'spotlight', label: 'Destacado', description: 'Profesional principal y CTA' }
+                  ].map(option => (
+                    <button
+                      key={option.value}
+                      onClick={() => handleUpdateField('designVariant', option.value as CardCalendar['designVariant'])}
+                      className={`text-left rounded-xl border px-3 py-3 transition-colors ${
+                        calendar.designVariant === option.value
+                          ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-900/30 text-blue-700 dark:text-blue-200'
+                          : 'border-gray-200 bg-white hover:border-blue-300 dark:border-gray-700 dark:bg-gray-800'
+                      }`}
+                    >
+                      <p className="text-sm font-semibold">{option.label}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{option.description}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

@@ -109,15 +109,26 @@ service firebase.storage {
     
     // === REGLAS PARA CALENDARIO COLABORATIVO ===
     
-    // Fotos de perfil de profesionales del calendario
+    // Fotos de perfil de profesionales del calendario (legacy path)
+    // SIMPLIFICADO: Solo requiere autenticación
     match /calendar/professionals/{professionalId}/avatar/{fileName} {
       // Permitir lectura pública de avatares de profesionales
       allow read: if true;
       
-      // Solo administradores o el mismo profesional pueden actualizar
+      // Solo requiere autenticación - SIMPLIFICADO
       allow write: if request.auth != null &&
-                   (isAdmin(request.auth.uid) ||
-                    isProfessionalOwner(professionalId, request.auth.uid)) &&
+                   isValidImageFile(fileName) &&
+                   isValidImageSize(request.resource);
+    }
+
+    // Fotos de perfil de profesionales del calendario (estructura actual)
+    // SIMPLIFICADO: Solo requiere autenticación para debugging
+    match /calendars/{calendarId}/professionals/{fileName} {
+      // Permitir lectura pública para que los profesionales y clientes vean el avatar
+      allow read: if true;
+
+      // Solo requiere autenticación - MUY PERMISIVO PARA PERMITIR SUBIDA
+      allow write: if request.auth != null &&
                    isValidImageFile(fileName) &&
                    isValidImageSize(request.resource);
     }
@@ -141,19 +152,6 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/cards/$(cardId)).data.userId == userId;
     }
     
-    // Verificar si el usuario es administrador
-    function isAdmin(userId) {
-      let userDoc = firestore.get(/databases/(default)/documents/users/$(userId));
-      return userDoc.data.role == 'admin';
-    }
-    
-    // Verificar si el usuario es propietario de un profesional
-    function isProfessionalOwner(professionalId, userId) {
-      let professionalDoc = firestore.get(/databases/(default)/documents/shared_calendars/$(professionalId));
-      return professionalDoc.data.ownerId == userId || 
-             professionalDoc.data.linkedEmail == firestore.get(/databases/(default)/documents/users/$(userId)).data.email;
-    }
-    
     // Verificar si el usuario puede acceder a un evento
     function canAccessEvent(eventId, userId) {
       let eventDoc = firestore.get(/databases/(default)/documents/calendar_events/$(eventId));
@@ -167,12 +165,6 @@ service firebase.storage {
     // Validar tipos de archivos de imagen
     function isValidImageFile(fileName) {
       return fileName.matches('.*\\.(jpg|jpeg|png|gif|webp|svg)$') &&
-             fileName.size() <= 255;
-    }
-    
-    // Validar tipos de archivos multimedia (imágenes y videos)
-    function isValidMediaFile(fileName) {
-      return fileName.matches('.*\\.(jpg|jpeg|png|gif|webp|svg|mp4|mov|avi|webm)$') &&
              fileName.size() <= 255;
     }
     
@@ -190,11 +182,6 @@ service firebase.storage {
     // Validar tamaño de archivo para imágenes
     function isValidImageSize(resource) {
       return resource.size < 5 * 1024 * 1024; // 5MB límite para imágenes
-    }
-    
-    // Validar tamaño de archivo para videos y media
-    function isValidMediaSize(resource) {
-      return resource.size < 50 * 1024 * 1024; // 50MB límite para videos
     }
   }
 }

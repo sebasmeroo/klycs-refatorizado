@@ -195,6 +195,7 @@ const DashboardSettings: React.FC = () => {
                 </div>
               </div>
             </IOSSection>
+
           </div>
 
           {/* Columna derecha (acciones) */}
