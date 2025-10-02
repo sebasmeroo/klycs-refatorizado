@@ -195,18 +195,38 @@ export class StorageService {
   }
 
   private static async uploadSingleFile(file: File, path: string): Promise<string> {
-    devLog('Uploading file', {
-      component: 'StorageService',
-      path,
-      fileSizeMB: (file.size / 1024 / 1024).toFixed(2)
-    });
-
-    const storageRef = ref(storage, path);
-    const snapshot = await uploadBytes(storageRef, file);
-    const downloadURL = await getDownloadURL(snapshot.ref);
-
-    devLog('File uploaded successfully', { component: 'StorageService', path });
-    return downloadURL;
+    console.group('📤 SUBIENDO ARCHIVO');
+    console.log('Path:', path);
+    console.log('Tamaño:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+    console.log('Tipo:', file.type);
+    console.log('Nombre:', file.name);
+    
+    // Verificar autenticación
+    const user = auth.currentUser;
+    console.log('Usuario autenticado:', user ? user.uid : 'NO AUTENTICADO ❌');
+    
+    try {
+      const storageRef = ref(storage, path);
+      console.log('Storage Ref creado:', storageRef.fullPath);
+      
+      console.log('Iniciando uploadBytes...');
+      const snapshot = await uploadBytes(storageRef, file);
+      console.log('✅ Upload exitoso!');
+      
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      console.log('✅ URL obtenida:', downloadURL);
+      console.groupEnd();
+      
+      return downloadURL;
+    } catch (err: any) {
+      console.error('❌ ERROR EN UPLOAD:');
+      console.error('Código:', err.code);
+      console.error('Mensaje:', err.message);
+      console.error('Server Response:', err.serverResponse);
+      console.error('Error completo:', err);
+      console.groupEnd();
+      throw err;
+    }
   }
 
   private static generateImageId(): string {

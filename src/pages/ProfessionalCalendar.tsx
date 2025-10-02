@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { 
-  Calendar as CalendarIcon, 
-  ArrowLeft, 
-  Clock, 
+import {
+  Calendar as CalendarIcon,
+  ArrowLeft,
+  Clock,
   MapPin,
   User,
   Mail,
@@ -22,105 +22,50 @@ import { CollaborativeCalendarService, CalendarEventService } from '@/services/c
 import { SharedCalendar, CalendarEvent } from '@/types/calendar';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useCalendar, useCalendarEvents } from '@/hooks/useCalendar';
 
 export const ProfessionalCalendar: React.FC = () => {
   const { calendarId } = useParams<{ calendarId: string }>();
   const [searchParams] = useSearchParams();
   const professionalEmail = searchParams.get('email');
 
+  // ===== REACT QUERY HOOKS =====
+  const { data: calendar, isLoading: calendarLoading, error: calendarError } = useCalendar(calendarId);
+  const { data: eventsData, isLoading: eventsLoading } = useCalendarEvents(calendarId);
+
   // ===== ESTADO =====
-  const [calendar, setCalendar] = useState<SharedCalendar | null>(null);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const events = eventsData || [];
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [loading, setLoading] = useState(true);
+  const loading = calendarLoading || eventsLoading;
   const [error, setError] = useState('');
 
   // ===== EFECTOS =====
-  useEffect(() => {
-    if (!calendarId) return;
-    
-    loadCalendarData();
-  }, [calendarId]);
 
+  // ✅ Validación de permisos (React Query maneja la carga)
   useEffect(() => {
     if (!calendar) return;
-    loadEvents();
-  }, [calendar, currentDate]);
+
+    if (calendar.linkedEmail !== professionalEmail) {
+      setError('No tienes permiso para acceder a este calendario');
+      return;
+    }
+
+    console.log('✅ Calendario cargado:', calendar.name);
+    setError(''); // Limpiar errores si tiene acceso
+  }, [calendar, professionalEmail]);
+
+  useEffect(() => {
+    if (calendarError) {
+      setError('Calendario no encontrado');
+    }
+  }, [calendarError]);
 
   // ===== FUNCIONES =====
-  const loadCalendarData = async () => {
-    try {
-      setLoading(true);
-      console.log('🔄 Cargando datos del calendario:', calendarId);
-      
-      const calendarData = await CollaborativeCalendarService.getCalendarById(calendarId!);
-      
-      if (!calendarData) {
-        setError('Calendario no encontrado');
-        return;
-      }
 
-      if (calendarData.linkedEmail !== professionalEmail) {
-        setError('No tienes permiso para acceder a este calendario');
-        return;
-      }
-
-      setCalendar(calendarData);
-      console.log('✅ Calendario cargado:', calendarData.name);
-      
-    } catch (err) {
-      console.error('❌ Error cargando calendario:', err);
-      setError('Error al cargar el calendario');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadEvents = async () => {
-    try {
-      console.log('📅 PROFESSIONAL CALENDAR: Cargando eventos...');
-      console.log('📋 PROFESSIONAL CALENDAR: ID del calendario:', calendar!.id);
-      console.log('📧 PROFESSIONAL CALENDAR: Email profesional:', professionalEmail);
-      console.log('📅 PROFESSIONAL CALENDAR: Fecha actual:', currentDate);
-      
-      const startDate = startOfMonth(currentDate);
-      const endDate = endOfMonth(currentDate);
-      
-      console.log('📅 PROFESSIONAL CALENDAR: Rango de fechas:', {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString()
-      });
-      
-      console.log('🚀 PROFESSIONAL CALENDAR: Llamando a CalendarEventService.getCalendarEvents...');
-      const calendarEvents = await CalendarEventService.getCalendarEvents(
-        [calendar!.id],
-        startDate,
-        endDate
-      );
-      
-      console.log('✅ PROFESSIONAL CALENDAR: Eventos recibidos:', calendarEvents.length);
-      console.log('📄 PROFESSIONAL CALENDAR: Detalles de eventos:', calendarEvents.map(event => ({
-        id: event.id,
-        title: event.title,
-        startDate: event.startDate,
-        calendarId: event.calendarId
-      })));
-      
-      setEvents(calendarEvents);
-      console.log('✅ PROFESSIONAL CALENDAR: Estado de eventos actualizado');
-      
-    } catch (err) {
-      console.error('❌ PROFESSIONAL CALENDAR: Error cargando eventos:', err);
-      console.error('🔥 PROFESSIONAL CALENDAR: Error completo:', {
-        name: (err as any)?.name,
-        message: (err as any)?.message,
-        code: (err as any)?.code,
-        stack: (err as any)?.stack
-      });
-    }
-  };
+  // ❌ ELIMINADAS: loadCalendarData() y loadEvents()
+  // ✅ React Query maneja automáticamente la carga y cache
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentDate(prev => 

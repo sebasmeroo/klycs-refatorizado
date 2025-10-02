@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Plus, 
-  Edit3, 
-  Eye, 
-  Share2, 
-  Trash2, 
+import {
+  Plus,
+  Edit3,
+  Eye,
+  Share2,
+  Trash2,
   Copy,
   ExternalLink,
   BarChart3,
@@ -13,7 +13,7 @@ import {
   Search
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { CardsService } from '@/services/cards';
+import { useUserCards, useDeleteCard, useUpdateCard } from '@/hooks/useCards';
 import { Card } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -26,61 +26,32 @@ type ViewMode = 'list' | 'create';
 export const DashboardCards: React.FC = () => {
   const { user, firebaseUser } = useAuth();
   const navigate = useNavigate();
-  const [cards, setCards] = useState<Card[]>([]);
-  const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    if (firebaseUser) {
-      loadCards();
-    }
-  }, [firebaseUser]);
+  const userId = user?.id || firebaseUser?.uid;
 
-  const loadCards = async () => {
-    if (!firebaseUser) return;
-    
-    const userId = user?.id || firebaseUser.uid;
-    
-    try {
-      setLoading(true);
-      const userCards = await CardsService.getUserCards(userId);
-      setCards(userCards);
-
-      // Si ya tiene una tarjeta, redirigir automáticamente al editor
-      if (userCards.length > 0) {
-        navigate(`/tarjeta/edit/${userCards[0].slug}`, { replace: true });
-      }
-    } catch (error) {
-      console.error('Error loading cards:', error);
-      toast.error('Error al cargar las tarjetas');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ✅ Usar React Query con cache de 5 minutos
+  const { data: cards = [], isLoading: loading } = useUserCards(userId);
+  const deleteCardMutation = useDeleteCard();
+  const updateCardMutation = useUpdateCard();
 
   const handleCardCreated = (newCard: Card) => {
     // Redirigir automáticamente al editor de la nueva tarjeta
     navigate(`/tarjeta/edit/${newCard.slug}`, { replace: true });
   };
 
-
   const handleEditCard = (card: Card) => {
     navigate(`/tarjeta/edit/${card.slug}`);
   };
 
   const handleDeleteCard = async (card: Card) => {
-    if (!firebaseUser) return;
-    
-    const userId = user?.id || firebaseUser.uid;
-    
     if (!confirm(`¿Estás seguro de que quieres eliminar "${card.title}"?`)) {
       return;
     }
-    
+
     try {
-      await CardsService.deleteCard(card.id, userId);
-      setCards(prev => prev.filter(c => c.id !== card.id));
+      await deleteCardMutation.mutateAsync({ cardId: card.id, userId: userId || '' });
       toast.success('Tarjeta eliminada exitosamente');
     } catch (error) {
       console.error('Error deleting card:', error);
@@ -101,15 +72,16 @@ export const DashboardCards: React.FC = () => {
   };
 
   const handleTogglePublic = async (card: Card) => {
-    if (!firebaseUser) return;
-    
-    const userId = user?.id || firebaseUser.uid;
-    
+    if (!userId) return;
+
     try {
-      const updated = { ...card, isPublic: !card.isPublic };
-      await CardsService.updateCard(card.id, userId, { isPublic: updated.isPublic });
-      setCards(prev => prev.map(c => c.id === card.id ? updated : c));
-      toast.success(updated.isPublic ? 'Tarjeta publicada' : 'Tarjeta despublicada');
+      const newIsPublic = !card.isPublic;
+      await updateCardMutation.mutateAsync({
+        cardId: card.id,
+        userId,
+        updates: { isPublic: newIsPublic }
+      });
+      toast.success(newIsPublic ? 'Tarjeta publicada' : 'Tarjeta despublicada');
     } catch (error) {
       console.error('Error toggling card visibility:', error);
       toast.error('Error al cambiar la visibilidad de la tarjeta');

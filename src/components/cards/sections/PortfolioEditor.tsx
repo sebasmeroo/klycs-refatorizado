@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Card, CardPortfolioItem } from '@/types';
 import {
   Image as ImageIcon,
@@ -11,13 +11,17 @@ import {
   GripVertical,
   Plus,
   Loader,
-  AlertCircle
+  AlertCircle,
+  Crown,
+  Sparkles
 } from 'lucide-react';
 import { StorageService } from '@/services/storage';
 import { VideoCompressionService } from '@/services/videoCompression';
+import { subscriptionsService } from '@/services/subscriptions';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/utils/toast';
 
-const MAX_PORTFOLIO_ITEMS = 10;
+const MAX_PORTFOLIO_ITEMS = 10; // Límite por defecto (se sobrescribe por plan)
 
 interface PortfolioEditorProps {
   card: Card;
@@ -25,10 +29,46 @@ interface PortfolioEditorProps {
 }
 
 export const PortfolioEditor: React.FC<PortfolioEditorProps> = ({ card, onUpdate }) => {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [isUploading, setIsUploading] = useState(false);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [planLimits, setPlanLimits] = useState<{ images: number; videos: number; planName: string }>({
+    images: 3,
+    videos: 0,
+    planName: 'FREE'
+  });
+
+  // Cargar límites del plan del usuario
+  useEffect(() => {
+    const loadPlanLimits = async () => {
+      if (!user?.uid) return;
+
+      try {
+        const result = await subscriptionsService.getUserSubscription(user.uid);
+        if (result.success && result.data) {
+          const limits = result.data.plan.name.toLowerCase();
+
+          if (limits === 'free' || limits === 'básico') {
+            setPlanLimits({ images: 3, videos: 0, planName: 'FREE' });
+          } else if (limits.includes('pro') || limits.includes('profesional')) {
+            setPlanLimits({ images: 30, videos: 10, planName: 'PRO' });
+          } else if (limits.includes('business') || limits.includes('empresa')) {
+            setPlanLimits({ images: 999, videos: 999, planName: 'BUSINESS' });
+          }
+        } else {
+          // Sin suscripción = FREE
+          setPlanLimits({ images: 3, videos: 0, planName: 'FREE' });
+        }
+      } catch (error) {
+        console.error('Error loading plan limits:', error);
+        setPlanLimits({ images: 3, videos: 0, planName: 'FREE' });
+      }
+    };
+
+    loadPlanLimits();
+  }, [user]);
 
   const portfolio = card.portfolio || {
     items: [],
@@ -52,20 +92,47 @@ export const PortfolioEditor: React.FC<PortfolioEditorProps> = ({ card, onUpdate
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    const currentCount = portfolio.items.length;
-    const remainingSlots = MAX_PORTFOLIO_ITEMS - currentCount;
+    // Contar imágenes y videos actuales
+    const currentImages = portfolio.items.filter(item => item.type === 'image').length;
+    const currentVideos = portfolio.items.filter(item => item.type === 'video').length;
 
-    if (remainingSlots <= 0) {
-      toast.error(`Has alcanzado el límite de ${MAX_PORTFOLIO_ITEMS} elementos en tu portfolio`);
+    // Verificar límites por tipo
+    const filesToProcess: File[] = [];
+    let imagesAdded = 0;
+    let videosAdded = 0;
+
+    for (const file of Array.from(files)) {
+      const isVideo = VideoCompressionService.isVideoFile(file);
+      const isImage = file.type.startsWith('image/') && !VideoCompressionService.isGifFile(file);
+
+      if (isVideo) {
+        if (planLimits.videos === 0) {
+          toast.error(`🔒 Los videos solo están disponibles en el plan PRO. Actualiza tu plan para desbloquearlos.`, {
+            duration: 5000
+          });
+          continue;
+        }
+        if (currentVideos + videosAdded >= planLimits.videos) {
+          toast.error(`Has alcanzado el límite de ${planLimits.videos} videos en tu plan ${planLimits.planName}`);
+          break;
+        }
+        videosAdded++;
+        filesToProcess.push(file);
+      } else if (isImage) {
+        if (currentImages + imagesAdded >= planLimits.images) {
+          toast.error(`Has alcanzado el límite de ${planLimits.images} imágenes en tu plan ${planLimits.planName}`);
+          break;
+        }
+        imagesAdded++;
+        filesToProcess.push(file);
+      }
+    }
+
+    if (filesToProcess.length === 0) {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
       return;
-    }
-
-    const filesToProcess = Array.from(files).slice(0, remainingSlots);
-    if (files.length > remainingSlots) {
-      toast.error(`Solo puedes agregar ${remainingSlots} elemento(s) más. Límite: ${MAX_PORTFOLIO_ITEMS}`);
     }
 
     setIsUploading(true);

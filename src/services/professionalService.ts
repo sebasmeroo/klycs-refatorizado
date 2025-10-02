@@ -91,6 +91,15 @@ export class ProfessionalService {
             color: '#3B82F6',
             joinedAt: new Date(),
             isActive: true
+          },
+          {
+            id: `professional_${Date.now()}`,
+            name: professionalData.name,
+            email: professionalData.email,
+            role: 'professional',
+            color: professionalData.color,
+            joinedAt: new Date(),
+            isActive: true
           }
         ],
         settings: {

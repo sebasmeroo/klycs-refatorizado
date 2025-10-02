@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { CardsService } from '@/services/cards';
+import { useUserCards } from '@/hooks/useCards';
 import { NewCardEditor } from '@/components/cards/NewCardEditor';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -12,9 +12,16 @@ export const CardEditorPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { user, firebaseUser, loading: authLoading } = useAuth();
-  const [card, setCard] = useState<Card | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  const userId = user?.id || firebaseUser?.uid;
+
+  // ✅ Usar React Query para obtener TODAS las tarjetas del usuario
+  const { data: userCards = [], isLoading } = useUserCards(userId);
+
+  // Buscar la tarjeta por slug dentro de las tarjetas del usuario
+  const card = useMemo(() => {
+    return userCards.find(c => c.slug === slug);
+  }, [userCards, slug]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -26,45 +33,9 @@ export const CardEditorPage: React.FC = () => {
       navigate('/dashboard/tarjetas');
       return;
     }
-    
-    loadCard();
   }, [slug, firebaseUser, authLoading, navigate]);
 
-  const loadCard = async () => {
-    if (!firebaseUser || !slug) return;
-
-    const userId = user?.id || firebaseUser.uid;
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Buscar la tarjeta por slug
-      const userCards = await CardsService.getUserCards(userId);
-      const foundCard = userCards.find(c => c.slug === slug);
-      
-      if (!foundCard) {
-        setError('Tarjeta no encontrada');
-        return;
-      }
-
-      // Verificar que el usuario sea el propietario
-      if (foundCard.userId !== userId) {
-        setError('No tienes permisos para editar esta tarjeta');
-        return;
-      }
-
-      setCard(foundCard);
-    } catch (err) {
-      console.error('Error loading card:', err);
-      setError('Error al cargar la tarjeta');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSave = (updatedCard: Card) => {
-    setCard(updatedCard);
     toast.success('Tarjeta guardada exitosamente');
   };
 
@@ -72,7 +43,7 @@ export const CardEditorPage: React.FC = () => {
     navigate('/dashboard/tarjetas');
   };
 
-  if (authLoading || loading) {
+  if (authLoading || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
@@ -85,7 +56,7 @@ export const CardEditorPage: React.FC = () => {
     );
   }
 
-  if (error) {
+  if (!isLoading && !card) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center max-w-md">
@@ -98,7 +69,7 @@ export const CardEditorPage: React.FC = () => {
             Error
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mb-4">
-            {error}
+            Tarjeta no encontrada
           </p>
           <button
             onClick={() => navigate('/dashboard/tarjetas')}
@@ -106,19 +77,6 @@ export const CardEditorPage: React.FC = () => {
           >
             Volver a Tarjetas
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!card) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-center">
-          <LoadingSpinner size="lg" />
-          <p className="mt-4 text-gray-600 dark:text-gray-400">
-            Cargando tarjeta...
-          </p>
         </div>
       </div>
     );

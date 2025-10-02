@@ -64,83 +64,117 @@ class SubscriptionsService {
   private readonly STRIPE_API_URL = 'https://api.stripe.com/v1';
   private readonly stripeSecretKey = process.env.VITE_STRIPE_SECRET_KEY;
 
-  // Planes predefinidos
+  // Planes predefinidos - OPTIMIZADOS
   private readonly DEFAULT_PLANS: Omit<SubscriptionPlan, 'id' | 'createdAt' | 'updatedAt'>[] = [
     {
-      name: 'Básico',
-      description: 'Perfecto para empezar con una presencia digital profesional',
+      name: 'FREE',
+      description: 'Perfecto para empezar - Tarjeta digital básica',
       price: 0,
       currency: 'eur',
       interval: 'month',
       intervalCount: 1,
       features: [
         '1 tarjeta digital',
-        'Enlaces básicos',
-        'Estadísticas básicas',
-        'Soporte por email',
-        'SSL incluido'
+        'Perfil básico (nombre, bio, foto)',
+        '3 enlaces básicos',
+        '5 redes sociales',
+        'Portfolio: 3 imágenes',
+        'Compresión automática',
+        'Analytics: Solo visitas totales',
+        'URL pública: klycs.com/tunombre',
+        'Límite: 100 visitas/mes',
+        '⚠️ Marca "Powered by Klycs"'
       ],
       stripePriceId: undefined,
       isActive: true,
       sortOrder: 1
     },
     {
-      name: 'Profesional',
-      description: 'Para profesionales que buscan más funcionalidades y personalización',
+      name: 'PRO',
+      description: 'Para profesionales independientes - Portfolio completo + Analytics + Reservas',
       price: 9.99,
       currency: 'eur',
       interval: 'month',
       intervalCount: 1,
       features: [
-        '5 tarjetas digitales',
-        'Personalización avanzada',
-        'Reservas con calendario',
-        'Estadísticas detalladas',
-        'Integraciones sociales',
-        'Dominio personalizado',
-        'Soporte prioritario'
+        '✅ Todo lo de FREE +',
+        '📸 Portfolio: 30 imágenes + 10 videos',
+        '🎨 5 diseños modernos de enlaces',
+        '📊 Analytics completo con clicks por enlace',
+        '📅 Sistema de reservas (100/mes)',
+        '🎨 Edición avanzada de diseño',
+        '🎯 SEO: Meta tags personalizables',
+        '🌐 Dominio personalizado',
+        '❌ Sin marca Klycs',
+        '20+ templates prediseñados',
+        'Soporte prioritario 24h'
       ],
       stripePriceId: 'price_professional_monthly',
       isActive: true,
       sortOrder: 2
     },
     {
-      name: 'Empresa',
-      description: 'Solución completa para equipos y empresas',
+      name: 'BUSINESS',
+      description: 'Para equipos y empresas - Calendario CRM + API + White-label',
       price: 29.99,
       currency: 'eur',
       interval: 'month',
       intervalCount: 1,
       features: [
-        'Tarjetas ilimitadas',
-        'Equipo colaborativo',
-        'API avanzada',
-        'White-label',
-        'Integraciones CRM',
-        'Analytics avanzado',
-        'Soporte 24/7',
-        'Onboarding dedicado'
+        '✅ Todo lo de PRO +',
+        '👥 Calendario colaborativo (10 profesionales)',
+        '📅 Gestión de eventos + recurrencias',
+        '💬 Comentarios y colaboración',
+        '📊 Analytics avanzado con IA + Heatmaps',
+        '💰 Reservas ilimitadas + Pagos Stripe',
+        '📸 Portfolio ilimitado',
+        '🔗 API REST + Webhooks',
+        '🎨 Custom HTML/CSS/JS',
+        '🏷️ White-label completo',
+        '🔗 Integraciones: Zapier, CRM, etc',
+        '100+ templates premium',
+        'Soporte 24/7 + Onboarding'
       ],
       stripePriceId: 'price_enterprise_monthly',
       isActive: true,
       sortOrder: 3
     },
     {
-      name: 'Profesional Anual',
-      description: 'Plan profesional con descuento anual (2 meses gratis)',
+      name: 'PRO Anual',
+      description: 'Plan PRO con 20% descuento - 2 meses gratis',
       price: 99.99,
       currency: 'eur',
       interval: 'year',
       intervalCount: 1,
       features: [
-        'Todas las funcionalidades del plan Profesional',
-        '2 meses gratis (20% descuento)',
-        'Migración gratuita',
-        'Configuración prioritaria'
+        '✅ Todas las funcionalidades de PRO',
+        '💰 Ahorro de €19.89/año (20% descuento)',
+        '🎁 2 meses completamente gratis',
+        '🚀 Migración gratuita',
+        '⚡ Configuración prioritaria'
       ],
       stripePriceId: 'price_professional_yearly',
       isActive: true,
       sortOrder: 4
+    },
+    {
+      name: 'BUSINESS Anual',
+      description: 'Plan BUSINESS con 17% descuento - Ahorra €60/año',
+      price: 299.99,
+      currency: 'eur',
+      interval: 'year',
+      intervalCount: 1,
+      features: [
+        '✅ Todas las funcionalidades de BUSINESS',
+        '💰 Ahorro de €59.89/año (17% descuento)',
+        '🎁 Casi 2 meses gratis',
+        '🚀 Onboarding premium dedicado',
+        '⚡ Migración de datos incluida',
+        '🎯 Consultoría estratégica inicial'
+      ],
+      stripePriceId: 'price_business_yearly',
+      isActive: true,
+      sortOrder: 5
     }
   ];
 
@@ -724,40 +758,58 @@ class SubscriptionsService {
   private getFreePlanLimits(): Record<string, number> {
     return {
       cards_created: 1,
-      views: 1000,
-      bookings: 10,
-      storage_mb: 50
+      views: 100, // Reducido de 1000 a 100
+      bookings: 0, // Sin reservas en FREE
+      storage_mb: 15, // 3 imágenes x ~5MB = 15MB
+      portfolio_images: 3,
+      portfolio_videos: 0,
+      link_designs: 1, // Solo diseño Modern básico
+      professionals: 0, // Sin calendario colaborativo
+      analytics_export: 0 // Sin exportación
     };
   }
 
   private getPlanLimits(plan: SubscriptionPlan): Record<string, number> {
-    // Definir límites basados en el plan
-    switch (plan.name.toLowerCase()) {
-      case 'básico':
-        return {
-          cards_created: 1,
-          views: 1000,
-          bookings: 10,
-          storage_mb: 50
-        };
-      case 'profesional':
-      case 'profesional anual':
-        return {
-          cards_created: 5,
-          views: 10000,
-          bookings: 100,
-          storage_mb: 500
-        };
-      case 'empresa':
-        return {
-          cards_created: Infinity,
-          views: Infinity,
-          bookings: Infinity,
-          storage_mb: 5000
-        };
-      default:
-        return this.getFreePlanLimits();
+    // Definir límites basados en el plan actualizado
+    const planName = plan.name.toLowerCase();
+
+    // Plan FREE
+    if (planName === 'free' || planName === 'básico') {
+      return this.getFreePlanLimits();
     }
+
+    // Plan PRO (mensual o anual)
+    if (planName === 'pro' || planName === 'pro anual' || planName === 'profesional' || planName === 'profesional anual') {
+      return {
+        cards_created: 1, // Una sola tarjeta
+        views: 10000, // 10k visitas/mes
+        bookings: 100, // 100 reservas/mes
+        storage_mb: 200, // 30 imágenes + 10 videos ≈ 200MB
+        portfolio_images: 30,
+        portfolio_videos: 10,
+        link_designs: 5, // Todos los diseños
+        professionals: 0, // Sin calendario colaborativo
+        analytics_export: 10 // 10 exportaciones/mes
+      };
+    }
+
+    // Plan BUSINESS (mensual o anual)
+    if (planName === 'business' || planName === 'business anual' || planName === 'empresa') {
+      return {
+        cards_created: 1, // Una sola tarjeta (pero más potente)
+        views: Infinity, // Ilimitado
+        bookings: Infinity, // Ilimitado
+        storage_mb: 5000, // 5GB para imágenes/videos ilimitados
+        portfolio_images: Infinity,
+        portfolio_videos: Infinity,
+        link_designs: 5, // Todos + custom CSS
+        professionals: 10, // 10 profesionales en calendario
+        analytics_export: Infinity // Exportaciones ilimitadas
+      };
+    }
+
+    // Default: FREE
+    return this.getFreePlanLimits();
   }
 
   /**

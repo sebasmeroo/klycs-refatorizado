@@ -47,7 +47,7 @@ import {
   CalendarView,
   CalendarUser
 } from '@/types/calendar';
-import { 
+import {
   CollaborativeCalendarService,
   CalendarEventService,
   EventCommentService,
@@ -63,6 +63,8 @@ import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db, storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { ImageCompressionService } from '@/services/imageCompression';
+import { useUserCalendars, useMultipleCalendarEvents, useCreateEvent, useUpdateEvent, useDeleteEvent } from '@/hooks/useCalendar';
+import { useQueryClient } from '@tanstack/react-query';
 
 const GENERAL_CALENDAR_ID = 'general-calendar';
 const PROFESSIONAL_COLOR_PALETTE = [
@@ -105,7 +107,16 @@ interface CalendarDay {
 
 const DashboardBookings: React.FC = () => {
   const { user } = useAuth();
-  
+  const queryClient = useQueryClient();
+
+  // ===== REACT QUERY HOOKS =====
+  const { data: calendarsData, isLoading: calendarsLoading } = useUserCalendars(user?.uid);
+  const calendarIds = calendarsData?.map(cal => cal.id) || [];
+  const { data: eventsData, isLoading: eventsLoading } = useMultipleCalendarEvents(calendarIds.length > 0 ? calendarIds : undefined);
+  const createEventMutation = useCreateEvent();
+  const updateEventMutation = useUpdateEvent();
+  const deleteEventMutation = useDeleteEvent();
+
   // ===== ESTADO =====
   const [calendarState, setCalendarState] = useState<CalendarState>({
     currentDate: new Date(),
@@ -114,9 +125,9 @@ const DashboardBookings: React.FC = () => {
     isCreatingEvent: false,
     isEditingEvent: false
   });
-  
-  const [calendars, setCalendars] = useState<SharedCalendar[]>([]);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+
+  const calendars = calendarsData || [];
+  const events = eventsData || [];
   const [stats, setStats] = useState<CalendarStats | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventComments, setEventComments] = useState<EventComment[]>([]);
@@ -191,102 +202,43 @@ const DashboardBookings: React.FC = () => {
 
   // ===== EFECTOS =====
 
+  // ✅ Procesar datos cuando cambien (React Query maneja la carga y cache)
   useEffect(() => {
-    if (!user?.uid) return;
-    
-    // ✅ CARGAR DATOS REALES DE FIREBASE
-    const loadRealData = async () => {
-      try {
-        const userCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid);
-        
-        setCalendars(userCalendars);
-        
-        if (userCalendars.length > 0 && userCalendars[0].settings?.customFields) {
-          setGlobalCustomFields(userCalendars[0].settings.customFields);
-        }
-        
-        if (userCalendars.length > 0) {
-          const calendarIds = userCalendars.map(cal => cal.id);
-          try {
-            const firebaseEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-            setEvents(firebaseEvents);
-          } catch (error) {
-            console.error('❌ Error cargando eventos:', error);
-            setEvents([]);
-          }
-        } else {
-          setEvents([]);
-        }
-        
-        // Estadísticas básicas
-        setStats({
-          totalEvents: 0,
-          totalCalendars: userCalendars.length,
-          sharedCalendars: userCalendars.length,
-          collaborators: 1,
-          upcomingEvents: 0,
-          eventsThisMonth: 0,
-          eventsThisWeek: 0,
-          mostActiveCalendar: 'Calendario General'
-        });
-        
-        // Por defecto, mostrar vista general
-        setCalendarState(prev => ({
-          ...prev,
-          selectedCalendars: [GENERAL_CALENDAR_ID]
-        }));
-        
-        setNextColorIndex(userCalendars.length);
+    if (!calendars || calendars.length === 0) return;
 
-        // ✅ AUTO-LIMPIAR DUPLICADOS SI EXISTEN
-        if (userCalendars.length > 1) {
-          const emailCounts: { [email: string]: number } = {};
-          userCalendars.forEach(cal => {
-            if (cal.linkedEmail) {
-              emailCounts[cal.linkedEmail] = (emailCounts[cal.linkedEmail] || 0) + 1;
-            }
-          });
-          
-          const hasDuplicates = Object.values(emailCounts).some(count => count > 1);
-          if (hasDuplicates) {
-            setTimeout(async () => {
-              try {
-                const result = await ProfessionalService.cleanDuplicateCalendars(user.uid);
-                
-                // Recargar después de limpiar
-                if (result.cleaned > 0) {
-                  const cleanedCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid);
-                  setCalendars(cleanedCalendars);
-                  alert(`🧹 Se eliminaron ${result.cleaned} calendarios duplicados automáticamente`);
-                }
-              } catch (error) {
-                console.error('❌ Error en limpieza automática:', error);
-              }
-            }, 2000); // Delay para permitir que la UI se cargue
-          }
-        }
-        
-      } catch (error) {
-        console.error('❌ Error cargando datos reales:', error);
-        
-        // Fallback: mostrar interfaz vacía
-        setCalendars([]);
-        setEvents([]);
-        setStats({
-          totalEvents: 0,
-          totalCalendars: 0,
-          sharedCalendars: 0,
-          collaborators: 1,
-          upcomingEvents: 0,
-          eventsThisMonth: 0,
-          eventsThisWeek: 0,
-          mostActiveCalendar: ''
-        });
-      }
-    };
-    
-    loadRealData();
-  }, [user?.uid]);
+    // Configurar custom fields desde el primer calendario (solo si cambió)
+    if (calendars[0]?.settings?.customFields) {
+      setGlobalCustomFields(calendars[0].settings.customFields);
+    }
+
+    setNextColorIndex(calendars.length);
+  }, [calendars]); // ✅ Solo cuando calendars cambia
+
+  // ✅ Calcular estadísticas (solo cuando events cambia)
+  useEffect(() => {
+    setStats({
+      totalEvents: events.length,
+      totalCalendars: calendars.length,
+      sharedCalendars: calendars.length,
+      collaborators: 1,
+      upcomingEvents: 0,
+      eventsThisMonth: 0,
+      eventsThisWeek: 0,
+      mostActiveCalendar: 'Calendario General'
+    });
+  }, [events.length, calendars.length]); // ✅ Solo cuando cambia la cantidad
+
+  // ✅ Inicializar vista solo una vez
+  useEffect(() => {
+    if (calendars.length > 0) {
+      setCalendarState(prev => ({
+        ...prev,
+        selectedCalendars: prev.selectedCalendars.length === 0
+          ? [GENERAL_CALENDAR_ID]
+          : prev.selectedCalendars
+      }));
+    }
+  }, [calendars.length]); // ✅ Solo cuando cambia la cantidad de calendars
 
   // Cerrar menú contextual cuando se hace clic fuera
   useEffect(() => {
@@ -534,11 +486,9 @@ const DashboardBookings: React.FC = () => {
       });
       
 
-      // Recargar calendarios desde Firebase
-      const allCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid!);
-      
-      setCalendars(allCalendars);
-      
+      // ✅ Invalidar cache de React Query para recargar
+      queryClient.invalidateQueries({ queryKey: ['calendars', user.uid] });
+
       // Limpiar formulario
       cancelAddProfessional();
       
@@ -770,40 +720,8 @@ const DashboardBookings: React.FC = () => {
       
       
       // ✅ RECARGAR EVENTOS DESDE FIREBASE para mostrar el nuevo evento
-      try {
-        const calendarIds = calendars.map(cal => cal.id);
-        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-        setEvents(updatedEvents);
-      } catch (error) {
-        console.error('❌ Error recargando eventos:', error);
-        
-        // Fallback: crear evento local si falla la recarga
-        const newEvent: CalendarEvent = {
-          id: eventId,
-          calendarId: selectedProfessional.id,
-          title: newEventForm.title.trim(),
-          description: eventDataToSend.description || undefined,
-          startDate: startDateTime,
-          endDate: endDateTime,
-          isAllDay: false,
-          hasEndTime: newEventForm.hasEndTime,
-          duration: eventDurationMinutes,
-          location: eventDataToSend.location || undefined,
-          color: selectedProfessional.color,
-          createdBy: user.uid,
-          attendees: [user.uid],
-          comments: [],
-          attachments: [],
-          status: 'confirmed',
-          visibility: 'public',
-          reminders: [],
-          customFieldsData: Object.keys(customFieldsData).length > 0 ? { ...customFieldsData } : undefined,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-
-        setEvents(prev => [...prev, newEvent]);
-      }
+      // ✅ Invalidar cache de React Query para recargar eventos
+      queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
       
       closeCreateEventPanel();
       alert(`✅ Evento "${newEventForm.title}" guardado correctamente en Firebase`);
@@ -877,10 +795,8 @@ const DashboardBookings: React.FC = () => {
       await CalendarEventService.updateEvent(editingEvent.id, updates);
       
       
-      // Recargar eventos desde Firebase
-      const calendarIds = calendars.map(cal => cal.id);
-      const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-      setEvents(updatedEvents);
+      // ✅ Invalidar cache de React Query para recargar eventos
+      queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
       
       closeEditEventPanel();
       alert(`✅ Evento "${editEventForm.title}" actualizado correctamente`);
@@ -1115,15 +1031,10 @@ const DashboardBookings: React.FC = () => {
       });
 
 
-      // RECARGAR CALENDARIOS DESDE FIREBASE para asegurar sincronización
+      // ✅ Invalidar cache de React Query para recargar
       if (user?.uid) {
-        const updatedCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid);
-        setCalendars(updatedCalendars);
-
-        // También recargar eventos para actualizar las referencias
-        const calendarIds = updatedCalendars.map(cal => cal.id);
-        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-        setEvents(updatedEvents);
+        queryClient.invalidateQueries({ queryKey: ['calendars', user.uid] });
+        // Los datos se recargarán automáticamente por React Query
       }
 
       // Cerrar modal
@@ -1154,11 +1065,10 @@ const DashboardBookings: React.FC = () => {
 
     try {
       await ProfessionalService.removeProfessionalFromUser(user.uid, professional.id);
-      
-      // Recargar calendarios
-      const userCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid);
-      setCalendars(userCalendars);
-      
+
+      // ✅ Invalidar cache de React Query para recargar
+      queryClient.invalidateQueries({ queryKey: ['calendars', user.uid] });
+
       alert(`✅ Profesional ${professional.name} eliminado correctamente`);
       
     } catch (error) {
@@ -1897,8 +1807,6 @@ const DashboardBookings: React.FC = () => {
                       setSelectedEvent(null);
                       // Recargar eventos
                       const calendarIds = calendars.map(cal => cal.id);
-                      const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-                      setEvents(updatedEvents);
                     } catch (error) {
                       console.error('Error eliminando serie:', error);
                       alert('Error al eliminar la serie de eventos');
@@ -1919,10 +1827,8 @@ const DashboardBookings: React.FC = () => {
                       try {
                         await CalendarEventService.deleteEvent(selectedEvent.id);
                         setSelectedEvent(null);
-                        // Recargar eventos
-                        const calendarIds = calendars.map(cal => cal.id);
-                        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-                        setEvents(updatedEvents);
+                        // ✅ Invalidar cache de React Query
+                        queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
                       } catch (error) {
                         console.error('Error eliminando evento:', error);
                         alert('Error al eliminar el evento');
@@ -1946,8 +1852,6 @@ const DashboardBookings: React.FC = () => {
                         setSelectedEvent(null);
                         // Recargar eventos
                         const calendarIds = calendars.map(cal => cal.id);
-                        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-                        setEvents(updatedEvents);
                       } catch (error) {
                         console.error('Error eliminando serie desde fecha:', error);
                         alert('Error al eliminar los eventos desde esta fecha');
@@ -1967,8 +1871,6 @@ const DashboardBookings: React.FC = () => {
                         setSelectedEvent(null);
                         // Recargar eventos
                         const calendarIds = calendars.map(cal => cal.id);
-                        const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-                        setEvents(updatedEvents);
                       } catch (error) {
                         console.error('Error eliminando serie:', error);
                         alert('Error al eliminar la serie de eventos');
@@ -1989,10 +1891,8 @@ const DashboardBookings: React.FC = () => {
                     try {
                       await CalendarEventService.deleteEvent(selectedEvent.id);
                       setSelectedEvent(null);
-                      // Recargar eventos
-                      const calendarIds = calendars.map(cal => cal.id);
-                      const updatedEvents = await CalendarEventService.getCalendarEvents(calendarIds);
-                      setEvents(updatedEvents);
+                      // ✅ Invalidar cache de React Query
+                      queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
                     } catch (error) {
                       console.error('Error eliminando evento:', error);
                       alert('Error al eliminar el evento');

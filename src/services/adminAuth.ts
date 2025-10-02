@@ -43,9 +43,8 @@ export const adminAuthService = {
 
       await setDoc(doc(db, ADMIN_COLLECTION, user.uid), adminData);
 
-      // Persist lightweight session for route guard
-      localStorage.setItem('adminAuth', 'true');
-      localStorage.setItem('admin_user', JSON.stringify(adminData));
+      // No usar localStorage - Firebase Auth maneja la sesión de forma segura
+      info('Admin registered successfully', { component: 'adminAuthService', adminId: user.uid });
 
       return { success: true, admin: adminData };
     } catch (err: any) {
@@ -76,10 +75,13 @@ export const adminAuthService = {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const { user } = cred;
 
-      let snapshot = await getDoc(doc(db, ADMIN_COLLECTION, user.uid));
-      // Bootstrap: si no existe y estamos en dev o bandera activa, crear doc admin
-      const bootstrapEnabled = import.meta.env.MODE !== 'production' || import.meta.env.VITE_ADMIN_BOOTSTRAP_ENABLED === 'true';
+      const snapshot = await getDoc(doc(db, ADMIN_COLLECTION, user.uid));
+      // Bootstrap: SOLO en desarrollo y con flag explícito
+      const bootstrapEnabled = import.meta.env.MODE === 'development' &&
+                               import.meta.env.VITE_ADMIN_BOOTSTRAP_ENABLED === 'true';
+
       if (!snapshot.exists() && bootstrapEnabled) {
+        info('Creating admin user in development mode', { component: 'adminAuthService', email });
         const adminData: AdminUser = {
           id: user.uid,
           email: user.email || email,
@@ -89,7 +91,6 @@ export const adminAuthService = {
           updatedAt: new Date(),
         };
         await setDoc(doc(db, ADMIN_COLLECTION, user.uid), adminData);
-        snapshot = await getDoc(doc(db, ADMIN_COLLECTION, user.uid));
       }
 
       if (!snapshot.exists()) {
@@ -97,8 +98,9 @@ export const adminAuthService = {
       }
 
       const adminData = snapshot.data() as AdminUser;
-      localStorage.setItem('adminAuth', 'true');
-      localStorage.setItem('admin_user', JSON.stringify(adminData));
+
+      // Firebase Auth maneja la sesión automáticamente con tokens JWT seguros
+      info('Admin logged in successfully', { component: 'adminAuthService', adminId: user.uid });
 
       return { success: true, admin: adminData };
     } catch (err: any) {
@@ -124,11 +126,12 @@ export const adminAuthService = {
 
   async logout(): Promise<void> {
     try {
+      info('Admin logout', { component: 'adminAuthService' });
       await signOut(auth);
-    } finally {
-      localStorage.removeItem('adminAuth');
-      localStorage.removeItem('admin_user');
-      localStorage.removeItem('admin_token');
+      // Firebase Auth limpia automáticamente la sesión
+    } catch (error) {
+      logError('Error during logout', error as Error, { component: 'adminAuthService' });
+      throw error;
     }
   },
 

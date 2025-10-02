@@ -25,6 +25,12 @@ import '@/utils/testLinkTemplateFlow';
 import '@/utils/linkTemplatesSummary';
 import '@/utils/linkTemplatesFix';
 
+// Migration script
+import { fixProfessionalCalendars } from '@/utils/fixProfessionalCalendars';
+
+// Image diagnostics
+import '@/utils/diagnoseImages';
+
 // Lazy load pages for better performance with error handling
 const Home = React.lazy(() => 
   import('@/pages/Home')
@@ -338,6 +344,24 @@ const NotFound: React.FC = () => {
 };
 
 function App() {
+  // Ejecutar migración de calendarios profesionales solo una vez
+  React.useEffect(() => {
+    const migrationKey = 'professional_calendars_migration_v1';
+    const hasRun = localStorage.getItem(migrationKey);
+    
+    if (!hasRun) {
+      console.log('🔧 Ejecutando migración de calendarios profesionales...');
+      fixProfessionalCalendars()
+        .then(result => {
+          console.log('✅ Migración completada:', result);
+          localStorage.setItem(migrationKey, 'true');
+        })
+        .catch(error => {
+          console.error('❌ Error en la migración:', error);
+        });
+    }
+  }, []);
+
   return (
     <ErrorBoundary>
       <Router future={{

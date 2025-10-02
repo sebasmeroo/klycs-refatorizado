@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardCalendar, TeamProfessional } from '@/types';
 import { Calendar, Users, Settings, Eye, EyeOff, AlertCircle, Clock, CheckCircle, Camera, Upload } from 'lucide-react';
+import { useUserCalendars } from '@/hooks/useCalendar';
 import { CollaborativeCalendarService } from '@/services/collaborativeCalendar';
 import { StorageService } from '@/services/storage';
 import { useAuth } from '@/hooks/useAuth';
@@ -13,11 +14,13 @@ interface CalendarEditorProps {
 
 export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }) => {
   const { user } = useAuth();
-  const [calendars, setCalendars] = useState<any[]>([]);
   const [professionals, setProfessionals] = useState<TeamProfessional[]>([]);
-  const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // ✅ Usar React Query con cache de 5 minutos
+  const { data: calendarsData, isLoading: loading } = useUserCalendars(user?.uid);
+  const calendars = calendarsData || [];
 
   const defaultCalendar: CardCalendar = {
     enabled: false,
@@ -27,7 +30,6 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
     order: 5,
     showProfessionals: true,
     allowDirectBooking: true,
-    designVariant: 'minimal',
     linkedCalendarId: undefined,
     bookingConfig: {
       requireApproval: false,
@@ -48,7 +50,6 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
     ? {
         ...defaultCalendar,
         ...card.calendar,
-        designVariant: card.calendar.designVariant || 'minimal',
         bookingConfig: {
           ...defaultCalendar.bookingConfig,
           ...card.calendar.bookingConfig
@@ -60,44 +61,33 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
       }
     : defaultCalendar;
 
+  // Cargar profesionales cuando se cargan los calendarios
   useEffect(() => {
-    if (user) {
-      loadCalendars();
-    }
-  }, [user]);
+    const loadProfessionals = async () => {
+      if (!user?.uid || calendars.length === 0) return;
 
-  const loadCalendars = async () => {
-    if (!user?.uid) return;
-    
-    try {
-      setLoading(true);
-      const userCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid);
-      setCalendars(userCalendars);
+      try {
+        // Vincular automáticamente el primer calendario si existe y no hay uno vinculado
+        if (calendars.length > 0 && !calendar.linkedCalendarId) {
+          const firstCalendar = calendars[0];
+          onUpdate({
+            calendar: {
+              ...calendar,
+              linkedCalendarId: firstCalendar.id
+            }
+          });
+        }
 
-      // Vincular automáticamente el primer calendario si existe y no hay uno vinculado
-      if (userCalendars.length > 0 && !calendar.linkedCalendarId) {
-        const firstCalendar = userCalendars[0];
-        onUpdate({
-          calendar: {
-            ...calendar,
-            linkedCalendarId: firstCalendar.id
-          }
-        });
-        // Cargar profesionales del usuario
+        // Cargar profesionales (1 lectura única)
         const profs = await CollaborativeCalendarService.getProfessionals(user.uid);
         setProfessionals(profs);
-      } else if (calendar.linkedCalendarId) {
-        // Si ya hay un calendario vinculado, cargar los profesionales del usuario
-        const profs = await CollaborativeCalendarService.getProfessionals(user.uid);
-        setProfessionals(profs);
+      } catch (error) {
+        console.error('Error loading professionals:', error);
       }
-    } catch (error) {
-      console.error('Error loading calendars:', error);
-      toast.error('Error al cargar calendarios');
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+
+    loadProfessionals();
+  }, [calendars.length, user?.uid]);
 
   const handleToggleEnabled = () => {
     onUpdate({
@@ -319,46 +309,6 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
                 </span>
               </label>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Layout
-                </label>
-                <select
-                  value={calendar.style.layout}
-                  onChange={(e) => handleUpdateField('style', { ...calendar.style, layout: e.target.value as any })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="list">Lista</option>
-                  <option value="grid">Cuadrícula</option>
-                  <option value="carousel">Carrusel</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Diseño
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {[
-                    { value: 'minimal', label: 'Minimal', description: 'Botón limpio y pasos compactos' },
-                    { value: 'glass', label: 'Glass Hero', description: 'Hero degradado con resúmenes' },
-                    { value: 'spotlight', label: 'Destacado', description: 'Profesional principal y CTA' }
-                  ].map(option => (
-                    <button
-                      key={option.value}
-                      onClick={() => handleUpdateField('designVariant', option.value as CardCalendar['designVariant'])}
-                      className={`text-left rounded-xl border px-3 py-3 transition-colors ${
-                        calendar.designVariant === option.value
-                          ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-900/30 text-blue-700 dark:text-blue-200'
-                          : 'border-gray-200 bg-white hover:border-blue-300 dark:border-gray-700 dark:bg-gray-800'
-                      }`}
-                    >
-                      <p className="text-sm font-semibold">{option.label}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{option.description}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
 

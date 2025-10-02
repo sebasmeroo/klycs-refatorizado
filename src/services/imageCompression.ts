@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from 'uuid';
+
 interface CompressionOptions {
   maxWidth?: number;
   maxHeight?: number;
@@ -213,14 +215,41 @@ export class ImageCompressionService {
   }
 
   /**
-   * Genera un nombre único para el archivo
+   * Calcula el hash SHA-256 de un archivo para detectar duplicados
+   */
+  static async getFileHash(file: File): Promise<string> {
+    try {
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch (error) {
+      console.error('Error calculating file hash:', error);
+      throw new Error('No se pudo calcular el hash del archivo');
+    }
+  }
+
+  /**
+   * Genera un nombre único y seguro para el archivo usando UUID v4
    */
   static generateFileName(originalName: string, suffix: string = ''): string {
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 15);
+    // Usar UUID v4 para garantizar unicidad global
+    const uniqueId = uuidv4();
+
+    // Sanitizar el nombre original: solo letras, números y guiones, máximo 50 caracteres
     const extension = originalName.split('.').pop()?.toLowerCase() || 'webp';
-    const baseName = originalName.split('.')[0].toLowerCase().replace(/[^a-z0-9]/g, '_');
-    
-    return `${baseName}_${timestamp}_${random}${suffix}.${extension}`;
+    const baseName = originalName
+      .split('.')[0]
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '')  // Solo alfanuméricos y guiones
+      .substring(0, 50)  // Limitar longitud
+      .replace(/^-+|-+$/g, '');  // Eliminar guiones al inicio/final
+
+    // Formato seguro: nombre_uuid_suffix.ext
+    const finalName = baseName
+      ? `${baseName}_${uniqueId}${suffix}.${extension}`
+      : `${uniqueId}${suffix}.${extension}`;
+
+    return finalName;
   }
 }

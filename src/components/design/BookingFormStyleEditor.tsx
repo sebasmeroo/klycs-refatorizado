@@ -244,8 +244,6 @@ export const BookingFormStyleEditor: React.FC<BookingFormStyleEditorProps> = ({
           onChange={(e) => updateStyle({ theme: e.target.value as any })}
           className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
         >
-          <option value="ios">iOS Style</option>
-          <option value="material">Material Design</option>
           <option value="minimal">Minimalista</option>
         </select>
       </div>

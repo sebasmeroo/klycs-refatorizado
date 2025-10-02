@@ -49,9 +49,11 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
       isVisible: true,
       order: card.links.length,
       style: {
-        variant: 'solid',
+        variant: 'modern',
         backgroundColor: '#3b82f6',
         textColor: '#ffffff',
+        borderColor: '#3b82f6',
+        borderWidth: '0px',
         borderRadius: '12px',
         padding: '16px',
         fontSize: '16px',
@@ -340,6 +342,26 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
                     />
                   </div>
 
+                  {/* Diseño del Botón */}
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Diseño del Botón
+                    </label>
+                    <select
+                      value={link.style.variant || 'modern'}
+                      onChange={(e) => updateLink(link.id, {
+                        style: { ...link.style, variant: e.target.value as any }
+                      })}
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    >
+                      <option value="modern">Modern - Diseño limpio y actual</option>
+                      <option value="neumorphic">Neumorphic - Efecto 3D suave</option>
+                      <option value="minimal">Minimal - Ultra minimalista</option>
+                      <option value="gradient">Gradient - Degradado moderno</option>
+                      <option value="glassmorphic">Glassmorphic - Efecto cristal</option>
+                    </select>
+                  </div>
+
                   {/* Custom Style Controls */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                     <div>
@@ -375,7 +397,7 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
                         <input
                           type="color"
                           value={getValidHexColor(link.style.textColor, '#ffffff')}
-                          onChange={(e) => updateLink(link.id, { 
+                          onChange={(e) => updateLink(link.id, {
                             style: { ...link.style, textColor: e.target.value }
                           })}
                           className="w-12 h-10 border border-gray-200 dark:border-gray-600 rounded-lg cursor-pointer"
@@ -383,13 +405,86 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
                         <Input
                           type="text"
                           value={link.style.textColor || ''}
-                          onChange={(e) => updateLink(link.id, { 
+                          onChange={(e) => updateLink(link.id, {
                             style: { ...link.style, textColor: e.target.value }
                           })}
                           placeholder="#ffffff"
                           className="flex-1 text-sm"
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Opciones de Borde */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Color del Borde
+                      </label>
+                      <div className="flex space-x-2">
+                        <input
+                          type="color"
+                          value={getValidHexColor(link.style.borderColor, '#3b82f6')}
+                          onChange={(e) => updateLink(link.id, {
+                            style: { ...link.style, borderColor: e.target.value }
+                          })}
+                          className="w-12 h-10 border border-gray-200 dark:border-gray-600 rounded-lg cursor-pointer"
+                        />
+                        <Input
+                          type="text"
+                          value={link.style.borderColor || ''}
+                          onChange={(e) => updateLink(link.id, {
+                            style: { ...link.style, borderColor: e.target.value }
+                          })}
+                          placeholder="#3b82f6"
+                          className="flex-1 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Ancho del Borde
+                      </label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="range"
+                          min="0"
+                          max="8"
+                          step="1"
+                          value={parseInt(link.style.borderWidth || '0')}
+                          onChange={(e) => updateLink(link.id, {
+                            style: { ...link.style, borderWidth: `${e.target.value}px` }
+                          })}
+                          className="flex-1"
+                        />
+                        <span className="text-sm text-gray-600 dark:text-gray-400 w-12 text-right">
+                          {link.style.borderWidth || '0px'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Opciones de Bordes Redondeados */}
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Redondeo de Bordes
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max="50"
+                        step="2"
+                        value={parseInt(link.style.borderRadius || '12')}
+                        onChange={(e) => updateLink(link.id, {
+                          style: { ...link.style, borderRadius: `${e.target.value}px` }
+                        })}
+                        className="flex-1"
+                      />
+                      <span className="text-sm text-gray-600 dark:text-gray-400 w-12 text-right">
+                        {link.style.borderRadius || '12px'}
+                      </span>
                     </div>
                   </div>
 

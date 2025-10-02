@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Card, CardCalendar } from '@/types';
+import { Card } from '@/types';
 import SectionRenderer from './SectionRenderer';
 import {
   ExternalLink,
@@ -107,58 +107,96 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
       card={card}
       sectionType="profile"
       defaultContent={
-        <div className="text-center mb-6">
-          {/* Avatar */}
-          {card.profile.avatar && (
-            <div className="w-24 h-24 mx-auto mb-4">
-              <img
-                src={card.profile.avatar}
-                alt={card.profile.name}
-                className="w-full h-full object-cover rounded-full border-4 border-white/20 shadow-lg"
-              />
+        <div className="mb-4 space-y-2">
+          <div className="w-full overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_22px_40px_-25px_rgba(15,23,42,0.28)]">
+            <div className="relative">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Hola</p>
+                  <h1 className="text-2xl font-semibold text-slate-900">
+                    {card.profile.name || 'Nombre'}
+                  </h1>
+                  {card.profile.tagline && (
+                    <p className="text-sm text-slate-500">
+                      {card.profile.tagline}
+                    </p>
+                  )}
+                  {card.profile.bio && (
+                    <p className="text-sm leading-relaxed text-slate-500">
+                      {card.profile.bio}
+                    </p>
+                  )}
+                </div>
+                {card.profile.avatar && (
+                  <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-slate-100 shadow-inner">
+                    <img
+                      src={card.profile.avatar}
+                      alt={card.profile.name}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {card.profile.phone && (
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-500">
+                    {card.profile.phone}
+                  </span>
+                )}
+                {card.profile.website && (
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-500">
+                    {card.profile.website}
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-400">
+                <CalendarIcon className="h-4 w-4 text-slate-400" />
+                <span>{format(new Date(), 'EEE d MMM', { locale: es })}</span>
+              </div>
             </div>
-          )}
-          
-          {/* Name */}
-          {card.profile.name && (
-            <h1 className="text-2xl font-bold text-white mb-1">
-              {card.profile.name}
-            </h1>
-          )}
-
-          {card.profile.tagline && (
-            <p className="text-white/80 text-sm italic mb-3">
-              {card.profile.tagline}
-            </p>
-          )}
-          
-          {/* Bio */}
-          {card.profile.bio && (
-            <p className="text-white/90 text-sm leading-relaxed">
-              {card.profile.bio}
-            </p>
-          )}
+          </div>
 
           {(card.profile.phone || card.profile.website) && (
-            <div className="mt-4 flex flex-col items-center space-y-2">
+            <div className="w-full space-y-2">
               {card.profile.phone && (
                 <a
                   href={`tel:${card.profile.phone}`}
-                  className="inline-flex items-center gap-2 text-white/90 text-sm bg-white/10 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full hover:bg-white/20 transition-colors"
+                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 text-slate-900 shadow-[0_18px_35px_-22px_rgba(15,23,42,0.25)] transition-all hover:shadow-[0_18px_45px_-20px_rgba(15,23,42,0.28)]"
                 >
-                  <Phone className="w-4 h-4" />
-                  <span>{card.profile.phone}</span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-white">
+                      <Phone className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Teléfono</span>
+                      <span className="text-sm font-medium text-slate-900">{card.profile.phone}</span>
+                    </div>
+                  </div>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100">
+                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                  </div>
                 </a>
               )}
+
               {card.profile.website && (
                 <a
                   href={formatWebsiteUrl(card.profile.website)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-white/90 text-sm bg-white/10 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full hover:bg-white/20 transition-colors"
+                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 text-slate-900 shadow-[0_18px_35px_-22px_rgba(15,23,42,0.25)] transition-all hover:shadow-[0_18px_45px_-20px_rgba(15,23,42,0.28)]"
                 >
-                  <Globe className="w-4 h-4" />
-                  <span className="truncate max-w-[200px]">{card.profile.website}</span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-white">
+                      <Globe className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sitio web</span>
+                      <span className="text-sm font-medium text-slate-900">{card.profile.website}</span>
+                    </div>
+                  </div>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100">
+                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                  </div>
                 </a>
               )}
             </div>
@@ -173,7 +211,7 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
       card={card}
       sectionType="links"
       defaultContent={
-        <div className="space-y-3 mb-6">
+        <div className="mb-4 space-y-2">
           {card.links
             .filter(link => link.isVisible)
             .sort((a, b) => a.order - b.order)
@@ -188,29 +226,31 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
                     href={link.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-white hover:bg-white/20 transition-all duration-200 shadow-lg"
+                    className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 text-slate-900 shadow-[0_18px_35px_-22px_rgba(15,23,42,0.25)] transition-all hover:shadow-[0_18px_45px_-20px_rgba(15,23,42,0.3)]"
                     style={{
                       backgroundColor: link.style?.backgroundColor || undefined,
                       color: link.style?.textColor || undefined
                     }}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <div className="w-6 h-6 mr-3 flex items-center justify-center">
-                          {link.iconType === 'emoji' ? (
-                            <span className="text-lg">{link.icon}</span>
-                          ) : (
-                            <ExternalLink className="w-5 h-5" />
-                          )}
-                        </div>
-                        <div className="text-left">
-                          <div className="font-medium text-sm">{link.title}</div>
-                          {link.description && (
-                            <div className="text-xs text-white/70">{link.description}</div>
-                          )}
-                        </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-white">
+                        {link.iconType === 'emoji' ? (
+                          <span className="text-lg" role="img" aria-hidden="true">{link.icon}</span>
+                        ) : link.iconType === 'image' && link.iconUrl ? (
+                          <img src={link.iconUrl} alt={link.title} className="h-5 w-5 object-contain" />
+                        ) : (
+                          <ExternalLink className="h-4 w-4" />
+                        )}
                       </div>
-                      <ExternalLink className="w-4 h-4 opacity-70" />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold text-slate-900">{link.title}</span>
+                        {link.description && (
+                          <span className="text-[11px] text-slate-500">{link.description}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100">
+                      <ChevronRight className="h-4 w-4 text-slate-400" />
                     </div>
                   </a>
                 }
@@ -227,7 +267,7 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
       sectionType="social"
       defaultContent={
         card.socialLinks && card.socialLinks.length > 0 ? (
-          <div className="flex justify-center space-x-4 mb-6">
+          <div className="mb-4 flex justify-center space-x-3">
             {card.socialLinks
               .filter(social => social.isVisible)
               .map((social) => (
@@ -236,7 +276,7 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
                   href={social.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-12 h-12 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200 shadow-lg"
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-[0_16px_28px_-22px_rgba(15,23,42,0.35)] transition-all hover:text-slate-900"
                 >
                   {getSocialIcon(social.platform)}
                 </a>
@@ -757,26 +797,7 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
       return eachDayOfInterval({ start: gridStart, end: gridEnd });
     }, [calendarMonth]);
 
-    const designVariant: NonNullable<CardCalendar['designVariant']> = (card.calendar?.designVariant as any) || 'minimal';
     const canBook = Boolean(card.calendar?.allowDirectBooking);
-    const primaryService = services[0];
-    const heroTitle = primaryService?.name || card.calendar?.title || 'Reserva tu Cita';
-    const heroSubtitle = primaryService?.description || card.calendar?.description || 'Encuentra el mejor momento con nuestro equipo.';
-    const heroMeta = [
-      {
-        label: 'Duración',
-        value: primaryService?.duration ? `${primaryService.duration} min` : '60 min'
-      },
-      {
-        label: 'Profesionales',
-        value: `${professionals.length || 1}`
-      },
-      {
-        label: 'Disponibilidad',
-        value: card.calendar?.bookingConfig.showAvailability ? 'Abierta' : 'A confirmar'
-      }
-    ];
-    const featuredProfessionals = professionals.slice(0, 3);
 
     const STEP_TITLES: Record<InlineFlowStep, { title: string; subtitle: string }> = {
       professionals: { title: 'Selecciona un profesional', subtitle: 'Elige quién atenderá la cita' },
@@ -1087,243 +1108,112 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
       setCalendarMonth(startOfMonth(new Date()));
     };
 
-    const renderTrigger = () => {
-      if (designVariant === 'glass') {
-        return (
-          <div className="space-y-2">
-            <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-gradient-to-br from-[#6C4BFF] via-[#8B5CF6] to-[#EC4899] p-5 text-white shadow-2xl">
-              <div className="absolute inset-0 bg-white/10 backdrop-blur-md" />
-              <div className="relative space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="pr-10">
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/70">Ruta destacada</p>
-                    <h2 className="mt-1 text-2xl font-semibold leading-tight">{heroTitle}</h2>
-                    <p className="mt-1 text-sm text-white/80">{heroSubtitle}</p>
-                  </div>
-                  {canBook && (
-                    <button
-                      onClick={flowState === 'idle' ? startFlow : resetFlow}
-                      className="flex h-9 w-9 items-center justify-center rounded-full bg-white/25 text-white backdrop-blur transition hover:bg-white/35"
-                      aria-label={flowState === 'idle' ? 'Abrir reservas' : 'Cerrar reservas'}
-                    >
-                      {flowState === 'idle' ? (
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5 12h14" />
-                          <path d="m12 5 7 7-7 7" />
-                        </svg>
-                      ) : (
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M18 6 6 18" />
-                          <path d="M6 6l12 12" />
-                        </svg>
-                      )}
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center gap-4 text-xs font-medium text-white/85">
-                  {heroMeta.map(meta => (
-                    <div key={meta.label} className="flex flex-col">
-                      <span className="uppercase tracking-wide text-white/60">{meta.label}</span>
-                      <span>{meta.value}</span>
-                    </div>
-                  ))}
-                </div>
-                {card.calendar?.showProfessionals && featuredProfessionals.length > 0 && (
-                  <div className="flex gap-3 pt-1">
-                    {featuredProfessionals.map(professional => (
-                      <div key={professional.id} className="flex items-center gap-2 rounded-2xl bg-white/20 px-3 py-2 text-xs backdrop-blur">
-                        {professional.avatar ? (
-                          <img src={professional.avatar} alt={professional.name} className="h-8 w-8 rounded-full object-cover" />
-                        ) : (
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-black/30 text-white">
-                            {professional.name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div>
-                          <p className="font-semibold leading-tight">{professional.name}</p>
-                          <p className="text-[11px] text-white/70">{professional.role || 'Profesional'}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      if (designVariant === 'spotlight') {
-        const primaryProfessional = featuredProfessionals[0];
-        return (
-          <div className="space-y-2">
-            {primaryProfessional && (
-              <div className="flex items-center gap-3 rounded-3xl border border-gray-200 bg-white p-3 shadow-sm">
-                {primaryProfessional.avatar ? (
-                  <img src={primaryProfessional.avatar} alt={primaryProfessional.name} className="h-12 w-12 rounded-full object-cover" />
-                ) : (
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-900 text-sm font-semibold text-white">
-                    {primaryProfessional.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-gray-900">{primaryProfessional.name}</p>
-                  <p className="truncate text-xs text-gray-500">{primaryProfessional.role || 'Profesional destacado'}</p>
-                </div>
-                {canBook && (
-                  <button
-                    onClick={flowState === 'idle' ? startFlow : resetFlow}
-                    className="rounded-full bg-black px-3 py-1.5 text-xs font-semibold text-white hover:bg-black/90"
-                  >
-                    {flowState === 'idle' ? 'Reservar' : 'Cerrar'}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {card.calendar?.showProfessionals && featuredProfessionals.slice(1).length > 0 && (
-              <div className="grid gap-1.5">
-                {featuredProfessionals.slice(1).map(prof => (
-                  <div key={prof.id} className="flex items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-900/80 text-white text-xs">
-                      {prof.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-gray-900">{prof.name}</p>
-                      <p className="truncate text-[11px] text-gray-500">{prof.role || 'Profesional'}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {(!primaryProfessional || !canBook) && canBook && (
-              <button
-                onClick={flowState === 'idle' ? startFlow : resetFlow}
-                className="flex items-center justify-between rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm transition hover:border-black/40"
-              >
-                <span className="text-sm font-semibold text-gray-900">Reservar cita</span>
-                <svg viewBox="0 0 24 24" className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
-              </button>
-            )}
-          </div>
-        );
-      }
-
-      if (!canBook) {
-        return null;
-      }
-
-      return (
-        <AnimatePresence initial={false}>
-          {flowState === 'idle' && (
-            <motion.button
-              key="reserve-button"
-              onClick={startFlow}
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-              className="flex items-center justify-between rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm transition-all hover:border-black/40"
-            >
-              <span className="text-sm font-semibold text-gray-900">Reservar cita</span>
-              <AnimatePresence initial={false} mode="wait">
-                <motion.span
-                  key={iconVariant}
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 6 }}
-                  transition={{ duration: 0.25 }}
-                  className="flex items-center"
-                >
-                  {iconVariant === 'calendar' ? (
-                    <CalendarIcon className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <ChevronRight className="h-5 w-5 text-gray-300" />
-                  )}
-                </motion.span>
-              </AnimatePresence>
-            </motion.button>
-          )}
-        </AnimatePresence>
-      );
-    };
-
-    const flowContainerClass = designVariant === 'glass'
-      ? 'rounded-3xl border border-white/30 bg-white shadow-[0_20px_40px_rgba(31,41,55,0.12)]'
-      : designVariant === 'spotlight'
-        ? 'rounded-3xl border border-gray-200 bg-white shadow-xl'
-        : 'rounded-2xl border border-gray-200 bg-white shadow-sm';
-
-    const renderFlow = () => (
-      <AnimatePresence initial={false}>
-        {flowState !== 'idle' && canBook && (
-          <motion.div
-            key="booking-flow"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            <div className={`${flowContainerClass} p-3`}>
-              {flowState === 'active' ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={handleBack}
-                      className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 transition hover:border-black/40"
-                      aria-label={isFirstStep ? 'Cerrar' : 'Volver'}
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M15 18l-6-6 6-6" />
-                      </svg>
-                    </button>
-                    <div className="flex-1 px-3">{renderStepper()}</div>
-                    <div className="w-8" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-baseline justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{STEP_TITLES[currentStep].title}</p>
-                        <p className="text-xs text-gray-500">{STEP_TITLES[currentStep].subtitle}</p>
-                      </div>
-                    </div>
-                    <div className="pt-1.5">{renderStepContent()}</div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-600">
-                    <Check className="h-6 w-6" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-gray-900">Reserva enviada</p>
-                    <p className="text-xs text-gray-500">
-                      Hemos recibido tu solicitud. Te contactaremos pronto para confirmar la cita.
-                    </p>
-                  </div>
-                  <button
-                    onClick={resetFlow}
-                    className="w-full rounded-2xl border border-gray-200 bg-white py-2.5 text-sm font-semibold text-gray-700 hover:border-black/40"
-                  >
-                    Crear otra reserva
-                  </button>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    );
 
     return (
-      <div className="mb-6 space-y-3">
-        {renderTrigger()}
-        {renderFlow()}
+      <div className="mb-6">
+        {canBook && (
+          <div className="space-y-3">
+            <AnimatePresence initial={false}>
+              {flowState === 'idle' && (
+                <motion.button
+                  key="reserve-button"
+                  onClick={startFlow}
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex w-full items-center justify-between rounded-full bg-black px-4 py-3 shadow-lg transition-all hover:bg-black/90"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
+                      <CalendarIcon className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <span className="text-xs font-medium uppercase tracking-wide text-white/60">{format(new Date(), 'EEE d MMM', { locale: es })}</span>
+                      <span className="text-lg font-semibold text-white">Reservar ahora</span>
+                    </div>
+                  </div>
+                  <AnimatePresence initial={false} mode="wait">
+                    <motion.span
+                      key={iconVariant}
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 6 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex h-10 w-10 items-center justify-center rounded-full bg-white"
+                    >
+                      {iconVariant === 'calendar' ? (
+                        <CalendarIcon className="h-5 w-5 text-black" />
+                      ) : (
+                        <ChevronRight className="h-5 w-5 text-black" />
+                      )}
+                    </motion.span>
+                  </AnimatePresence>
+                </motion.button>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence initial={false}>
+              {flowState !== 'idle' && (
+                <motion.div
+                  key="booking-flow"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: 'easeInOut' }}
+                  className="overflow-hidden"
+                >
+                  <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm">
+                    {flowState === 'active' ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={handleBack}
+                            className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 transition hover:border-black/40"
+                            aria-label={isFirstStep ? 'Cerrar' : 'Volver'}
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M15 18l-6-6 6-6" />
+                            </svg>
+                          </button>
+                          <div className="flex-1 px-3">{renderStepper()}</div>
+                          <div className="w-8" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-baseline justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900">{STEP_TITLES[currentStep].title}</p>
+                              <p className="text-xs text-gray-500">{STEP_TITLES[currentStep].subtitle}</p>
+                            </div>
+                          </div>
+                          <div className="pt-1.5">{renderStepContent()}</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 text-center">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-600">
+                          <Check className="h-6 w-6" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-gray-900">Reserva enviada</p>
+                          <p className="text-xs text-gray-500">
+                            Hemos recibido tu solicitud. Te contactaremos pronto para confirmar la cita.
+                          </p>
+                        </div>
+                        <button
+                          onClick={resetFlow}
+                          className="w-full rounded-2xl border border-gray-200 bg-white py-2.5 text-sm font-semibold text-gray-700 hover:border-black/40"
+                        >
+                          Crear otra reserva
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
     );
   };

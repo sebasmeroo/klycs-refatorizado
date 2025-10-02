@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Card as CardType } from '@/types';
-import { CardsService } from '@/services/cards';
+import { useCardBySlug } from '@/hooks/useCards';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import PublicMobilePreview from '@/components/cards/preview/PublicMobilePreview';
 import { CardMetaTags } from './CardMetaTags';
@@ -12,36 +12,15 @@ interface CardViewerProps {
 }
 
 export const CardViewer: React.FC<CardViewerProps> = ({ slug, card: propCard, isPreview = false }) => {
-  const [card, setCard] = useState<CardType | null>(propCard || null);
-  const [loading, setLoading] = useState(!propCard && !!slug);
-  const [error, setError] = useState<string | null>(null);
+  // ✅ Usar React Query con cache de 5 minutos (solo si no hay propCard)
+  const { data: fetchedCard, isLoading, error: queryError } = useCardBySlug(
+    !propCard && slug ? slug : undefined
+  );
 
-  useEffect(() => {
-    if (slug && !propCard) {
-      loadCard();
-    }
-  }, [slug]);
-
-  const loadCard = async () => {
-    if (!slug) return;
-    
-    try {
-      setLoading(true);
-      const cardData = await CardsService.getCardBySlug(slug);
-      
-      if (!cardData) {
-        setError('Tarjeta no encontrada');
-        return;
-      }
-      
-      setCard(cardData);
-    } catch (err) {
-      console.error('Error loading card:', err);
-      setError('Error al cargar la tarjeta');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Usar propCard si existe, sino usar fetchedCard de React Query
+  const card = propCard || fetchedCard;
+  const loading = isLoading && !propCard;
+  const error = queryError ? 'Error al cargar la tarjeta' : (!card && !loading ? 'Tarjeta no encontrada' : null);
 
   if (loading) {
     return (

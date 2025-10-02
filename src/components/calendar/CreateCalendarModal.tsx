@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Users, Lock, Globe, Palette, Check } from 'lucide-react';
-import { CollaborativeCalendarService } from '@/services/collaborativeCalendar';
+import { useCreateCalendar } from '@/hooks/useCalendar';
 import { useAuth } from '@/hooks/useAuth';
 
 interface CreateCalendarModalProps {
@@ -12,7 +12,7 @@ interface CreateCalendarModalProps {
 
 const PREDEFINED_COLORS = [
   '#3B82F6', // Blue
-  '#10B981', // Green  
+  '#10B981', // Green
   '#F59E0B', // Yellow
   '#EF4444', // Red
   '#8B5CF6', // Purple
@@ -35,48 +35,46 @@ export const CreateCalendarModal: React.FC<CreateCalendarModalProps> = ({
     color: PREDEFINED_COLORS[0],
     isPublic: false
   });
-  const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+  // ✅ Usar React Query mutation con invalidación automática
+  const createCalendarMutation = useCreateCalendar();
 
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
-    
+
     if (!formData.name.trim()) {
       newErrors.name = 'El nombre del calendario es requerido';
     } else if (formData.name.length > 100) {
       newErrors.name = 'El nombre no puede exceder 100 caracteres';
     }
-    
+
     if (formData.description && formData.description.length > 500) {
       newErrors.description = 'La descripción no puede exceder 500 caracteres';
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm() || !user?.id) return;
-    
-    setIsLoading(true);
-    
+
     try {
-      const calendarId = await CollaborativeCalendarService.createCalendar(
-        user.id,
-        formData.name.trim(),
-        formData.description.trim() || undefined,
-        formData.color
-      );
-      
+      const calendarId = await createCalendarMutation.mutateAsync({
+        ownerId: user.id,
+        name: formData.name.trim(),
+        description: formData.description.trim() || undefined,
+        color: formData.color
+      });
+
       onCalendarCreated?.(calendarId);
       handleClose();
     } catch (error) {
       console.error('Error al crear calendario:', error);
       setErrors({ general: 'Error al crear el calendario. Por favor intenta de nuevo.' });
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -88,7 +86,6 @@ export const CreateCalendarModal: React.FC<CreateCalendarModalProps> = ({
       isPublic: false
     });
     setErrors({});
-    setIsLoading(false);
     onClose();
   };
 
