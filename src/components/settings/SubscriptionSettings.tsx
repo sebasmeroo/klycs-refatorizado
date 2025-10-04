@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { Crown, Check, AlertCircle, Calendar, CreditCard, ArrowRight, Zap, Rocket, Sparkles } from 'lucide-react';
+import { Crown, Check, AlertCircle, Calendar, CreditCard, ArrowRight, Zap, Rocket, Sparkles, XCircle } from 'lucide-react';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { subscriptionsService } from '@/services/subscriptions';
 import { toast } from '@/utils/toast';
+import { useAuth } from '@/hooks/useAuth';
 
 export const SubscriptionSettings: React.FC = () => {
+  const { user } = useAuth();
   const { subscriptionStatus, isLoading, planName, isActive, daysUntilExpiration, isExpiringSoon } = useSubscriptionStatus();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'PRO' | 'BUSINESS' | null>(null);
+  const [isCanceling, setIsCanceling] = useState(false);
 
   const currentPlan = planName || 'FREE';
 
@@ -89,6 +93,28 @@ export const SubscriptionSettings: React.FC = () => {
     setShowUpgradeModal(false);
   };
 
+  const handleCancelSubscription = async () => {
+    if (!user?.id) return;
+
+    setIsCanceling(true);
+    try {
+      const result = await subscriptionsService.cancelSubscription(user.id);
+
+      if (result.success) {
+        toast.success('Suscripción cancelada. Mantendrás el acceso hasta el final del período de facturación.');
+        setShowCancelModal(false);
+        // Invalidar caché para refrescar estado
+        window.location.reload();
+      } else {
+        toast.error(result.error || 'Error al cancelar la suscripción');
+      }
+    } catch (error) {
+      toast.error('Error inesperado al cancelar');
+    } finally {
+      setIsCanceling(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -120,15 +146,26 @@ export const SubscriptionSettings: React.FC = () => {
             </div>
           </div>
 
-          {currentPlan !== 'BUSINESS' && (
-            <button
-              onClick={() => handleUpgrade(currentPlan === 'FREE' ? 'PRO' : 'BUSINESS')}
-              className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all"
-            >
-              <Crown className="w-5 h-5" />
-              <span>Actualizar Plan</span>
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {currentPlan !== 'BUSINESS' && (
+              <button
+                onClick={() => handleUpgrade(currentPlan === 'FREE' ? 'PRO' : 'BUSINESS')}
+                className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all"
+              >
+                <Crown className="w-5 h-5" />
+                <span>Actualizar Plan</span>
+              </button>
+            )}
+            {currentPlan !== 'FREE' && (
+              <button
+                onClick={() => setShowCancelModal(true)}
+                className="flex items-center space-x-2 px-6 py-3 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-all"
+              >
+                <XCircle className="w-5 h-5" />
+                <span>Cancelar Suscripción</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Estado de la suscripción */}
@@ -330,6 +367,48 @@ export const SubscriptionSettings: React.FC = () => {
                 className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all"
               >
                 Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Cancelación */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 max-w-md w-full shadow-2xl">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <XCircle className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                ¿Cancelar suscripción?
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400">
+                Mantendrás el acceso hasta el {subscriptionStatus?.currentPeriodEnd ? new Date(subscriptionStatus.currentPeriodEnd).toLocaleDateString('es-ES') : 'final del período'}
+              </p>
+            </div>
+
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 mb-6">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                ⚠️ Perderás el acceso a todas las funciones premium después de esta fecha.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                disabled={isCanceling}
+                className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+              >
+                Mantener suscripción
+              </button>
+              <button
+                onClick={handleCancelSubscription}
+                disabled={isCanceling}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all disabled:opacity-50"
+              >
+                {isCanceling ? 'Cancelando...' : 'Confirmar cancelación'}
               </button>
             </div>
           </div>

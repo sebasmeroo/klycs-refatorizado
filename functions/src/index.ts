@@ -403,3 +403,17 @@ export const healthCheck = onRequest(async (req, res) => {
     });
   }
 });
+
+// === SUBSCRIPTION MANAGEMENT ===
+
+/**
+ * Auto-renew FREE subscriptions
+ * Cron job: Daily at 00:00 UTC
+ */
+export { renewFreeSubscriptions, renewFreeSubscriptionsManual } from './renewFreeSubscriptions';
+
+/**
+ * Send welcome email when subscription is created
+ * Trigger: onCreate user_subscriptions
+ */
+export { sendWelcomeEmail } from './sendWelcomeEmail';

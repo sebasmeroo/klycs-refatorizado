@@ -148,6 +148,8 @@ const DashboardBookings: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showFormEditor, setShowFormEditor] = useState(false);
   const [showCreateEvent, setShowCreateEvent] = useState(false);
+  const [hoveredEvent, setHoveredEvent] = useState<{ event: CalendarEvent; position: { x: number; y: number } } | null>(null);
+  const tooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [newComment, setNewComment] = useState('');
   
@@ -1575,6 +1577,26 @@ const DashboardBookings: React.FC = () => {
                                   e.stopPropagation();
                                   openEditEventPanel(event);
                                 }}
+                                onMouseEnter={(e) => {
+                                  console.log('Week view - Mouse enter event:', event.title);
+                                  if (tooltipTimeoutRef.current) {
+                                    clearTimeout(tooltipTimeoutRef.current);
+                                  }
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  tooltipTimeoutRef.current = setTimeout(() => {
+                                    console.log('Week view - Showing tooltip for:', event.title, rect);
+                                    setHoveredEvent({
+                                      event,
+                                      position: { x: rect.right + 10, y: rect.top }
+                                    });
+                                  }, 100);
+                                }}
+                                onMouseLeave={() => {
+                                  if (tooltipTimeoutRef.current) {
+                                    clearTimeout(tooltipTimeoutRef.current);
+                                  }
+                                  setHoveredEvent(null);
+                                }}
                                 className="w-full text-left bg-blue-500/90 hover:bg-blue-600 text-white rounded-lg px-2 py-1 transition-colors shadow-sm"
                                 style={{ backgroundColor: getCalendarColor(event.calendarId) }}
                               >
@@ -1648,6 +1670,27 @@ const DashboardBookings: React.FC = () => {
                       e.stopPropagation();
                       setSelectedEventInfo(event);
                       setShowEventInfoModal(true);
+                    }}
+                    onMouseEnter={(e) => {
+                      console.log('Month view - Mouse enter event:', event.title);
+                      if (tooltipTimeoutRef.current) {
+                        clearTimeout(tooltipTimeoutRef.current);
+                      }
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      tooltipTimeoutRef.current = setTimeout(() => {
+                        console.log('Month view - Showing tooltip for:', event.title, rect);
+                        setHoveredEvent({
+                          event,
+                          position: { x: rect.right + 10, y: rect.top }
+                        });
+                      }, 100);
+                    }}
+                    onMouseLeave={() => {
+                      console.log('Month view - Mouse leave');
+                      if (tooltipTimeoutRef.current) {
+                        clearTimeout(tooltipTimeoutRef.current);
+                      }
+                      setHoveredEvent(null);
                     }}
                     className="px-2 py-1 rounded text-xs font-medium text-white truncate cursor-pointer hover:opacity-80 transition-opacity"
                     style={{ backgroundColor: getCalendarColor(event.calendarId) }}
@@ -2557,6 +2600,144 @@ const DashboardBookings: React.FC = () => {
                           </button>
       )}
 
+      {/* Tooltip para eventos en hover */}
+      {hoveredEvent && (() => {
+        console.log('Rendering tooltip for:', hoveredEvent.event.title, 'at position:', hoveredEvent.position);
+        const event = hoveredEvent.event;
+        const calendarColor = getCalendarColor(event.calendarId);
+        const professionalName = getProfessionalName(event.calendarId);
+        
+        // Ajustar posición si está cerca del borde derecho de la pantalla
+        let tooltipX = hoveredEvent.position.x;
+        let tooltipY = hoveredEvent.position.y;
+        
+        if (tooltipX + 288 > window.innerWidth) { // 288px = width del tooltip (w-72)
+          tooltipX = hoveredEvent.position.x - 288 - 20; // Mostrar a la izquierda
+        }
+        
+        if (tooltipY + 400 > window.innerHeight) {
+          tooltipY = window.innerHeight - 400;
+        }
+        
+        return (
+          <div
+            className="fixed z-[60] pointer-events-none"
+            style={{
+              left: `${tooltipX}px`,
+              top: `${tooltipY}px`,
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-lg shadow-2xl border-2 border-gray-200 p-4 w-72"
+            >
+              {/* Header con el color del calendario */}
+              <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-200">
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: calendarColor }}
+                />
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Detalles de la Reserva</p>
+              </div>
+
+            {/* Contenido del evento */}
+            <div className="space-y-3">
+              {event.title && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Servicio:</p>
+                  <p className="text-sm font-semibold text-gray-900">{event.title}</p>
+                </div>
+              )}
+
+              {professionalName && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Profesional:</p>
+                  <p className="text-sm text-gray-900">{professionalName}</p>
+                </div>
+              )}
+
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1">Fecha y Hora:</p>
+                <p className="text-sm text-gray-900">
+                  {event.startDate.toLocaleDateString('es-ES', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric'
+                  })}
+                </p>
+                <p className="text-sm text-gray-900">
+                  {event.startDate.toLocaleTimeString('es-ES', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                  {event.endDate && event.hasEndTime && (
+                    <>
+                      {' - '}
+                      {event.endDate.toLocaleTimeString('es-ES', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </>
+                  )}
+                </p>
+              </div>
+
+              {event.location && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Ubicación:</p>
+                  <p className="text-sm text-gray-900">{event.location}</p>
+                </div>
+              )}
+
+              {event.status && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Estado:</p>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                      event.status === 'confirmed'
+                        ? 'bg-green-100 text-green-800'
+                        : event.status === 'tentative'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}
+                  >
+                    {event.status === 'confirmed' && <CheckCircle className="w-3 h-3" />}
+                    {event.status === 'confirmed' ? 'Confirmado' : event.status === 'tentative' ? 'Tentativo' : 'Cancelado'}
+                  </span>
+                </div>
+              )}
+
+              {event.description && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Descripción:</p>
+                  <p className="text-xs text-gray-700">{event.description}</p>
+                </div>
+              )}
+              
+              {event.customFieldsData && Object.keys(event.customFieldsData).length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Información adicional:</p>
+                  <div className="space-y-1">
+                    {Object.entries(event.customFieldsData).map(([key, value]) => {
+                      if (!value || (typeof value === 'string' && !value.trim())) return null;
+                      return (
+                        <div key={key} className="text-xs">
+                          <span className="font-medium text-gray-600">{key}:</span>{' '}
+                          <span className="text-gray-800">{String(value)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+        );
+      })()}
+
       {/* Modal para editar profesional */}
       {showEditProfessionalModal && editingProfessional && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -3056,6 +3237,27 @@ const DashboardBookings: React.FC = () => {
                     onClick={() => {
                       setSelectedEventInfo(event);
                       setShowEventInfoModal(true);
+                    }}
+                    onMouseEnter={(e) => {
+                      console.log('Day list - Mouse enter event:', event.title);
+                      if (tooltipTimeoutRef.current) {
+                        clearTimeout(tooltipTimeoutRef.current);
+                      }
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      tooltipTimeoutRef.current = setTimeout(() => {
+                        console.log('Day list - Showing tooltip for:', event.title, rect);
+                        setHoveredEvent({
+                          event,
+                          position: { x: rect.right + 10, y: rect.top }
+                        });
+                      }, 100);
+                    }}
+                    onMouseLeave={() => {
+                      console.log('Day list - Mouse leave');
+                      if (tooltipTimeoutRef.current) {
+                        clearTimeout(tooltipTimeoutRef.current);
+                      }
+                      setHoveredEvent(null);
                     }}
                     className="p-4 rounded-lg border-2 border-gray-200 hover:border-blue-400 cursor-pointer transition-all hover:shadow-md group"
                   >

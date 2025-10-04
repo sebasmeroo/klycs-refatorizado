@@ -187,6 +187,33 @@ const Services = React.lazy(() =>
     })
 );
 
+const Product = React.lazy(() => 
+  import('@/pages/Product')
+    .then(module => ({ default: module.Product }))
+    .catch(err => {
+      logError('Failed to load Product component', err, { component: 'App' });
+      return { default: () => <div>Error loading Product page</div> };
+    })
+);
+
+const Pricing = React.lazy(() => 
+  import('@/pages/Pricing')
+    .then(module => ({ default: module.Pricing }))
+    .catch(err => {
+      logError('Failed to load Pricing component', err, { component: 'App' });
+      return { default: () => <div>Error loading Pricing page</div> };
+    })
+);
+
+const Help = React.lazy(() => 
+  import('@/pages/Help')
+    .then(module => ({ default: module.Help }))
+    .catch(err => {
+      logError('Failed to load Help component', err, { component: 'App' });
+      return { default: () => <div>Error loading Help page</div> };
+    })
+);
+
 // Admin pages
 const AdminLogin = React.lazy(() => 
   import('@/pages/AdminLogin')
@@ -251,12 +278,21 @@ const AdminAnalytics = React.lazy(() =>
     })
 );
 
-const AdminSettings = React.lazy(() => 
+const AdminSettings = React.lazy(() =>
   import('@/pages/AdminSettings')
     .then(module => ({ default: module.default }))
     .catch(err => {
       logError('Failed to load AdminSettings component', err, { component: 'App' });
       return { default: () => <div>Error loading Admin Settings</div> };
+    })
+);
+
+const AdminSubscriptions = React.lazy(() =>
+  import('@/pages/AdminSubscriptions')
+    .then(module => ({ default: module.default }))
+    .catch(err => {
+      logError('Failed to load AdminSubscriptions component', err, { component: 'App' });
+      return { default: () => <div>Error loading Admin Subscriptions</div> };
     })
 );
 
@@ -380,6 +416,13 @@ function App() {
         <Suspense fallback={<PageLoader />}>
           <Routes>
           <Route path="/" element={<Layout variant="auto"><Home /></Layout>} />
+        
+        {/* Public Pages */}
+        <Route path="/product" element={<Layout variant="auto"><Product /></Layout>} />
+        <Route path="/services" element={<Layout variant="auto"><Services /></Layout>} />
+        <Route path="/pricing" element={<Layout variant="auto"><Pricing /></Layout>} />
+        <Route path="/help" element={<Layout variant="auto"><Help /></Layout>} />
+        
         <Route 
           path="/login" 
           element={
@@ -630,19 +673,30 @@ function App() {
           } 
         />
         
-        <Route 
-          path="/admin/settings" 
+        <Route
+          path="/admin/settings"
           element={
             <AdminRoute>
               <AdminLayout>
                 <AdminSettings />
               </AdminLayout>
             </AdminRoute>
-          } 
+          }
         />
-        
-        <Route 
-          path="/admin" 
+
+        <Route
+          path="/admin/subscriptions"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <AdminSubscriptions />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/admin"
           element={<Navigate to="/admin/dashboard" replace />}
         />
 

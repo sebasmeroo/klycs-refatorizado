@@ -22,6 +22,7 @@ import { CollaborativeCalendarService } from '@/services/collaborativeCalendar';
 import { authService } from '@/services/auth';
 import { useLayoutTheme } from '@/components/layout/Layout';
 import { PricingSection } from '@/components/pricing/PricingSection';
+import { InteractiveCardPreview } from '@/components/home/InteractiveCardPreview';
 
 interface Highlight {
   label: string;
@@ -210,7 +211,7 @@ export const Home: React.FC = () => {
           </Link>
           <nav className={`hidden items-center gap-8 text-sm font-medium md:flex ${textMuted}`}>
             {[
-              { label: 'Producto', to: '/' },
+              { label: 'Producto', to: '/product' },
               { label: 'Plantillas', to: '/services' },
               { label: 'Planes', to: '/pricing' },
               { label: 'Recursos', to: '/help' },
@@ -242,109 +243,63 @@ export const Home: React.FC = () => {
         <main className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           {/* HERO */}
           <section className={`relative overflow-hidden rounded-[40px] px-6 py-12 lg:px-16 lg:py-[72px] ${surfaceA}`}>
-            <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,3fr)_minmax(0,2.4fr)]">
-              <div className="space-y-10">
-                <div className="space-y-6">
-                  <div className={badgeClass}>Tarjetas digitales activas</div>
-                  <h1 className={`text-3xl font-semibold leading-tight sm:text-4xl lg:text-5xl ${textPrimary}`}>
-                    Lanza una tarjeta inmersiva, automatiza reservas y mantén tu marca en un solo enlace.
-                  </h1>
-                  <p className={`text-base leading-relaxed sm:text-lg ${textSecondary}`}>
-                    Diseña experiencias interactivas con bloques inteligentes, sincroniza calendarios y entiende qué convierte mejor en cada campaña.
-                  </p>
-                </div>
+            <div className="space-y-10">
+              <div className="text-center max-w-3xl mx-auto space-y-6">
+                <div className={`${badgeClass} inline-flex`}>Tarjetas digitales activas</div>
+                <h1 className={`text-3xl font-semibold leading-tight sm:text-4xl lg:text-5xl ${textPrimary}`}>
+                  Lanza una tarjeta inmersiva, automatiza reservas y mantén tu marca en un solo enlace.
+                </h1>
+                <p className={`text-base leading-relaxed sm:text-lg ${textSecondary}`}>
+                  Diseña experiencias interactivas con bloques inteligentes, sincroniza calendarios y entiende qué convierte mejor en cada campaña.
+                </p>
 
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-4 justify-center">
                   <Link to="/register">
                     <Button size="lg" className={primaryButton}>
                       Crear mi tarjeta ahora
                       <ArrowRight className="ml-2 h-5 w-5" />
                     </Button>
                   </Link>
-                  <Link to="/demo">
+                  <Link to="/services">
                     <Button variant="outline" size="lg" className={secondaryButton}>
-                      Ver tarjetas en vivo
+                      Ver plantillas
                     </Button>
                   </Link>
                 </div>
-
-                <div className="grid gap-4 sm:grid-cols-3">
-                  {highlights.map(({ label, value, helper }) => (
-                    <div
-                      key={label}
-                      className={`rounded-3xl px-6 py-5 transition duration-200 ${
-                        isDark ? 'border border-white/15 bg-white/5 text-white' : 'border border-neutral-200 bg-white text-neutral-800 shadow-sm'
-                      }`}
-                    >
-                      <p className={`text-2xl font-semibold ${textPrimary}`}>{value}</p>
-                      <p className={`mt-1 text-xs uppercase tracking-[0.25em] ${textMuted}`}>{label}</p>
-                      <p className={`mt-3 text-xs ${textSecondary}`}>{helper}</p>
-                    </div>
-                  ))}
-                </div>
               </div>
 
-              <div className="relative">
-                <div className="absolute -top-12 left-6 right-0 mx-auto h-40 w-40 rounded-full bg-blue-400/20 blur-[120px]" />
-                <div className="relative mx-auto max-w-sm space-y-6">
+              <div className="grid gap-4 sm:grid-cols-3 max-w-4xl mx-auto">
+                {highlights.map(({ label, value, helper }) => (
                   <div
-                    className={`overflow-hidden rounded-[28px] p-6 ${
-                      isDark ? 'border border-white/15 bg-[#0b1220] text-white/70 shadow-2xl' : 'border border-neutral-200 bg-white text-neutral-600 shadow-xl'
+                    key={label}
+                    className={`rounded-3xl px-6 py-5 transition duration-200 ${
+                      isDark ? 'border border-white/15 bg-white/5 text-white' : 'border border-neutral-200 bg-white text-neutral-800 shadow-sm'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm font-medium ${textPrimary}`}>Agenda semanal</span>
-                      <span className={isDark ? 'text-xs text-emerald-300' : 'text-xs text-emerald-600'}>+18 reservas</span>
-                    </div>
-                    <div className="mt-6 space-y-4">
-                      {[1, 2, 3].map(slot => (
-                        <div
-                          key={slot}
-                          className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm ${
-                            isDark ? 'bg-white/5 text-white/80' : 'bg-neutral-100 text-neutral-700'
-                          } transition-transform duration-200 hover:-translate-y-[2px]`}
-                        >
-                          <div>
-                            <p className={`font-medium ${textPrimary}`}>Consulta estratégica</p>
-                            <p className={`text-xs ${textMuted}`}>30 min · Confirmación automática</p>
-                          </div>
-                          <Button
-                            size="sm"
-                            className={
-                              isDark
-                                ? 'rounded-full bg-white/90 px-4 text-[#05070f] hover:bg-white'
-                                : 'rounded-full bg-neutral-900 px-4 text-white hover:bg-neutral-800'
-                            }
-                          >
-                            Reservar
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
+                    <p className={`text-2xl font-semibold ${textPrimary}`}>{value}</p>
+                    <p className={`mt-1 text-xs uppercase tracking-[0.25em] ${textMuted}`}>{label}</p>
+                    <p className={`mt-3 text-xs ${textSecondary}`}>{helper}</p>
                   </div>
-
-                  <div
-                    className={`rounded-[28px] border p-5 shadow-xl ${
-                      isDark ? 'border-white/10 bg-white/5 text-white/80' : 'border-neutral-200 bg-white text-neutral-600'
-                    }`}
-                  >
-                    <p className={`text-xs uppercase tracking-[0.35em] ${textMuted}`}>Tarjeta destacada</p>
-                    <h3 className={`mt-3 text-lg font-semibold ${textPrimary}`}>Claudia Estudio · Consultoría Creativa</h3>
-                    <ul className={`mt-4 space-y-2 text-sm ${textSecondary}`}>
-                      <li className="flex items-center gap-2">
-                        <Users className={`h-4 w-4 ${isDark ? 'text-emerald-300' : 'text-emerald-600'}`} /> Paquetes personalizados y testimonios en vivo
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Calendar className={`h-4 w-4 ${isDark ? 'text-sky-300' : 'text-sky-500'}`} /> Disponibilidad sincronizada en Google Calendar
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Sparkles className={`h-4 w-4 ${isDark ? 'text-violet-300' : 'text-violet-500'}`} /> Animaciones y embudos listos para campañas
-                      </li>
-                    </ul>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
+          </section>
+
+          {/* PREVIEW INTERACTIVO */}
+          <section className={`rounded-[40px] px-6 py-12 lg:px-16 lg:py-16 ${surfaceA}`}>
+            <div className="text-center mb-12">
+              <div className={`${badgeClass} inline-flex mb-4`}>
+                <Sparkles className="h-4 w-4 mr-2" />
+                Prueba interactiva
+              </div>
+              <h2 className={`text-3xl font-semibold mb-4 ${textPrimary}`}>
+                Experimenta con tu propia tarjeta digital
+              </h2>
+              <p className={`text-base ${textSecondary} max-w-2xl mx-auto`}>
+                Cambia colores, edita enlaces, modifica servicios y personaliza el portfolio. Todo en tiempo real.
+              </p>
+            </div>
+            <InteractiveCardPreview />
           </section>
 
           {/* FEATURES */}

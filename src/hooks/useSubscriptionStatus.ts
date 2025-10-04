@@ -8,6 +8,7 @@ export interface SubscriptionStatus {
   currentPeriodEnd: Date | null;
   daysUntilExpiration: number | null;
   isExpiringSoon: boolean; // Menos de 7 días
+  isPastDue: boolean; // Pago fallido
   canAccessFeature: (feature: 'cards' | 'calendars' | 'professionals' | 'bookings') => boolean;
 }
 
@@ -29,6 +30,7 @@ export const useSubscriptionStatus = () => {
           currentPeriodEnd: null,
           daysUntilExpiration: null,
           isExpiringSoon: false,
+          isPastDue: false,
           canAccessFeature: () => false
         };
       }
@@ -45,6 +47,7 @@ export const useSubscriptionStatus = () => {
             currentPeriodEnd: null,
             daysUntilExpiration: null,
             isExpiringSoon: false,
+            isPastDue: false,
             canAccessFeature: (feature) => {
               // FREE solo puede crear 1 tarjeta
               if (feature === 'cards') return true; // La validación se hace al crear
@@ -57,8 +60,9 @@ export const useSubscriptionStatus = () => {
         const now = new Date();
         const periodEnd = subscription.currentPeriodEnd;
 
-        // Verificar si está activa
+        // Verificar si está activa o si hay pago fallido
         const isActive = ['active', 'trialing'].includes(subscription.status);
+        const isPastDue = subscription.status === 'past_due';
 
         // Calcular días hasta expiración
         let daysUntilExpiration: number | null = null;
@@ -78,7 +82,10 @@ export const useSubscriptionStatus = () => {
           currentPeriodEnd: periodEnd,
           daysUntilExpiration,
           isExpiringSoon,
+          isPastDue,
           canAccessFeature: (feature) => {
+            // Si pago está fallido, bloquear funciones premium
+            if (isPastDue) return false;
             if (!isActive) return false;
 
             const planLower = planName.toLowerCase();
@@ -115,6 +122,7 @@ export const useSubscriptionStatus = () => {
           currentPeriodEnd: null,
           daysUntilExpiration: null,
           isExpiringSoon: false,
+          isPastDue: false,
           canAccessFeature: (feature) => feature === 'cards'
         };
       }
@@ -131,6 +139,7 @@ export const useSubscriptionStatus = () => {
     isActive: subscriptionStatus?.isActive ?? false,
     planName: subscriptionStatus?.planName ?? 'FREE',
     isExpiringSoon: subscriptionStatus?.isExpiringSoon ?? false,
+    isPastDue: subscriptionStatus?.isPastDue ?? false,
     daysUntilExpiration: subscriptionStatus?.daysUntilExpiration ?? null,
     canAccessFeature: (feature: 'cards' | 'calendars' | 'professionals' | 'bookings') => {
       return subscriptionStatus?.canAccessFeature(feature) ?? false;

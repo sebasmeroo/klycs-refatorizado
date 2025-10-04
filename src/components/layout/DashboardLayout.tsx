@@ -20,6 +20,7 @@ import {
   Users,
   Clock
 } from 'lucide-react';
+import { PaymentFailedBanner } from '@/components/subscription/PaymentFailedBanner';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -210,6 +211,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
         </div>
 
         <main className="ios-main-content">
+          <PaymentFailedBanner />
           {children}
         </main>
       </div>

@@ -97,13 +97,11 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
 
   const handlePlanClick = (planName: string) => {
     if (planName === 'FREE') {
-      navigate('/signup');
+      navigate('/register');
     } else if (planName === 'BUSINESS') {
-      // Por ahora redirigir a signup con plan business
-      // Cuando esté Stripe, cambiar a mailto
-      navigate('/signup?plan=business');
+      navigate('/register?plan=business');
     } else if (planName === 'PRO') {
-      navigate('/signup?plan=pro');
+      navigate('/register?plan=pro');
     }
   };
 
