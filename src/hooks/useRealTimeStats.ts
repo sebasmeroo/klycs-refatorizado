@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { analyticsService } from '@/services/analytics';
 import { CardsService } from '@/services/cards';
 import { BookingsService } from '@/services/bookings';
 import { useAuth } from '@/hooks/useAuth';
 import { error as logError } from '@/utils/logger';
+import { costMonitoring } from '@/utils/costMonitoring';
 
 export interface DashboardStats {
   totalViews: number;
@@ -46,21 +47,29 @@ export interface MonthlyData {
 
 export const useRealTimeStats = () => {
   const { user } = useAuth();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchStats = async () => {
-    if (!user?.id) {
-      setLoading(false);
-      return;
-    }
+  // ✅ React Query con cache de 5 minutos y refetch automático
+  const { data: stats, isLoading: loading, error: queryError, refetch } = useQuery({
+    queryKey: ['dashboardStats', user?.id],
+    queryFn: async () => {
+      if (!user?.id) {
+        return null;
+      }
 
-    try {
-      setLoading(true);
-      setError(null);
+      const formatTimeAgo = (date: Date): string => {
+        const now = new Date();
+        const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-      console.log('📊 Cargando estadísticas para usuario:', user.id);
+        if (diffInSeconds < 60) return `${diffInSeconds}s`;
+        if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}min`;
+        if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`;
+        return `${Math.floor(diffInSeconds / 86400)}d`;
+      };
+
+      try {
+        costMonitoring.trackFirestoreRead(1);
+
+        console.log('📊 Cargando estadísticas para usuario:', user.id);
 
       // Obtener estadísticas de los últimos 30 días
       const endDate = new Date();
@@ -220,57 +229,38 @@ export const useRealTimeStats = () => {
       };
 
       console.log('✅ Estadísticas cargadas:', dashboardStats);
-      setStats(dashboardStats);
-    } catch (err) {
-      console.error('❌ Error cargando estadísticas:', err);
-      setError(err instanceof Error ? err.message : 'Error al cargar estadísticas');
-      logError('Error fetching real-time stats', err as Error, { component: 'useRealTimeStats' });
-      
-      // Establecer datos vacíos en caso de error
-      setStats({
-        totalViews: 0,
-        totalClicks: 0,
-        totalBookings: 0,
-        totalRevenue: 0,
-        viewsChange: 0,
-        clicksChange: 0,
-        bookingsChange: 0,
-        revenueChange: 0,
-        recentActivity: [],
-        topCards: [],
-        monthlyData: []
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+        return dashboardStats;
+      } catch (err) {
+        console.error('❌ Error cargando estadísticas:', err);
+        logError('Error fetching real-time stats', err as Error, { component: 'useRealTimeStats' });
 
-  const formatTimeAgo = (date: Date): string => {
-    const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-    
-    if (diffInSeconds < 60) return `${diffInSeconds}s`;
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}min`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`;
-    return `${Math.floor(diffInSeconds / 86400)}d`;
-  };
-
-  // Actualizar estadísticas cada 5 minutos
-  useEffect(() => {
-    fetchStats();
-    const interval = setInterval(fetchStats, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [user?.id]);
-
-  // Función para refrescar manualmente
-  const refresh = () => {
-    fetchStats();
-  };
+        // Retornar datos vacíos en caso de error
+        return {
+          totalViews: 0,
+          totalClicks: 0,
+          totalBookings: 0,
+          totalRevenue: 0,
+          viewsChange: 0,
+          clicksChange: 0,
+          bookingsChange: 0,
+          revenueChange: 0,
+          recentActivity: [],
+          topCards: [],
+          monthlyData: []
+        };
+      }
+    },
+    enabled: !!user?.id,
+    staleTime: 5 * 60 * 1000, // Cache de 5 minutos
+    cacheTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchInterval: 5 * 60 * 1000 // Auto-refetch cada 5 minutos
+  });
 
   return {
-    stats,
+    stats: stats || null,
     loading,
-    error,
-    refresh
+    error: queryError ? (queryError as Error).message : null,
+    refresh: () => refetch()
   };
 };

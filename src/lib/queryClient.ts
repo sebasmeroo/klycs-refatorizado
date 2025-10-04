@@ -1,4 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
+import { PersistentCache } from '@/utils/persistentCache';
 
 // ✅ Configuración optimizada de React Query para reducir lecturas de Firestore
 export const queryClient = new QueryClient({
@@ -23,6 +24,21 @@ export const queryClient = new QueryClient({
       refetchOnMount: 'always',
     },
   },
+});
+
+// ✅ Integrar cache persistente en React Query
+// Cuando React Query actualiza datos, también los guardamos en localStorage
+queryClient.getQueryCache().subscribe((event) => {
+  if (event?.type === 'updated' && event.query.state.data) {
+    const queryKey = event.query.queryKey;
+    const data = event.query.state.data;
+
+    // Solo persistir queries específicas (no todas)
+    if (queryKey[0] === 'cards' || queryKey[0] === 'calendars' || queryKey[0] === 'professionals') {
+      const cacheKey = queryKey.join(':') as any;
+      PersistentCache.set(cacheKey, data);
+    }
+  }
 });
 
 // ✅ Función helper para invalidar cache manualmente

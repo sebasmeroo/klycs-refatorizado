@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
-import { 
+import {
   SharedCalendar,
   CalendarEvent,
   EventComment,
@@ -38,7 +38,7 @@ import {
   CalendarState,
   CalendarView
 } from '@/types/calendar';
-import { 
+import {
   CollaborativeCalendarService,
   CalendarEventService,
   EventCommentService,
@@ -46,6 +46,8 @@ import {
 } from '@/services/collaborativeCalendar';
 import { CreateCalendarModal } from '@/components/calendar/CreateCalendarModal';
 import { createDemoCalendarData, getDemoStats } from '@/utils/calendarDemoData';
+import { useUserCalendars, useMultipleCalendarEvents } from '@/hooks/useCalendar';
+import { useEventComments, useAddEventComment } from '@/hooks/useEventComments';
 
 // ===== TIPOS AUXILIARES =====
 
@@ -61,7 +63,7 @@ interface CalendarDay {
 
 export const Bookings: React.FC = () => {
   const { user } = useAuth();
-  
+
   // ===== ESTADO =====
   const [calendarState, setCalendarState] = useState<CalendarState>({
     currentDate: new Date(),
@@ -70,13 +72,9 @@ export const Bookings: React.FC = () => {
     isCreatingEvent: false,
     isEditingEvent: false
   });
-  
-  const [calendars, setCalendars] = useState<SharedCalendar[]>([]);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [stats, setStats] = useState<CalendarStats | null>(null);
+
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [eventComments, setEventComments] = useState<EventComment[]>([]);
-  
+
   // UI State
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showCreateCalendar, setShowCreateCalendar] = useState(false);
@@ -84,95 +82,46 @@ export const Bookings: React.FC = () => {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [newComment, setNewComment] = useState('');
 
+  // ✅ React Query - Carga calendarios con cache de 5 minutos
+  const { data: calendarsData, isLoading: calendarsLoading } = useUserCalendars(user?.uid);
+  const calendars = calendarsData || [];
+
+  // ✅ React Query - Carga eventos con cache de 5 minutos
+  const calendarIds = calendarState.selectedCalendars.length > 0
+    ? calendarState.selectedCalendars
+    : calendars.map(c => c.id);
+
+  const { data: eventsData } = useMultipleCalendarEvents(
+    calendarIds,
+    calendarState.currentDate
+  );
+  const events = eventsData || [];
+
+  // ✅ React Query - Comentarios del evento seleccionado
+  const { data: eventCommentsData = [] } = useEventComments(selectedEvent?.id);
+  const eventComments = eventCommentsData;
+  const addEventCommentMutation = useAddEventComment();
+
+  // Stats (usar demo por ahora hasta crear hook)
+  const [stats, setStats] = useState<CalendarStats | null>(null);
+
   // ===== EFECTOS =====
-  
+
+  // Inicializar stats y selección de calendarios
   useEffect(() => {
     if (!user?.id) return;
-    
-    // MODO DEMO: Cargar datos de ejemplo
-    const demoData = createDemoCalendarData(
-      user.id, 
-      user.name || 'Usuario', 
-      user.email || 'usuario@example.com'
-    );
-    
-    setCalendars(demoData.calendars);
-    setEvents(demoData.events);
+
+    // Stats demo
     setStats(getDemoStats());
-    
-    // Seleccionar todos los calendarios por defecto
-    setCalendarState(prev => ({
-      ...prev,
-      selectedCalendars: demoData.calendars.map(c => c.id)
-    }));
-    
-    // TODO: Reemplazar con datos reales de Firebase cuando esté listo
-    /*
-    const unsubscribe = CollaborativeCalendarService.subscribeToUserCalendars(
-      user.id,
-      (userCalendars) => {
-        setCalendars(userCalendars);
-        setCalendarState(prev => ({
-          ...prev,
-          selectedCalendars: userCalendars.map(c => c.id)
-        }));
-      }
-    );
-    
-    CalendarStatsService.getStats(user.id).then(setStats);
-    return unsubscribe;
-    */
-  }, [user?.id]);
-  
-  useEffect(() => {
-    if (calendarState.selectedCalendars.length === 0) return;
-    
-    // MODO DEMO: Los eventos ya están cargados
-    // TODO: Cargar eventos reales de Firebase
-    /*
-    const currentMonth = calendarState.currentDate;
-    const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-    const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
-    
-    const unsubscribe = CalendarEventService.subscribeToCalendarEvents(
-      calendarState.selectedCalendars,
-      setEvents,
-      startDate,
-      endDate
-    );
-    
-    return unsubscribe;
-    */
-  }, [calendarState.selectedCalendars, calendarState.currentDate]);
-  
-  useEffect(() => {
-    if (!selectedEvent) {
-      setEventComments([]);
-      return;
+
+    // Seleccionar todos los calendarios cuando carguen
+    if (calendars.length > 0 && calendarState.selectedCalendars.length === 0) {
+      setCalendarState(prev => ({
+        ...prev,
+        selectedCalendars: calendars.map(c => c.id)
+      }));
     }
-    
-    // MODO DEMO: Cargar comentarios de ejemplo
-    const demoData = createDemoCalendarData(
-      user?.id || '', 
-      user?.name || 'Usuario', 
-      user?.email || 'usuario@example.com'
-    );
-    
-    const eventComments = demoData.comments.filter(comment => 
-      comment.eventId === selectedEvent.id
-    );
-    setEventComments(eventComments);
-    
-    // TODO: Cargar comentarios reales de Firebase
-    /*
-    const unsubscribe = EventCommentService.subscribeToEventComments(
-      selectedEvent.id,
-      setEventComments
-    );
-    
-    return unsubscribe;
-    */
-  }, [selectedEvent?.id, user]);
+  }, [user?.id, calendars, calendarState.selectedCalendars.length]);
 
   // ===== FUNCIONES AUXILIARES =====
   
@@ -249,35 +198,19 @@ export const Bookings: React.FC = () => {
   
   const addComment = async () => {
     if (!selectedEvent || !newComment.trim() || !user?.id) return;
-    
-    // MODO DEMO: Simular añadir comentario
-    const newCommentObj = {
-      id: `comment-${Date.now()}`,
-      eventId: selectedEvent.id,
-      userId: user.id,
-      userName: user.name || 'Usuario',
-      message: newComment.trim(),
-      createdAt: new Date()
-    };
-    
-    setEventComments(prev => [...prev, newCommentObj]);
-    setNewComment('');
-    
-    // TODO: Usar Firebase real
-    /*
+
+    // ✅ Firebase real con React Query
     try {
-      await EventCommentService.addComment(
-        selectedEvent.id,
-        user.id,
-        user.name || 'Usuario',
-        newComment.trim(),
-        user.avatar
-      );
+      await addEventCommentMutation.mutateAsync({
+        eventId: selectedEvent.id,
+        userId: user.id,
+        userName: user.name || 'Usuario',
+        content: newComment.trim()
+      });
       setNewComment('');
     } catch (error) {
       console.error('Error al añadir comentario:', error);
     }
-    */
   };
 
   // ===== COMPONENTES =====

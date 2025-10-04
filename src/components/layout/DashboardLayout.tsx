@@ -17,7 +17,8 @@ import {
   Home,
   Wallet,
   Link as LinkIcon,
-  Users
+  Users,
+  Clock
 } from 'lucide-react';
 
 interface DashboardLayoutProps {
@@ -51,6 +52,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       path: '/dashboard/bookings',
       active: location.pathname.startsWith('/dashboard/bookings'),
       color: 'from-green-500 to-green-600'
+    },
+    {
+      icon: Clock,
+      label: 'Horas Trabajadas',
+      path: '/dashboard/horas',
+      active: location.pathname.startsWith('/dashboard/horas'),
+      color: 'from-indigo-500 to-indigo-600'
     },
     {
       icon: Wallet,

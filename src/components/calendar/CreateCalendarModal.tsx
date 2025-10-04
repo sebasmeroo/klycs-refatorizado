@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Plus, Users, Lock, Globe, Palette, Check } from 'lucide-react';
+import { X, Plus, Users, Lock, Globe, Palette, Check, Crown } from 'lucide-react';
 import { useCreateCalendar } from '@/hooks/useCalendar';
 import { useAuth } from '@/hooks/useAuth';
+import { subscriptionsService } from '@/services/subscriptions';
 
 interface CreateCalendarModalProps {
   isOpen: boolean;
@@ -36,9 +37,11 @@ export const CreateCalendarModal: React.FC<CreateCalendarModalProps> = ({
     isPublic: false
   });
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   // ✅ Usar React Query mutation con invalidación automática
   const createCalendarMutation = useCreateCalendar();
+  const isLoading = createCalendarMutation.isPending;
 
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
@@ -62,12 +65,39 @@ export const CreateCalendarModal: React.FC<CreateCalendarModalProps> = ({
 
     if (!validateForm() || !user?.id) return;
 
+    // ✅ VALIDACIÓN DE LÍMITES - Verificar si puede crear calendario
+    const limitsCheck = await subscriptionsService.checkPlanLimits(user.id, 'calendars');
+
+    if (limitsCheck.success && limitsCheck.data) {
+      const { canProceed, limit, current, plan } = limitsCheck.data;
+
+      if (!canProceed) {
+        const planName = plan.name?.toLowerCase() || 'free';
+
+        if (planName === 'free' || planName === 'básico') {
+          setErrors({ general: 'Plan FREE: No puedes crear calendarios. Actualiza a PRO para obtener 1 calendario colaborativo.' });
+          setShowUpgradeModal(true);
+          return;
+        } else if (planName === 'pro' || planName === 'profesional' || planName === 'pro anual') {
+          setErrors({ general: 'Plan PRO: Ya tienes tu calendario. Actualiza a BUSINESS para calendarios ilimitados.' });
+          setShowUpgradeModal(true);
+          return;
+        }
+      }
+    }
+
     try {
       const calendarId = await createCalendarMutation.mutateAsync({
         ownerId: user.id,
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
         color: formData.color
+      });
+
+      // ✅ Registrar uso después de crear
+      await subscriptionsService.recordUsage(user.id, 'calendars', 1, {
+        calendarId,
+        calendarName: formData.name
       });
 
       onCalendarCreated?.(calendarId);
@@ -245,6 +275,76 @@ export const CreateCalendarModal: React.FC<CreateCalendarModalProps> = ({
             </div>
           </form>
         </motion.div>
+
+        {/* Modal de Upgrade */}
+        <AnimatePresence>
+          {showUpgradeModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4"
+              onClick={() => setShowUpgradeModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl"
+              >
+                <div className="text-center mb-6">
+                  <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Crown className="w-8 h-8 text-white" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                    Actualiza tu Plan
+                  </h3>
+                  <p className="text-gray-600">
+                    Has alcanzado el límite de calendarios de tu plan actual
+                  </p>
+                </div>
+
+                <div className="space-y-4 mb-6">
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <h4 className="font-semibold text-gray-900 mb-2">Plan PRO - €9.99/mes</h4>
+                    <ul className="text-sm text-gray-600 space-y-1">
+                      <li>✓ 1 tarjeta con gestión completa</li>
+                      <li>✓ 1 calendario colaborativo</li>
+                      <li>✓ Profesionales ilimitados</li>
+                      <li>✓ Reservas ilimitadas</li>
+                    </ul>
+                  </div>
+
+                  <div className="p-4 bg-purple-50 rounded-lg">
+                    <h4 className="font-semibold text-gray-900 mb-2">Plan BUSINESS - €40/mes</h4>
+                    <ul className="text-sm text-gray-600 space-y-1">
+                      <li>✓ Calendarios ilimitados</li>
+                      <li>✓ Tarjetas ilimitadas</li>
+                      <li>✓ Profesionales ilimitados</li>
+                      <li>✓ Analytics avanzado</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowUpgradeModal(false)}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Cerrar
+                  </button>
+                  <button
+                    onClick={() => window.location.href = '/dashboard/settings'}
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all"
+                  >
+                    Ver Planes
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </AnimatePresence>
   );

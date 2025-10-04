@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardCalendar, TeamProfessional } from '@/types';
 import { Calendar, Users, Settings, Eye, EyeOff, AlertCircle, Clock, CheckCircle, Camera, Upload } from 'lucide-react';
 import { useUserCalendars } from '@/hooks/useCalendar';
-import { CollaborativeCalendarService } from '@/services/collaborativeCalendar';
+import { useProfessionals, useUpdateProfessional } from '@/hooks/useProfessionals';
 import { StorageService } from '@/services/storage';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/utils/toast';
@@ -14,7 +14,6 @@ interface CalendarEditorProps {
 
 export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }) => {
   const { user } = useAuth();
-  const [professionals, setProfessionals] = useState<TeamProfessional[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -61,33 +60,25 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
       }
     : defaultCalendar;
 
-  // Cargar profesionales cuando se cargan los calendarios
+  // ✅ Usar React Query para profesionales (evita lecturas duplicadas)
+  const linkedCalendarId = calendar?.linkedCalendarId;
+  const { data: professionalsData } = useProfessionals(linkedCalendarId || user?.uid);
+  const professionals = professionalsData || [];
+
+  const updateProfessionalMutation = useUpdateProfessional();
+
+  // Auto-vincular el primer calendario si no hay uno vinculado
   useEffect(() => {
-    const loadProfessionals = async () => {
-      if (!user?.uid || calendars.length === 0) return;
-
-      try {
-        // Vincular automáticamente el primer calendario si existe y no hay uno vinculado
-        if (calendars.length > 0 && !calendar.linkedCalendarId) {
-          const firstCalendar = calendars[0];
-          onUpdate({
-            calendar: {
-              ...calendar,
-              linkedCalendarId: firstCalendar.id
-            }
-          });
+    if (calendars.length > 0 && !calendar.linkedCalendarId) {
+      const firstCalendar = calendars[0];
+      onUpdate({
+        calendar: {
+          ...calendar,
+          linkedCalendarId: firstCalendar.id
         }
-
-        // Cargar profesionales (1 lectura única)
-        const profs = await CollaborativeCalendarService.getProfessionals(user.uid);
-        setProfessionals(profs);
-      } catch (error) {
-        console.error('Error loading professionals:', error);
-      }
-    };
-
-    loadProfessionals();
-  }, [calendars.length, user?.uid]);
+      });
+    }
+  }, [calendars.length]);
 
   const handleToggleEnabled = () => {
     onUpdate({
@@ -117,23 +108,15 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
     });
   };
 
-  const handleLinkCalendar = async (calendarId: string) => {
-    try {
-      const profs = await CollaborativeCalendarService.getProfessionals(calendarId);
-      setProfessionals(profs);
-      
-      onUpdate({
-        calendar: {
-          ...calendar,
-          linkedCalendarId: calendarId
-        }
-      });
-      
-      toast.success('Calendario vinculado exitosamente');
-    } catch (error) {
-      console.error('Error linking calendar:', error);
-      toast.error('Error al vincular calendario');
-    }
+  const handleLinkCalendar = (calendarId: string) => {
+    onUpdate({
+      calendar: {
+        ...calendar,
+        linkedCalendarId: calendarId
+      }
+    });
+
+    toast.success('Calendario vinculado exitosamente');
   };
 
   const handlePhotoUpload = async (professionalId: string, event: React.ChangeEvent<HTMLInputElement>) => {
@@ -157,17 +140,12 @@ export const CalendarEditor: React.FC<CalendarEditorProps> = ({ card, onUpdate }
       // Usar el servicio de storage para subir
       const { downloadURL } = await StorageService.uploadFile(file, path);
 
-      // Actualizar el profesional en el calendario colaborativo
-      await CollaborativeCalendarService.updateProfessional(
-        calendar.linkedCalendarId,
+      // ✅ Actualizar con React Query (invalida cache automáticamente)
+      await updateProfessionalMutation.mutateAsync({
+        calendarId: calendar.linkedCalendarId,
         professionalId,
-        { avatar: downloadURL }
-      );
-
-      // Actualizar el estado local
-      setProfessionals(prev => 
-        prev.map(p => p.id === professionalId ? { ...p, avatar: downloadURL } : p)
-      );
+        updates: { avatar: downloadURL }
+      });
 
       toast.success('Foto actualizada exitosamente');
     } catch (error) {

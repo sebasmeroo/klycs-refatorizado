@@ -28,7 +28,8 @@ interface PortfolioEditorProps {
   onUpdate: (updates: Partial<Card>) => void;
 }
 
-export const PortfolioEditor: React.FC<PortfolioEditorProps> = ({ card, onUpdate }) => {
+// ✅ React.memo para optimizar performance
+export const PortfolioEditor: React.FC<PortfolioEditorProps> = React.memo(({ card, onUpdate }) => {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -590,6 +591,8 @@ export const PortfolioEditor: React.FC<PortfolioEditorProps> = ({ card, onUpdate
       </div>
     </div>
   );
-};
+});
+
+PortfolioEditor.displayName = 'PortfolioEditor';
 
 export default PortfolioEditor;

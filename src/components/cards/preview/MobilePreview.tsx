@@ -1304,9 +1304,8 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
         {customCSS && (
           <style dangerouslySetInnerHTML={{ __html: customCSS }} />
         )}
-        </div>
       </div>
-
+    </div>
     </>
   );
 };

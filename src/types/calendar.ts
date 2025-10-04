@@ -111,6 +111,11 @@ export interface CalendarEvent {
   // Estado
   status: 'confirmed' | 'tentative' | 'cancelled';
   visibility: 'public' | 'private';
+
+  // Estado del servicio (para seguimiento de trabajo realizado)
+  serviceStatus?: 'pending' | 'completed' | 'not_done' | 'in_progress';
+  completedAt?: Date; // Fecha cuando se marcó como completado
+  completedBy?: string; // userId de quien marcó como completado
   
   // Recordatorios
   reminders: EventReminder[];
@@ -240,11 +245,12 @@ export interface CalendarStats {
 // ===== DATOS PARA FIRESTORE =====
 
 // Versión serializable para Firestore (con Timestamp en lugar de Date)
-export interface CalendarEventFirestore extends Omit<CalendarEvent, 'startDate' | 'endDate' | 'createdAt' | 'updatedAt'> {
+export interface CalendarEventFirestore extends Omit<CalendarEvent, 'startDate' | 'endDate' | 'createdAt' | 'updatedAt' | 'completedAt'> {
   startDate: Timestamp;
   endDate: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  completedAt?: Timestamp;
   recurring?: Omit<RecurrencePattern, 'endDate'> & { endDate?: Timestamp };
 }
 

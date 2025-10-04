@@ -14,7 +14,10 @@ import {
   ChevronRight,
   X,
   Link as LinkIcon,
-  ExternalLink
+  ExternalLink,
+  CheckCircle2,
+  XCircle,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -40,6 +43,7 @@ export const ProfessionalCalendar: React.FC = () => {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const loading = calendarLoading || eventsLoading;
   const [error, setError] = useState('');
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   // ===== EFECTOS =====
 
@@ -75,6 +79,35 @@ export const ProfessionalCalendar: React.FC = () => {
 
   const getDayEvents = (date: Date) => {
     return events.filter(event => isSameDay(event.startDate, date));
+  };
+
+  const handleMarkService = async (status: 'completed' | 'not_done' | 'in_progress' | 'pending') => {
+    if (!selectedEvent || !calendar) return;
+
+    try {
+      setUpdatingStatus(true);
+
+      await CalendarEventService.markServiceComplete(
+        selectedEvent.id,
+        calendar.ownerId, // ID del owner (profesional)
+        status
+      );
+
+      // Actualizar el evento local
+      setSelectedEvent({
+        ...selectedEvent,
+        serviceStatus: status,
+        completedAt: status === 'completed' ? new Date() : undefined,
+        completedBy: status === 'completed' ? calendar.ownerId : undefined
+      });
+
+      console.log(`✅ Servicio marcado como: ${status}`);
+    } catch (error) {
+      console.error('Error al marcar servicio:', error);
+      setError('Error al actualizar el estado del servicio');
+    } finally {
+      setUpdatingStatus(false);
+    }
   };
 
   const generateCalendarDays = () => {
@@ -499,6 +532,67 @@ export const ProfessionalCalendar: React.FC = () => {
                   })}
                 </div>
               )}
+
+              {/* Estado del Servicio */}
+              <div className="border-t border-gray-200 pt-6 space-y-4">
+                <h4 className="font-semibold text-gray-900 text-sm uppercase tracking-wide">
+                  Estado del Servicio
+                </h4>
+
+                {/* Estado actual */}
+                <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-2">Estado Actual</p>
+                      <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold ${
+                        selectedEvent.serviceStatus === 'completed' ? 'bg-green-100 text-green-700 border border-green-300' :
+                        selectedEvent.serviceStatus === 'in_progress' ? 'bg-blue-100 text-blue-700 border border-blue-300' :
+                        selectedEvent.serviceStatus === 'not_done' ? 'bg-red-100 text-red-700 border border-red-300' :
+                        'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                      }`}>
+                        {selectedEvent.serviceStatus === 'completed' ? '✓ Completado' :
+                         selectedEvent.serviceStatus === 'in_progress' ? '⏳ En Progreso' :
+                         selectedEvent.serviceStatus === 'not_done' ? '✗ No Realizado' :
+                         '⏱ Pendiente'}
+                      </span>
+                    </div>
+                    {selectedEvent.completedAt && (
+                      <p className="text-xs text-gray-500">
+                        {format(selectedEvent.completedAt, 'dd/MM/yyyy HH:mm')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Botones para cambiar estado */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => handleMarkService('completed')}
+                    disabled={updatingStatus || selectedEvent.serviceStatus === 'completed'}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm"
+                  >
+                    {updatingStatus ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4" />
+                    )}
+                    Marcar Completado
+                  </button>
+
+                  <button
+                    onClick={() => handleMarkService('not_done')}
+                    disabled={updatingStatus || selectedEvent.serviceStatus === 'not_done'}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm"
+                  >
+                    {updatingStatus ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <XCircle className="w-4 h-4" />
+                    )}
+                    No Realizado
+                  </button>
+                </div>
+              </div>
 
               {/* Estado y Visibilidad */}
               <div className="grid grid-cols-2 gap-4 border-t border-gray-200 pt-6">

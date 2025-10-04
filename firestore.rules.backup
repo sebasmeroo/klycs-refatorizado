@@ -1,0 +1,417 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // === REGLAS PARA USUARIOS ===
+    match /users/{userId} {
+      // LECTURA: Solo el propio usuario, admins, o lectura limitada para tarjetas públicas
+      allow read: if request.auth != null &&
+                 (request.auth.uid == userId || isAdmin(request.auth.uid));
+
+      // Crear: solo el propio usuario puede crear su documento
+      allow create: if request.auth != null &&
+                   request.auth.uid == userId;
+
+      // Actualizar: el propio usuario puede actualizar su documento
+      allow update: if request.auth != null &&
+                   request.auth.uid == userId;
+
+      // Eliminar: solo admins
+      allow delete: if request.auth != null &&
+                   isAdmin(request.auth.uid);
+      
+      // Subcolección de configuración de usuario
+      match /settings/{settingId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Subcolección de notificaciones
+      match /notifications/{notificationId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Subcolección de analytics del usuario
+      match /analytics/{analyticsId} {
+        allow read, write: if request.auth != null && 
+                       (request.auth.uid == userId || isAdmin(request.auth.uid));
+      }
+    }
+    
+    // === REGLAS PARA TARJETAS ===
+    match /cards/{cardId} {
+      // Permitir lectura pública para visualización
+      allow read: if true;
+      
+      // Usuario autenticado puede crear tarjetas
+      allow create: if request.auth != null && 
+                   request.resource.data.userId == request.auth.uid;
+      
+      // Permitir actualización solo al propietario
+      allow update: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      
+      // Permitir eliminación solo al propietario
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Subcolección de enlaces de la tarjeta
+      match /links/{linkId} {
+        allow read: if true;
+        allow write: if request.auth != null && 
+                    get(/databases/$(database)/documents/cards/$(cardId)).data.userId == request.auth.uid;
+      }
+      
+      // Subcolección de productos de la tarjeta
+      match /products/{productId} {
+        allow read: if true;
+        allow write: if request.auth != null && 
+                    get(/databases/$(database)/documents/cards/$(cardId)).data.userId == request.auth.uid;
+      }
+      
+      // Subcolección de analytics de la tarjeta
+      match /analytics/{analyticsId} {
+        allow read: if request.auth != null &&
+                   get(/databases/$(database)/documents/cards/$(cardId)).data.userId == request.auth.uid;
+        // SEGURIDAD: Solo crear analytics con autenticación o validación de timestamp
+        allow create: if request.auth != null || isValidTimestamp(request.resource.data.timestamp.toMillis());
+        allow update, delete: if false; // No permitir modificación de eventos
+      }
+    }
+
+    // === REGLAS PARA PLANTILLAS ===
+    match /userTemplates/{templateId} {
+      // Lectura pública: los usuarios pueden listar/usar plantillas
+      allow read: if true;
+      // Solo admins pueden crear y eliminar plantillas
+      allow create, delete: if request.auth != null && isAdmin(request.auth.uid);
+      // Usuarios autenticados pueden actualizar (para downloadCount)
+      allow update: if request.auth != null;
+    }
+
+    // === REGLAS PARA INSTANCIAS DE PLANTILLAS ===
+    match /templateInstances/{instanceId} {
+      // Lectura pública para instancias activas (necesario para vista pública de tarjetas)
+      // Los usuarios autenticados pueden leer todas las instancias
+      allow read: if request.auth != null || 
+                 (resource.data.isActive == true);
+      
+      // Los usuarios pueden crear instancias 
+      allow create: if request.auth != null;
+      
+      // Los usuarios pueden actualizar/eliminar instancias
+      allow update, delete: if request.auth != null;
+    }
+
+    // === REGLAS TEMPORALES PARA ADMINs (bootstrap) ===
+    // Permite registrar los primeros administradores usando Firebase Auth.
+    // En producción, restringir según política interna.
+    match /admins/{uid} {
+      // Lectura solo para autenticados (UI de admin)
+      allow read: if request.auth != null;
+      // Crear documento de admin solo para sí mismo
+      allow create: if request.auth != null && request.auth.uid == uid;
+      // Actualizaciones y borrados deshabilitados por defecto
+      allow update, delete: if false;
+    }
+    
+    // === REGLAS PARA RESERVAS ===
+    match /bookings/{bookingId} {
+      // Permitir lectura pública de reservas para verificar disponibilidad
+      allow read: if true;
+      
+      // Permitir crear reservas sin autenticación (clientes anónimos) - max 3 por hora por IP
+      allow create: if isValidBookingData(request.resource.data) &&
+                   isValidTimestamp(request.resource.data.createdAt.toMillis());
+      
+      // Actualizar reservas solo el propietario del servicio (userId)
+      allow update: if request.auth != null && 
+                   request.auth.uid == resource.data.userId;
+      
+      // Eliminar reservas solo el propietario del servicio (userId)
+      allow delete: if request.auth != null && 
+                   request.auth.uid == resource.data.userId;
+    }
+    
+    // === REGLAS PARA CALENDARIOS COLABORATIVOS ===
+    match /shared_calendars/{calendarId} {
+      // SEGURIDAD: Lectura solo para usuarios autenticados o miembros específicos
+      allow read: if request.auth != null &&
+                 (request.auth.uid == resource.data.ownerId ||
+                  request.auth.token.email == resource.data.linkedEmail ||
+                  isAdmin(request.auth.uid));
+
+      // Crear: cualquier usuario autenticado puede crear calendarios para su equipo
+      allow create: if request.auth != null &&
+                   request.auth.uid == request.resource.data.ownerId &&
+                   isValidCalendarData(request.resource.data);
+
+      // Actualizar: propietario del calendario o profesional vinculado
+      allow update: if request.auth != null &&
+                   (request.auth.uid == resource.data.ownerId ||
+                    request.auth.token.email == resource.data.linkedEmail);
+
+      // Eliminar: solo propietario del calendario
+      allow delete: if request.auth != null &&
+                   request.auth.uid == resource.data.ownerId;
+    }
+
+    // === REGLAS PARA EVENTOS DEL CALENDARIO ===
+    match /calendar_events/{eventId} {
+      // SEGURIDAD: Lectura solo para miembros del calendario
+      allow read: if request.auth != null &&
+                 canAccessCalendarByEmail(resource.data.calendarId);
+
+      // Crear: usuarios autenticados que tienen acceso al calendario
+      allow create: if request.auth != null &&
+                   canAccessCalendarByEmail(request.resource.data.calendarId) &&
+                   isValidEventData(request.resource.data);
+
+      // Actualizar: creador del evento o propietario/profesional del calendario
+      allow update: if request.auth != null &&
+                   (request.auth.uid == resource.data.createdBy ||
+                    canAccessCalendarByEmail(resource.data.calendarId));
+
+      // Eliminar: creador del evento o propietario/profesional del calendario
+      allow delete: if request.auth != null &&
+                   (request.auth.uid == resource.data.createdBy ||
+                    canAccessCalendarByEmail(resource.data.calendarId));
+    }
+
+    // === REGLAS PARA COMENTARIOS DE EVENTOS ===
+    match /event_comments/{commentId} {
+      // SEGURIDAD: Lectura solo para miembros del calendario del evento
+      allow read: if request.auth != null &&
+                 canAccessCalendarByComment(resource.data.eventId);
+
+      // Crear: miembros del calendario
+      allow create: if request.auth != null &&
+                   request.auth.uid == request.resource.data.userId &&
+                   canAccessCalendarByComment(request.resource.data.eventId);
+
+      // Actualizar: solo el autor del comentario
+      allow update: if request.auth != null &&
+                   request.auth.uid == resource.data.userId;
+
+      // Eliminar: autor del comentario o propietario del calendario
+      allow delete: if request.auth != null &&
+                   (request.auth.uid == resource.data.userId ||
+                    isEventOwner(resource.data.eventId));
+    }
+    
+    // === REGLAS PARA INVITACIONES DE CALENDARIO ===
+    match /calendar_invitations/{invitationId} {
+      // Lectura: remitente o destinatario
+      allow read: if request.auth != null &&
+                 (request.auth.email == resource.data.senderEmail ||
+                  request.auth.email == resource.data.recipientEmail);
+
+      // SEGURIDAD: Crear con límite de invitaciones por día
+      allow create: if request.auth != null &&
+                   canSendInvitation(request.auth.uid) &&
+                   isValidTimestamp(request.resource.data.createdAt.toMillis());
+
+      // Actualizar: solo el destinatario (para aceptar/rechazar)
+      allow update: if request.auth != null &&
+                   request.auth.email == resource.data.recipientEmail;
+
+      // Eliminar: remitente o destinatario
+      allow delete: if request.auth != null &&
+                   (request.auth.email == resource.data.senderEmail ||
+                    request.auth.email == resource.data.recipientEmail);
+    }
+    
+    // === REGLAS PARA NOTIFICACIONES DE CALENDARIO ===
+    match /calendar_notifications/{notificationId} {
+      // Solo el usuario puede leer/actualizar/eliminar sus notificaciones
+      allow read, update, delete: if request.auth != null && 
+                                  request.auth.uid == resource.data.userId;
+      
+      // Crear: sistema interno
+      allow create: if request.auth != null;
+    }
+
+    // === REGLAS PARA SERVICIOS ===
+    match /services/{serviceId} {
+      // Permitir lectura pública de servicios
+      allow read: if true;
+      
+      // Solo el propietario puede crear servicios
+      allow create: if request.auth != null && 
+                   request.resource.data.userId == request.auth.uid &&
+                   isValidServiceData(request.resource.data);
+      
+      // Solo el propietario puede actualizar servicios
+      allow update: if request.auth != null && 
+                   resource.data.userId == request.auth.uid &&
+                   isValidServiceData(request.resource.data);
+      
+      // Solo el propietario puede eliminar servicios
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+    
+    // === REGLAS PARA STRIPE ===
+    match /customers/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      
+      match /checkout_sessions/{id} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+      
+      match /subscriptions/{id} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+      }
+      
+      match /payments/{id} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+    
+    // Productos y precios de Stripe (públicos)
+    match /products/{id} {
+      allow read: if true;
+      
+      match /prices/{id} {
+        allow read: if true;
+      }
+    }
+    
+    // === REGLAS PARA ANALYTICS GLOBALES ===
+    match /analytics/{analyticsId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null || isValidTimestamp(request.resource.data.timestamp.toMillis());
+      allow update, delete: if false;
+    }
+
+    // === REGLAS PARA FEATURE FLAGS ===
+    match /featureFlags/{flagId} {
+      // Permitir lectura de feature flags a todos los usuarios autenticados
+      allow read: if request.auth != null;
+
+      // Solo administradores pueden crear, actualizar y eliminar feature flags
+      allow create, update, delete: if request.auth != null &&
+                                    isAdmin(request.auth.uid);
+    }
+
+    // Configuración de gestión de feature flags
+    match /featureFlagManagement/{configId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isAdmin(request.auth.uid);
+    }
+
+    // === FUNCIONES DE VALIDACIÓN ===
+
+    function isValidTimestamp(ts) {
+      // Validar que el timestamp esté dentro de un rango razonable
+      let now = request.time.toMillis();
+      let fiveMinutesAgo = now - 300000;
+      let fiveMinutesLater = now + 300000;
+
+      return ts >= fiveMinutesAgo && ts <= fiveMinutesLater;
+    }
+
+    function isValidBookingData(data) {
+      return data.keys().hasAll(['clientName', 'clientEmail', 'userId', 'status', 'createdAt']) &&
+             data.clientName is string && data.clientName.size() <= 100 &&
+             data.clientEmail is string && data.clientEmail.matches('.*@.*') &&
+             data.userId is string &&
+             data.status in ['pending', 'confirmed', 'cancelled', 'completed'] &&
+             data.serviceName is string && data.serviceName.size() <= 100 &&
+             data.date is string &&
+             data.time is string &&
+             data.duration is number && data.duration > 0 &&
+             data.price is number && data.price >= 0;
+    }
+
+    function isValidServiceData(data) {
+      return data.keys().hasAll(['name', 'description', 'price', 'duration', 'userId', 'isActive']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.description is string && data.description.size() <= 500 &&
+             data.price is number && data.price >= 0 &&
+             data.duration is number && data.duration > 0 &&
+             data.userId is string &&
+             data.isActive is bool;
+    }
+
+    // === FUNCIONES AUXILIARES PARA CALENDARIO COLABORATIVO ===
+    
+    // Verificar si el usuario es administrador de la aplicación
+    function isAdmin(userId) {
+      let userDoc = get(/databases/$(database)/documents/users/$(userId));
+      return userDoc.data.role == 'admin';
+    }
+    
+    // Verificar si el usuario puede acceder a un calendario por email
+    function canAccessCalendarByEmail(calendarId) {
+      let calendarDoc = get(/databases/$(database)/documents/shared_calendars/$(calendarId));
+      return request.auth.uid == calendarDoc.data.ownerId ||
+             (calendarDoc.data.linkedEmail != null &&
+              calendarDoc.data.linkedEmail == request.auth.token.email);
+    }
+
+    // Verificar acceso a calendario mediante evento (para comentarios)
+    function canAccessCalendarByComment(eventId) {
+      let eventDoc = get(/databases/$(database)/documents/calendar_events/$(eventId));
+      return canAccessCalendarByEmail(eventDoc.data.calendarId);
+    }
+    
+    // Verificar si el usuario es propietario o profesional vinculado al calendario
+    function isProfessionalOwner(calendarId) {
+      let calendarDoc = get(/databases/$(database)/documents/shared_calendars/$(calendarId));
+      return request.auth.uid == calendarDoc.data.ownerId ||
+             request.auth.token.email == calendarDoc.data.linkedEmail;
+    }
+    
+    function isCalendarMemberWithPermission(calendarId, requiredRole) {
+      // Simplificado: usar canAccessCalendarByEmail para verificar permisos básicos
+      return canAccessCalendarByEmail(calendarId);
+    }
+    
+    function isCalendarOwner(calendarId) {
+      // Verificar si el usuario es propietario del calendario
+      let calendarDoc = get(/databases/$(database)/documents/shared_calendars/$(calendarId));
+      return calendarDoc.data.ownerId == request.auth.uid;
+    }
+    
+    function isEventOwner(eventId) {
+      // Verificar si el usuario es propietario del evento o del calendario
+      let eventDoc = get(/databases/$(database)/documents/calendar_events/$(eventId));
+      return eventDoc.data.createdBy == request.auth.uid ||
+             isCalendarOwner(eventDoc.data.calendarId);
+    }
+    
+    function isValidCalendarData(data) {
+      return data.keys().hasAll(['name', 'ownerId', 'members', 'settings', 'createdAt']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.ownerId is string && data.ownerId == request.auth.uid &&
+             data.members is list && data.members.size() > 0 &&
+             data.settings is map &&
+             data.createdAt is timestamp;
+    }
+
+    // SEGURIDAD: Verificar límite de invitaciones por día (máx 50)
+    function canSendInvitation(userId) {
+      let today = request.time.toMillis() - (request.time.toMillis() % 86400000);  // Inicio del día
+
+      // Intentar obtener contador de invitaciones del día
+      let statsPath = /databases/$(database)/documents/users/$(userId)/daily_stats/invitations;
+      let stats = get(statsPath);
+
+      // Si no existe el documento o es de otro día, permitir
+      if (stats == null || stats.data.date < today) {
+        return true;
+      }
+
+      // Si existe y es del mismo día, verificar límite
+      return stats.data.count < 50;
+    }
+    
+    function isValidEventData(data) {
+      return data.keys().hasAll(['title', 'calendarId', 'startDate', 'endDate', 'createdBy']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.calendarId is string &&
+             data.startDate is timestamp &&
+             data.endDate is timestamp &&
+             data.startDate < data.endDate &&
+             data.createdBy is string && data.createdBy == request.auth.uid;
+    }
+  }
+}

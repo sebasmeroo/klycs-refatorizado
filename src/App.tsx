@@ -133,12 +133,21 @@ const DashboardSettings = React.lazy(() =>
     })
 );
 
-const DashboardCards = React.lazy(() => 
+const DashboardCards = React.lazy(() =>
   import('@/pages/DashboardCards')
     .then(module => ({ default: module.default }))
     .catch(err => {
       logError('Failed to load DashboardCards component', err, { component: 'App' });
       return { default: () => <div>Error loading Dashboard Cards</div> };
+    })
+);
+
+const DashboardWorkHours = React.lazy(() =>
+  import('@/pages/DashboardWorkHours')
+    .then(module => ({ default: module.default }))
+    .catch(err => {
+      logError('Failed to load DashboardWorkHours component', err, { component: 'App' });
+      return { default: () => <div>Error loading Dashboard Work Hours</div> };
     })
 );
 
@@ -370,7 +379,7 @@ function App() {
       }}>
         <Suspense fallback={<PageLoader />}>
           <Routes>
-          <Route path="/" element={<Layout><Home /></Layout>} />
+          <Route path="/" element={<Layout variant="auto"><Home /></Layout>} />
         <Route 
           path="/login" 
           element={
@@ -477,15 +486,25 @@ function App() {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="/dashboard/tarjetas" 
+        <Route
+          path="/dashboard/tarjetas"
           element={
             <ProtectedRoute>
               <DashboardLayout>
                 <DashboardCards />
               </DashboardLayout>
             </ProtectedRoute>
-          } 
+          }
+        />
+        <Route
+          path="/dashboard/horas"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <DashboardWorkHours />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
         />
 
         {/* Card Editor Route - Standalone page */}

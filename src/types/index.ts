@@ -1,5 +1,5 @@
 export type UserRole = 'admin' | 'professional' | 'user';
-export type UserPlan = 'FREE' | 'PRO' | 'PREMIUM';
+export type UserPlan = 'FREE' | 'PRO' | 'BUSINESS';
 
 // Eliminada - usando la versión simplificada de abajo
 

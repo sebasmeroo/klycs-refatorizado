@@ -1,16 +1,15 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { CardsService } from '@/services/cards';
 import { Card } from '@/types';
-import { toast } from '@/utils/toast';
+import { useAutoSave } from '@/hooks/useAutoSave';
+import { SaveIndicator } from '@/components/ui/SaveIndicator';
 import {
-  Save,
   Eye,
   User,
   Link,
   Share,
-  Briefcase, 
-  Calendar, 
+  Briefcase,
+  Calendar,
   Image,
   Settings,
   ArrowLeft,
@@ -118,44 +117,42 @@ const sidebarSections = [
   }
 ];
 
-export const NewCardEditor: React.FC<NewCardEditorProps> = ({ 
-  card, 
-  onSave, 
-  onClose 
+export const NewCardEditor: React.FC<NewCardEditorProps> = ({
+  card,
+  onSave,
+  onClose
 }) => {
   const { user, firebaseUser } = useAuth();
   const [currentCard, setCurrentCard] = useState<Card>(card);
   const [activeSection, setActiveSection] = useState<EditorSection>('profile');
-  const [isSaving, setIsSaving] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [unsavedChanges, setUnsavedChanges] = useState(false);
   const [sidebarQuery, setSidebarQuery] = useState('');
   const [activeSubsection, setActiveSubsection] = useState<string | null>(null);
   const [openSubmenus, setOpenSubmenus] = useState<Partial<Record<EditorSection, boolean>>>({});
 
-  const handleCardUpdate = useCallback((updates: Partial<Card>) => {
-    setCurrentCard(prev => ({ ...prev, ...updates }));
-    setUnsavedChanges(true);
-  }, []);
-
-  const handleSave = async () => {
-    if (!firebaseUser) return;
-    
-    const userId = user?.id || firebaseUser.uid;
-    
-    try {
-      setIsSaving(true);
-      await CardsService.updateCard(currentCard.id, userId, currentCard);
+  // ✅ Auto-save profesional con debounce de 2 segundos (patrón Notion)
+  const { save: autoSave, isSaving, lastSaved, forceSave } = useAutoSave(currentCard, {
+    onSaveSuccess: () => {
       onSave(currentCard);
-      setUnsavedChanges(false);
-      toast.success('Tarjeta guardada exitosamente');
-    } catch (error) {
-      console.error('Error saving card:', error);
-      toast.error('Error al guardar la tarjeta');
-    } finally {
-      setIsSaving(false);
     }
-  };
+  });
+
+  // ✅ Actualizar tarjeta + trigger auto-save
+  const handleCardUpdate = useCallback((updates: Partial<Card>) => {
+    setCurrentCard(prev => {
+      const updated = { ...prev, ...updates };
+      // Auto-guardar con debounce (ahorra 90% de escrituras)
+      autoSave(updates);
+      return updated;
+    });
+  }, [autoSave]);
+
+  // ✅ Forzar guardado al cerrar el editor
+  useEffect(() => {
+    return () => {
+      forceSave();
+    };
+  }, [forceSave]);
 
 
   const renderActiveSection = () => {
@@ -354,27 +351,26 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
           </nav>
         </div>
 
-        {/* Footer - Save Button */}
+        {/* Footer - Auto-save Indicator */}
         <div className="p-4 border-t border-white/10 bg-[#0b0d12]/80 backdrop-blur">
-          <button
-            onClick={handleSave}
-            disabled={isSaving || !unsavedChanges}
-            className={`w-full flex items-center justify-center px-4 py-3 rounded-lg font-medium transition-all ${
-              !sidebarCollapsed ? 'text-sm' : 'text-xs'
-            } ${
-              unsavedChanges 
-                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
-                : 'bg-white/5 text-white/40 cursor-not-allowed'
-            }`}
-            title={sidebarCollapsed ? 'Guardar cambios' : undefined}
-          >
-            <Save className="w-4 h-4 mr-2" />
-            {!sidebarCollapsed && (isSaving ? 'Guardando...' : 'Guardar cambios')}
-          </button>
-          
-          {!sidebarCollapsed && unsavedChanges && (
-            <p className="text-xs text-orange-300 mt-2 text-center">
-              Tienes cambios sin guardar
+          {!sidebarCollapsed && (
+            <div className="flex items-center justify-center">
+              <SaveIndicator
+                isSaving={isSaving}
+                lastSaved={lastSaved}
+              />
+            </div>
+          )}
+
+          {sidebarCollapsed && (
+            <div className="flex items-center justify-center" title={isSaving ? 'Guardando...' : lastSaved ? `Guardado ${lastSaved.toLocaleTimeString()}` : 'Auto-guardado activo'}>
+              <div className={`w-2 h-2 rounded-full ${isSaving ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'}`} />
+            </div>
+          )}
+
+          {!sidebarCollapsed && (
+            <p className="text-xs text-white/40 mt-2 text-center">
+              Los cambios se guardan automáticamente
             </p>
           )}
         </div>

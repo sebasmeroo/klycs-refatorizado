@@ -68,7 +68,7 @@ class SubscriptionsService {
   private readonly DEFAULT_PLANS: Omit<SubscriptionPlan, 'id' | 'createdAt' | 'updatedAt'>[] = [
     {
       name: 'FREE',
-      description: 'Perfecto para empezar - Tarjeta digital básica',
+      description: 'Perfecto para empezar - Solo creación de tarjeta',
       price: 0,
       currency: 'eur',
       interval: 'month',
@@ -76,13 +76,12 @@ class SubscriptionsService {
       features: [
         '1 tarjeta digital',
         'Perfil básico (nombre, bio, foto)',
-        '3 enlaces básicos',
-        '5 redes sociales',
-        'Portfolio: 3 imágenes',
-        'Compresión automática',
-        'Analytics: Solo visitas totales',
+        'Enlaces y redes sociales',
+        'Portfolio básico',
         'URL pública: klycs.com/tunombre',
-        'Límite: 100 visitas/mes',
+        '❌ Sin calendario',
+        '❌ Sin reservas',
+        '❌ Sin profesionales',
         '⚠️ Marca "Powered by Klycs"'
       ],
       stripePriceId: undefined,
@@ -91,18 +90,19 @@ class SubscriptionsService {
     },
     {
       name: 'PRO',
-      description: 'Para profesionales independientes - Portfolio completo + Analytics + Reservas',
+      description: 'Para profesionales independientes - 1 Tarjeta + Calendario + Profesionales',
       price: 9.99,
       currency: 'eur',
       interval: 'month',
       intervalCount: 1,
       features: [
         '✅ Todo lo de FREE +',
-        '📸 Portfolio: 30 imágenes + 10 videos',
-        '🎨 5 diseños modernos de enlaces',
-        '📊 Analytics completo con clicks por enlace',
-        '📅 Sistema de reservas (100/mes)',
+        '1 tarjeta con gestión completa',
+        '📅 1 calendario colaborativo',
+        '👥 Profesionales ilimitados en tu calendario',
+        '📊 Analytics completo',
         '🎨 Edición avanzada de diseño',
+        '💰 Sistema de reservas ilimitadas',
         '🎯 SEO: Meta tags personalizables',
         '🌐 Dominio personalizado',
         '❌ Sin marca Klycs',
@@ -115,27 +115,28 @@ class SubscriptionsService {
     },
     {
       name: 'BUSINESS',
-      description: 'Para equipos y empresas - Calendario CRM + API + White-label',
-      price: 29.99,
+      description: 'Para equipos y empresas - Tarjetas ilimitadas + Múltiples calendarios',
+      price: 40.00,
       currency: 'eur',
       interval: 'month',
       intervalCount: 1,
       features: [
         '✅ Todo lo de PRO +',
-        '👥 Calendario colaborativo (10 profesionales)',
-        '📅 Gestión de eventos + recurrencias',
-        '💬 Comentarios y colaboración',
+        '🎴 Tarjetas ilimitadas',
+        '📅 Calendarios ilimitados',
+        '👥 Profesionales ilimitados por calendario',
+        '💬 Comentarios y colaboración avanzada',
         '📊 Analytics avanzado con IA + Heatmaps',
-        '💰 Reservas ilimitadas + Pagos Stripe',
+        '💰 Pagos Stripe integrados',
         '📸 Portfolio ilimitado',
         '🔗 API REST + Webhooks',
         '🎨 Custom HTML/CSS/JS',
         '🏷️ White-label completo',
         '🔗 Integraciones: Zapier, CRM, etc',
         '100+ templates premium',
-        'Soporte 24/7 + Onboarding'
+        'Soporte 24/7 + Onboarding dedicado'
       ],
-      stripePriceId: 'price_enterprise_monthly',
+      stripePriceId: 'price_business_monthly',
       isActive: true,
       sortOrder: 3
     },
@@ -522,6 +523,13 @@ class SubscriptionsService {
 
       const subscription = subscriptionDoc.data() as UserSubscription;
 
+      // Obtener plan actual
+      const currentPlanDoc = await getDoc(doc(db, 'subscription_plans', subscription.planId));
+      if (!currentPlanDoc.exists()) {
+        throw new Error('Current plan not found');
+      }
+      const currentPlan = currentPlanDoc.data() as SubscriptionPlan;
+
       // Obtener nuevo plan
       const newPlanDoc = await getDoc(doc(db, 'subscription_plans', newPlanId));
       if (!newPlanDoc.exists()) {
@@ -529,6 +537,19 @@ class SubscriptionsService {
       }
 
       const newPlan = newPlanDoc.data() as SubscriptionPlan;
+
+      // ✅ VALIDAR DOWNGRADE - Verificar que no exceda límites del nuevo plan
+      const isDowngrade = newPlan.price < currentPlan.price;
+
+      if (isDowngrade) {
+        const validationResult = await this.validateDowngrade(subscription.userId, newPlan);
+        if (!validationResult.success) {
+          return {
+            success: false,
+            error: validationResult.error
+          };
+        }
+      }
 
       // Si el nuevo plan es gratuito, cancelar suscripción de Stripe
       if (newPlan.price === 0) {
@@ -758,14 +779,15 @@ class SubscriptionsService {
   private getFreePlanLimits(): Record<string, number> {
     return {
       cards_created: 1,
-      views: 100, // Reducido de 1000 a 100
+      calendars: 0, // Sin calendarios en FREE
+      views: 100,
       bookings: 0, // Sin reservas en FREE
-      storage_mb: 15, // 3 imágenes x ~5MB = 15MB
+      storage_mb: 15,
       portfolio_images: 3,
       portfolio_videos: 0,
-      link_designs: 1, // Solo diseño Modern básico
-      professionals: 0, // Sin calendario colaborativo
-      analytics_export: 0 // Sin exportación
+      link_designs: 1,
+      professionals: 0, // Sin profesionales en FREE
+      analytics_export: 0
     };
   }
 
@@ -782,13 +804,14 @@ class SubscriptionsService {
     if (planName === 'pro' || planName === 'pro anual' || planName === 'profesional' || planName === 'profesional anual') {
       return {
         cards_created: 1, // Una sola tarjeta
+        calendars: 1, // Un calendario
         views: 10000, // 10k visitas/mes
-        bookings: 100, // 100 reservas/mes
+        bookings: Infinity, // Reservas ilimitadas
         storage_mb: 200, // 30 imágenes + 10 videos ≈ 200MB
         portfolio_images: 30,
         portfolio_videos: 10,
         link_designs: 5, // Todos los diseños
-        professionals: 0, // Sin calendario colaborativo
+        professionals: Infinity, // Profesionales ilimitados en SU calendario
         analytics_export: 10 // 10 exportaciones/mes
       };
     }
@@ -796,14 +819,15 @@ class SubscriptionsService {
     // Plan BUSINESS (mensual o anual)
     if (planName === 'business' || planName === 'business anual' || planName === 'empresa') {
       return {
-        cards_created: 1, // Una sola tarjeta (pero más potente)
+        cards_created: Infinity, // Tarjetas ilimitadas
+        calendars: Infinity, // Calendarios ilimitados
         views: Infinity, // Ilimitado
         bookings: Infinity, // Ilimitado
         storage_mb: 5000, // 5GB para imágenes/videos ilimitados
         portfolio_images: Infinity,
         portfolio_videos: Infinity,
         link_designs: 5, // Todos + custom CSS
-        professionals: 10, // 10 profesionales en calendario
+        professionals: Infinity, // Profesionales ilimitados por calendario
         analytics_export: Infinity // Exportaciones ilimitadas
       };
     }
@@ -915,7 +939,7 @@ class SubscriptionsService {
       );
 
       const snapshot = await getDocs(q);
-      
+
       if (!snapshot.empty) {
         const docRef = snapshot.docs[0].ref;
         await updateDoc(docRef, {
@@ -923,6 +947,58 @@ class SubscriptionsService {
           updatedAt: new Date()
         });
       }
+    }
+  }
+
+  /**
+   * Validar que el usuario pueda hacer downgrade sin exceder límites
+   */
+  private async validateDowngrade(
+    userId: string,
+    newPlan: SubscriptionPlan
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const planLimits = this.getPlanLimits(newPlan);
+      const errors: string[] = [];
+
+      // Verificar tarjetas
+      const cardsUsage = await this.getCurrentUsage(userId, 'cards_created');
+      if (cardsUsage > planLimits.cards_created) {
+        errors.push(`Tienes ${cardsUsage} tarjetas. El plan ${newPlan.name} permite máximo ${planLimits.cards_created}.`);
+      }
+
+      // Verificar calendarios
+      const calendarsUsage = await this.getCurrentUsage(userId, 'calendars');
+      if (calendarsUsage > (planLimits.calendars || 0)) {
+        errors.push(`Tienes ${calendarsUsage} calendarios. El plan ${newPlan.name} permite máximo ${planLimits.calendars || 0}.`);
+      }
+
+      // Verificar profesionales
+      const professionalsUsage = await this.getCurrentUsage(userId, 'professionals');
+      if (professionalsUsage > (planLimits.professionals || 0)) {
+        errors.push(`Tienes ${professionalsUsage} profesionales. El plan ${newPlan.name} permite máximo ${planLimits.professionals || 0}.`);
+      }
+
+      if (errors.length > 0) {
+        return {
+          success: false,
+          error: `No puedes cambiar a ${newPlan.name}:\n${errors.join('\n')}\n\nElimina recursos antes de hacer el downgrade.`
+        };
+      }
+
+      return { success: true };
+
+    } catch (error) {
+      logger.error('Error validating downgrade', {
+        userId,
+        newPlan: newPlan.name,
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+
+      return {
+        success: false,
+        error: 'Error al validar el cambio de plan'
+      };
     }
   }
 }

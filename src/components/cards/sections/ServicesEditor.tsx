@@ -25,7 +25,8 @@ interface ServicesEditorProps {
   onUpdate: (updates: Partial<Card>) => void;
 }
 
-export const ServicesEditor: React.FC<ServicesEditorProps> = ({ card, onUpdate }) => {
+// ✅ React.memo para optimizar performance
+export const ServicesEditor: React.FC<ServicesEditorProps> = React.memo(({ card, onUpdate }) => {
   const [editingService, setEditingService] = useState<string | null>(null);
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
 
@@ -532,6 +533,8 @@ export const ServicesEditor: React.FC<ServicesEditorProps> = ({ card, onUpdate }
       </div>
     </div>
   );
-};
+});
+
+ServicesEditor.displayName = 'ServicesEditor';
 
 export default ServicesEditor;

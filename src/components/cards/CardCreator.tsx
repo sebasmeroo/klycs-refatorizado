@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, ArrowRight, Sparkles } from 'lucide-react';
+import { Plus, ArrowRight, Sparkles, Crown } from 'lucide-react';
 import { cardTemplates, createCardFromTemplate } from '@/data/cardTemplates';
 import { CardsService } from '@/services/cards';
 import { useAuth } from '@/hooks/useAuth';
@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { toast } from '@/utils/toast';
+import { subscriptionsService } from '@/services/subscriptions';
+import { useUserCards } from '@/hooks/useCards';
 
 interface CardCreatorProps {
   onCardCreated?: (card: Card) => void;
@@ -16,10 +18,14 @@ interface CardCreatorProps {
 
 export const CardCreator: React.FC<CardCreatorProps> = ({ onCardCreated, onCancel }) => {
   const { user, firebaseUser } = useAuth();
+  const userId = user?.id || firebaseUser?.uid;
+  const { data: existingCards = [] } = useUserCards(userId);
+
   const [step, setStep] = useState<'template' | 'customize'>('template');
   const [selectedTemplate, setSelectedTemplate] = useState<CardTemplate | null>(null);
   const [cardTitle, setCardTitle] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const handleTemplateSelect = (template: CardTemplate) => {
     setSelectedTemplate(template);
@@ -37,11 +43,39 @@ export const CardCreator: React.FC<CardCreatorProps> = ({ onCardCreated, onCance
 
     const userId = user?.id || firebaseUser.uid;
 
+    // ✅ VALIDACIÓN DE LÍMITES - Verificar si puede crear tarjeta
+    const limitsCheck = await subscriptionsService.checkPlanLimits(userId, 'cards_created');
+
+    if (limitsCheck.success && limitsCheck.data) {
+      const { canProceed, limit, current, plan } = limitsCheck.data;
+
+      // Si ya tiene 1+ tarjetas y su plan no permite más
+      if (!canProceed) {
+        const planName = plan.name?.toLowerCase() || 'free';
+
+        if (planName === 'free' || planName === 'básico') {
+          toast.error('Plan FREE: Solo puedes crear 1 tarjeta. Actualiza a PRO para administrar tu tarjeta.');
+          setShowUpgradeModal(true);
+          return;
+        } else if (planName === 'pro' || planName === 'profesional' || planName === 'pro anual') {
+          toast.error('Plan PRO: Solo puedes crear 1 tarjeta. Actualiza a BUSINESS para tarjetas ilimitadas.');
+          setShowUpgradeModal(true);
+          return;
+        }
+      }
+    }
+
     setIsCreating(true);
     try {
       const cardData = createCardFromTemplate(selectedTemplate, userId, cardTitle);
       const cardId = await CardsService.createCard(userId, cardData);
-      
+
+      // ✅ Registrar uso después de crear
+      await subscriptionsService.recordUsage(userId, 'cards_created', 1, {
+        cardId,
+        cardTitle
+      });
+
       const newCard: Card = {
         id: cardId,
         ...cardData,
@@ -50,7 +84,7 @@ export const CardCreator: React.FC<CardCreatorProps> = ({ onCardCreated, onCance
         createdAt: new Date(),
         updatedAt: new Date()
       };
-      
+
       toast.success('¡Tarjeta creada exitosamente!');
       onCardCreated?.(newCard);
     } catch (error) {
@@ -253,6 +287,62 @@ export const CardCreator: React.FC<CardCreatorProps> = ({ onCardCreated, onCance
           </Button>
         )}
       </div>
+
+      {/* Modal de Upgrade */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 max-w-md w-full shadow-2xl">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Crown className="w-8 h-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Actualiza tu Plan
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400">
+                Has alcanzado el límite de tarjetas de tu plan actual
+              </p>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Plan PRO - €9.99/mes</h4>
+                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                  <li>✓ 1 tarjeta con gestión completa</li>
+                  <li>✓ 1 calendario colaborativo</li>
+                  <li>✓ Profesionales ilimitados</li>
+                  <li>✓ Reservas ilimitadas</li>
+                </ul>
+              </div>
+
+              <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Plan BUSINESS - €40/mes</h4>
+                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                  <li>✓ Tarjetas ilimitadas</li>
+                  <li>✓ Calendarios ilimitados</li>
+                  <li>✓ Profesionales ilimitados</li>
+                  <li>✓ Analytics avanzado</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+              >
+                Cerrar
+              </button>
+              <button
+                onClick={() => window.location.href = '/dashboard/settings'}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all"
+              >
+                Ver Planes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

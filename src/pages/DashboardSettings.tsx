@@ -16,9 +16,11 @@ import {
   Trash2,
   CheckCircle,
   Calendar,
-  CreditCard
+  CreditCard,
+  Crown
 } from 'lucide-react';
 import { IOSSection, IOSToggle, IOSSelect } from '@/components/ui/IOSControls';
+import { SubscriptionSettings } from '@/components/settings/SubscriptionSettings';
 
 const accentColors = [
   { name: 'iOS Blue', value: '#007aff' },
@@ -65,6 +67,18 @@ const DashboardSettings: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Sección de Suscripción - Ancho completo */}
+        <div className="rounded-2xl p-6 border border-black/5 shadow-sm bg-white">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="ios-app-icon !w-10 !h-10"><Crown className="text-white" size={18} /></div>
+            <div>
+              <h2 className="text-[18px] font-semibold text-[#1d1d1f]">Suscripción y Planes</h2>
+              <p className="text-[#8e8e93] text-xs">Gestiona tu plan y método de pago</p>
+            </div>
+          </div>
+          <SubscriptionSettings />
         </div>
 
         {/* Grid principal */}

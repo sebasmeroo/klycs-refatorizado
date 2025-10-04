@@ -36,22 +36,48 @@ export default defineConfig(({ mode, command }) => ({
     cssCodeSplit: true,
     terserOptions: {
       compress: {
-        drop_console: true,
-        drop_debugger: true,
-        pure_funcs: ['console.log', 'console.warn'],
+        drop_console: mode === 'production',
+        drop_debugger: mode === 'production',
+        pure_funcs: mode === 'production' ? ['console.log', 'console.warn', 'console.info'] : [],
       },
     },
     rollupOptions: {
-      // Eliminar manualChunks para evitar ciclos entre chunks (react/vendor) que causan createContext undefined
       output: {
         chunkFileNames: '[name]-[hash].js',
         entryFileNames: '[name]-[hash].js',
-        assetFileNames: '[name]-[hash].[ext]'
+        assetFileNames: '[name]-[hash].[ext]',
+        // ✅ Code splitting optimizado - Separar vendors grandes
+        manualChunks: (id) => {
+          // React core
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'react-vendor';
+          }
+          // Firebase (bundle grande)
+          if (id.includes('node_modules/firebase') || id.includes('node_modules/@firebase')) {
+            return 'firebase-vendor';
+          }
+          // Tanstack Query
+          if (id.includes('node_modules/@tanstack/react-query')) {
+            return 'query-vendor';
+          }
+          // Lucide icons (bundle grande)
+          if (id.includes('node_modules/lucide-react')) {
+            return 'icons-vendor';
+          }
+          // Framer Motion
+          if (id.includes('node_modules/framer-motion')) {
+            return 'motion-vendor';
+          }
+          // Resto de node_modules
+          if (id.includes('node_modules')) {
+            return 'vendor';
+          }
+        },
       }
     },
     // Performance budgets and chunk size limits
-    chunkSizeWarningLimit: 400, // 400KB warning limit
-    assetsInlineLimit: 2048, // 2KB inline limit for better caching
+    chunkSizeWarningLimit: 500, // 500KB warning limit
+    assetsInlineLimit: 4096, // 4KB inline limit (optimizado)
   },
   server: {
     port: 5000,

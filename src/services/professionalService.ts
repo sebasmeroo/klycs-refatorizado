@@ -7,12 +7,13 @@ import {
   arrayRemove
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { 
+import {
   User,
-  TeamProfessional 
+  TeamProfessional
 } from '@/types';
 import { CollaborativeCalendarService } from '@/services/collaborativeCalendar';
 import { info, error as logError } from '@/utils/logger';
+import { subscriptionsService } from '@/services/subscriptions';
 
 // ===== SERVICIO SIMPLIFICADO DE PROFESIONALES =====
 
@@ -21,7 +22,7 @@ export class ProfessionalService {
   // ===== GESTIÓN DE PROFESIONALES EN EL USUARIO =====
   
   static async addProfessionalToUser(
-    userId: string, 
+    userId: string,
     professionalData: {
       name: string;
       email: string;
@@ -32,7 +33,23 @@ export class ProfessionalService {
   ): Promise<string> {
     try {
       console.log('👨‍⚕️ Agregando profesional al usuario:', userId);
-      
+
+      // ✅ VALIDACIÓN DE LÍMITES - Verificar si puede agregar profesionales
+      const limitsCheck = await subscriptionsService.checkPlanLimits(userId, 'professionals');
+
+      if (limitsCheck.success && limitsCheck.data) {
+        const { canProceed, limit, current, plan } = limitsCheck.data;
+
+        if (!canProceed) {
+          const planName = plan.name?.toLowerCase() || 'free';
+
+          if (planName === 'free' || planName === 'básico') {
+            throw new Error('Plan FREE: No puedes agregar profesionales. Actualiza a PRO para profesionales ilimitados.');
+          }
+          // PRO y BUSINESS tienen profesionales ilimitados
+        }
+      }
+
       // Obtener usuario actual
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (!userDoc.exists()) {
@@ -150,10 +167,17 @@ export class ProfessionalService {
       // Actualizar el usuario con el nuevo profesional
       await updateDoc(doc(db, 'users', userId), updateData);
 
+      // ✅ Registrar uso después de agregar
+      await subscriptionsService.recordUsage(userId, 'professionals', 1, {
+        professionalId: newProfessional.id,
+        professionalName: professionalData.name,
+        professionalEmail: professionalData.email
+      });
+
       console.log('✅ Profesional agregado exitosamente:', newProfessional.id);
-      info('Profesional agregado al usuario', { 
-        userId, 
-        professionalId: newProfessional.id, 
+      info('Profesional agregado al usuario', {
+        userId,
+        professionalId: newProfessional.id,
         email: professionalData.email,
         calendarId 
       });
@@ -205,19 +229,72 @@ export class ProfessionalService {
 
   // ===== ACCESO DE PROFESIONALES =====
   
+  /**
+   * Búsqueda eficiente de profesional por email usando calendarios como índice
+   * ✅ Optimizado: usa linkedEmail en calendarios en lugar de escanear todos los usuarios
+   */
   static async getProfessionalByEmail(email: string): Promise<{
     professional: TeamProfessional;
     owner: User;
   } | null> {
     try {
       console.log('🔍 Buscando profesional por email:', email);
-      
-      // Buscar en todos los usuarios que tengan profesionales
-      // Nota: En una implementación real, sería mejor tener un índice para esto
-      // Por ahora, buscamos por el linkedEmail en los calendarios
-      
-      return null; // TODO: Implementar búsqueda eficiente
-      
+
+      // ✅ Estrategia optimizada: Buscar calendario con linkedEmail
+      // Esto evita tener que leer todos los documentos de usuarios
+      const {
+        collection,
+        query,
+        where,
+        getDocs,
+        limit
+      } = await import('firebase/firestore');
+
+      const calendarsRef = collection(db, 'shared_calendars');
+      const q = query(
+        calendarsRef,
+        where('linkedEmail', '==', email),
+        limit(1) // Solo necesitamos uno
+      );
+
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        console.log('❌ No se encontró calendario para el email:', email);
+        return null;
+      }
+
+      const calendarDoc = snapshot.docs[0];
+      const calendarData = calendarDoc.data();
+      const ownerId = calendarData.ownerId;
+
+      console.log('✅ Calendario encontrado, owner:', ownerId);
+
+      // Obtener datos del propietario
+      const ownerDoc = await getDoc(doc(db, 'users', ownerId));
+      if (!ownerDoc.exists()) {
+        console.log('❌ Owner no encontrado');
+        return null;
+      }
+
+      const ownerData = ownerDoc.data() as User;
+      const professionals = ownerData.professionals || [];
+
+      // Buscar el profesional específico
+      const professional = professionals.find(p => p.email === email);
+
+      if (!professional) {
+        console.log('❌ Profesional no encontrado en la lista del owner');
+        return null;
+      }
+
+      console.log('✅ Profesional encontrado:', professional.name);
+
+      return {
+        professional,
+        owner: ownerData
+      };
+
     } catch (error) {
       console.error('Error buscando profesional:', error);
       logError('Error al buscar profesional por email', error as Error, { email });

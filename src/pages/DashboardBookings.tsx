@@ -34,7 +34,9 @@ import {
   Repeat,
   Upload,
   Camera,
-  User
+  User,
+  CheckCircle2,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
@@ -181,6 +183,11 @@ const DashboardBookings: React.FC = () => {
   // Estados para ver todos los eventos de un día
   const [dayEventsView, setDayEventsView] = useState<{date: Date; events: CalendarEvent[]} | null>(null);
   const [showDayEventsPanel, setShowDayEventsPanel] = useState(false);
+  const [updatingServiceStatus, setUpdatingServiceStatus] = useState<string | null>(null);
+
+  // Estados para modal de información del evento
+  const [showEventInfoModal, setShowEventInfoModal] = useState(false);
+  const [selectedEventInfo, setSelectedEventInfo] = useState<CalendarEvent | null>(null);
 
   // Estados para editar nombre del equipo
   const [isEditingTeamName, setIsEditingTeamName] = useState(false);
@@ -644,7 +651,43 @@ const DashboardBookings: React.FC = () => {
     setShowDayEventsPanel(false);
     setDayEventsView(null);
   }, []);
-  
+
+  // Handler para marcar servicio como completado/no realizado
+  const handleMarkServiceStatus = useCallback(async (
+    eventId: string,
+    status: 'completed' | 'not_done' | 'in_progress' | 'pending'
+  ) => {
+    if (!user?.uid) return;
+
+    try {
+      setUpdatingServiceStatus(eventId);
+
+      await CalendarEventService.markServiceComplete(eventId, user.uid, status);
+
+      // Actualizar la lista de eventos del día si existe
+      if (dayEventsView) {
+        const updatedEvents = dayEventsView.events.map(evt =>
+          evt.id === eventId
+            ? {
+                ...evt,
+                serviceStatus: status,
+                completedAt: status === 'completed' ? new Date() : undefined,
+                completedBy: status === 'completed' ? user.uid : undefined
+              }
+            : evt
+        );
+        setDayEventsView({ ...dayEventsView, events: updatedEvents });
+      }
+
+      console.log(`✅ Servicio marcado como: ${status}`);
+    } catch (error) {
+      console.error('Error al marcar servicio:', error);
+      alert('Error al actualizar el estado del servicio');
+    } finally {
+      setUpdatingServiceStatus(null);
+    }
+  }, [user?.uid, dayEventsView]);
+
   const handleCreateEvent = useCallback(async () => {
     if (!selectedDate || !selectedProfessional || !newEventForm.title.trim()) {
       alert('Por favor completa todos los campos requeridos');
@@ -1603,7 +1646,8 @@ const DashboardBookings: React.FC = () => {
                     key={event.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      openEditEventPanel(event);
+                      setSelectedEventInfo(event);
+                      setShowEventInfoModal(true);
                     }}
                     className="px-2 py-1 rounded text-xs font-medium text-white truncate cursor-pointer hover:opacity-80 transition-opacity"
                     style={{ backgroundColor: getCalendarColor(event.calendarId) }}
@@ -3010,8 +3054,8 @@ const DashboardBookings: React.FC = () => {
                   <div
                     key={event.id}
                     onClick={() => {
-                      closeDayEventsPanel();
-                      openEditEventPanel(event);
+                      setSelectedEventInfo(event);
+                      setShowEventInfoModal(true);
                     }}
                     className="p-4 rounded-lg border-2 border-gray-200 hover:border-blue-400 cursor-pointer transition-all hover:shadow-md group"
                   >
@@ -3080,8 +3124,61 @@ const DashboardBookings: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    
-                    <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+
+                    {/* Estado del Servicio */}
+                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-gray-500">Estado del Servicio:</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          event.serviceStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                          event.serviceStatus === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                          event.serviceStatus === 'not_done' ? 'bg-red-100 text-red-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {event.serviceStatus === 'completed' ? '✓ Completado' :
+                           event.serviceStatus === 'in_progress' ? '⏳ En Progreso' :
+                           event.serviceStatus === 'not_done' ? '✗ No Realizado' :
+                           '⏱ Pendiente'}
+                        </span>
+                      </div>
+
+                      {/* Botones de acción rápida */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMarkServiceStatus(event.id, 'completed');
+                          }}
+                          disabled={updatingServiceStatus === event.id || event.serviceStatus === 'completed'}
+                          className="flex items-center justify-center gap-1 px-2 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded text-xs font-medium transition-colors"
+                        >
+                          {updatingServiceStatus === event.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-3 h-3" />
+                          )}
+                          Completar
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMarkServiceStatus(event.id, 'not_done');
+                          }}
+                          disabled={updatingServiceStatus === event.id || event.serviceStatus === 'not_done'}
+                          className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded text-xs font-medium transition-colors"
+                        >
+                          {updatingServiceStatus === event.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <XCircle className="w-3 h-3" />
+                          )}
+                          No Hecho
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
                       <span className="text-xs text-gray-500">
                         Haz clic para editar
                       </span>
@@ -3100,6 +3197,305 @@ const DashboardBookings: React.FC = () => {
                 Cerrar
               </button>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de información del evento */}
+      <AnimatePresence>
+        {showEventInfoModal && selectedEventInfo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowEventInfoModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header del modal */}
+              <div className="relative p-6 bg-gradient-to-br from-blue-500 to-purple-600 text-white">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <h2 className="text-2xl font-bold mb-1">{selectedEventInfo.title}</h2>
+                    <p className="text-blue-100 text-sm">
+                      {getProfessionalName(selectedEventInfo.calendarId)}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Botón editar */}
+                    <button
+                      onClick={() => {
+                        setShowEventInfoModal(false);
+                        openEditEventPanel(selectedEventInfo);
+                      }}
+                      className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                      title="Editar evento"
+                    >
+                      <Edit3 className="w-5 h-5" />
+                    </button>
+
+                    {/* Botón cerrar */}
+                    <button
+                      onClick={() => setShowEventInfoModal(false)}
+                      className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Estado del servicio */}
+                <div className="flex items-center gap-2">
+                  {selectedEventInfo.serviceStatus === 'completed' && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-500/20 border border-green-300 rounded-full text-xs font-medium">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Completado
+                    </span>
+                  )}
+                  {selectedEventInfo.serviceStatus === 'not_done' && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-red-500/20 border border-red-300 rounded-full text-xs font-medium">
+                      <XCircle className="w-3 h-3" />
+                      No Realizado
+                    </span>
+                  )}
+                  {selectedEventInfo.serviceStatus === 'in_progress' && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-500/20 border border-yellow-300 rounded-full text-xs font-medium">
+                      <Clock className="w-3 h-3" />
+                      En Progreso
+                    </span>
+                  )}
+                  {(!selectedEventInfo.serviceStatus || selectedEventInfo.serviceStatus === 'pending') && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-gray-500/20 border border-gray-300 rounded-full text-xs font-medium">
+                      <Clock className="w-3 h-3" />
+                      Pendiente
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Cuerpo del modal */}
+              <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-300px)]">
+                {/* Información de fecha y hora */}
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
+                      <CalendarIcon className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-700">Fecha y hora</p>
+                      <p className="text-gray-900 font-semibold">
+                        {selectedEventInfo.startDate.toLocaleDateString('es-ES', {
+                          weekday: 'long',
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric'
+                        })}
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {selectedEventInfo.startDate.toLocaleTimeString('es-ES', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                        {selectedEventInfo.endDate && (
+                          <> - {selectedEventInfo.endDate.toLocaleTimeString('es-ES', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}</>
+                        )}
+                        {selectedEventInfo.duration && selectedEventInfo.duration > 0 && (
+                          <span className="ml-2 text-xs text-gray-500">
+                            ({Math.floor(selectedEventInfo.duration / 60)}h {selectedEventInfo.duration % 60}min)
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Ubicación */}
+                  {selectedEventInfo.location && (
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center flex-shrink-0">
+                        <MapPin className="w-5 h-5 text-green-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-700">Ubicación</p>
+                        <p className="text-gray-900">{selectedEventInfo.location}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Descripción */}
+                  {selectedEventInfo.description && (
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/20 flex items-center justify-center flex-shrink-0">
+                        <MessageCircle className="w-5 h-5 text-purple-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-700">Descripción</p>
+                        <p className="text-gray-900 whitespace-pre-wrap">{selectedEventInfo.description}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Profesional asignado */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center flex-shrink-0">
+                      <User className="w-5 h-5 text-orange-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-700">Profesional</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        {getProfessionalAvatar(selectedEventInfo.calendarId) ? (
+                          <img
+                            src={getProfessionalAvatar(selectedEventInfo.calendarId)!}
+                            alt={getProfessionalName(selectedEventInfo.calendarId)}
+                            className="w-8 h-8 rounded-full object-cover border-2"
+                            style={{ borderColor: getCalendarColor(selectedEventInfo.calendarId) }}
+                          />
+                        ) : (
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center"
+                            style={{
+                              backgroundColor: getCalendarColor(selectedEventInfo.calendarId) + '20',
+                              borderColor: getCalendarColor(selectedEventInfo.calendarId),
+                              borderWidth: '2px'
+                            }}
+                          >
+                            <User className="w-4 h-4" style={{ color: getCalendarColor(selectedEventInfo.calendarId) }} />
+                          </div>
+                        )}
+                        <span className="text-gray-900 font-medium">
+                          {getProfessionalName(selectedEventInfo.calendarId)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Campos personalizados (custom fields) */}
+                  {selectedEventInfo.customFieldsData && Object.keys(selectedEventInfo.customFieldsData).length > 0 && (
+                    <>
+                      <div className="pt-4 border-t border-gray-200">
+                        <h4 className="text-sm font-semibold text-gray-900 mb-3">Información Adicional</h4>
+                        <div className="space-y-3">
+                          {Object.entries(selectedEventInfo.customFieldsData).map(([fieldId, value]) => {
+                            // Buscar el campo en globalCustomFields para obtener su label
+                            const field = globalCustomFields.find(f => f.id === fieldId);
+                            if (!field || !value) return null;
+
+                            return (
+                              <div key={fieldId} className="flex items-start gap-3">
+                                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/20 flex items-center justify-center flex-shrink-0">
+                                  <Settings className="w-5 h-5 text-indigo-600" />
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium text-gray-700">{field.label}</p>
+                                  <p className="text-gray-900 break-words">
+                                    {field.type === 'url' ? (
+                                      <a
+                                        href={value as string}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline flex items-center gap-1"
+                                      >
+                                        {value as string}
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    ) : field.type === 'tel' ? (
+                                      <a
+                                        href={`tel:${value}`}
+                                        className="text-blue-600 hover:underline"
+                                      >
+                                        {value as string}
+                                      </a>
+                                    ) : field.type === 'email' ? (
+                                      <a
+                                        href={`mailto:${value}`}
+                                        className="text-blue-600 hover:underline"
+                                      >
+                                        {value as string}
+                                      </a>
+                                    ) : (
+                                      String(value)
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer con acciones */}
+              <div className="p-6 bg-gray-50 border-t border-gray-200">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  {/* Botón marcar como completado */}
+                  <button
+                    onClick={async () => {
+                      await handleMarkServiceStatus(selectedEventInfo.id, 'completed');
+                      setSelectedEventInfo({
+                        ...selectedEventInfo,
+                        serviceStatus: 'completed',
+                        completedAt: new Date(),
+                        completedBy: user?.uid
+                      });
+                    }}
+                    disabled={updatingServiceStatus === selectedEventInfo.id || selectedEventInfo.serviceStatus === 'completed'}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {updatingServiceStatus === selectedEventInfo.id ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-5 h-5" />
+                    )}
+                    {selectedEventInfo.serviceStatus === 'completed' ? 'Completado' : 'Marcar Completado'}
+                  </button>
+
+                  {/* Botón marcar como no realizado */}
+                  <button
+                    onClick={async () => {
+                      await handleMarkServiceStatus(selectedEventInfo.id, 'not_done');
+                      setSelectedEventInfo({
+                        ...selectedEventInfo,
+                        serviceStatus: 'not_done',
+                        completedAt: undefined,
+                        completedBy: undefined
+                      });
+                    }}
+                    disabled={updatingServiceStatus === selectedEventInfo.id || selectedEventInfo.serviceStatus === 'not_done'}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {updatingServiceStatus === selectedEventInfo.id ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <XCircle className="w-5 h-5" />
+                    )}
+                    {selectedEventInfo.serviceStatus === 'not_done' ? 'No Realizado' : 'Marcar No Realizado'}
+                  </button>
+                </div>
+
+                {/* Info de completado */}
+                {selectedEventInfo.completedAt && selectedEventInfo.serviceStatus === 'completed' && (
+                  <p className="text-xs text-gray-500 text-center mt-3">
+                    Completado el {selectedEventInfo.completedAt.toLocaleDateString('es-ES')} a las{' '}
+                    {selectedEventInfo.completedAt.toLocaleTimeString('es-ES', {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </p>
+                )}
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

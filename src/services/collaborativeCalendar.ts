@@ -31,6 +31,7 @@ import {
   CalendarStats
 } from '@/types/calendar';
 import { info, error as logError } from '@/utils/logger';
+import { subscriptionsService } from '@/services/subscriptions';
 
 // ===== CALENDARIOS COMPARTIDOS =====
 
@@ -620,15 +621,38 @@ export class CalendarEventService {
   ): Promise<string> {
     try {
       console.log('📅 Datos del evento recibidos:', JSON.stringify(eventData, null, 2));
-      
+
+      // ✅ VALIDACIÓN DE LÍMITES - Obtener el owner del calendario para validar
+      const calendarDoc = await getDoc(doc(db, 'shared_calendars', calendarId));
+      if (calendarDoc.exists()) {
+        const calendarData = calendarDoc.data() as SharedCalendarFirestore;
+        const ownerId = calendarData.ownerId;
+
+        // Verificar límites de reservas/bookings
+        const limitsCheck = await subscriptionsService.checkPlanLimits(ownerId, 'bookings');
+
+        if (limitsCheck.success && limitsCheck.data) {
+          const { canProceed, limit, current, plan } = limitsCheck.data;
+
+          if (!canProceed) {
+            const planName = plan.name?.toLowerCase() || 'free';
+
+            if (planName === 'free' || planName === 'básico') {
+              throw new Error('Plan FREE: No puedes crear reservas. Actualiza a PRO para reservas ilimitadas.');
+            }
+            // PRO y BUSINESS tienen reservas ilimitadas, nunca llegarán aquí
+          }
+        }
+      }
+
       // Verificar si es recurrente y crear múltiples eventos
       if (eventData.recurring && eventData.recurring.type !== 'none' && eventData.recurring.weekdays && eventData.recurring.weekdays.length > 0) {
         return await this.createRecurringEvents(calendarId, eventData);
       }
-      
+
       // Crear evento único
       return await this.createSingleEvent(calendarId, eventData);
-      
+
     } catch (error) {
       console.error('❌ Error detallado al crear evento:', error);
       logError('Error al crear evento', error as Error, { calendarId });
@@ -739,7 +763,18 @@ export class CalendarEventService {
     }
     
     const docRef = await addDoc(collection(db, 'calendar_events'), cleanEventData);
-    
+
+    // ✅ Registrar uso de reserva después de crear
+    const calendarDoc = await getDoc(doc(db, 'shared_calendars', calendarId));
+    if (calendarDoc.exists()) {
+      const calendarData = calendarDoc.data() as SharedCalendarFirestore;
+      await subscriptionsService.recordUsage(calendarData.ownerId, 'bookings', 1, {
+        eventId: docRef.id,
+        eventTitle: eventData.title,
+        calendarId
+      });
+    }
+
     console.log('✅ Evento creado exitosamente con ID:', docRef.id);
     info('Evento creado', { eventId: docRef.id, calendarId, duration });
     return docRef.id;
@@ -1061,6 +1096,7 @@ export class CalendarEventService {
           endDate,
           createdAt: data.createdAt.toDate(),
           updatedAt: data.updatedAt.toDate(),
+          completedAt: data.completedAt?.toDate(),
           recurring: data.recurring ? {
             ...data.recurring,
             endDate: data.recurring.endDate?.toDate()
@@ -1107,7 +1143,7 @@ export class CalendarEventService {
     
     return onSnapshot(q, snapshot => {
       const events: CalendarEvent[] = [];
-      
+
       snapshot.forEach(doc => {
         const data = doc.data() as CalendarEventFirestore;
         events.push({
@@ -1117,13 +1153,14 @@ export class CalendarEventService {
           endDate: data.endDate.toDate(),
           createdAt: data.createdAt.toDate(),
           updatedAt: data.updatedAt.toDate(),
+          completedAt: data.completedAt?.toDate(),
           recurring: data.recurring ? {
             ...data.recurring,
             endDate: data.recurring.endDate?.toDate()
           } : undefined
         });
       });
-      
+
       callback(events);
     });
   }
@@ -1138,19 +1175,100 @@ export class CalendarEventService {
         ...updates,
         updatedAt: Timestamp.now()
       };
-      
+
       if (updates.startDate) {
         updateData.startDate = Timestamp.fromDate(updates.startDate);
       }
       if (updates.endDate) {
         updateData.endDate = Timestamp.fromDate(updates.endDate);
       }
-      
+      if (updates.completedAt) {
+        updateData.completedAt = Timestamp.fromDate(updates.completedAt);
+      }
+
       await updateDoc(doc(db, 'calendar_events', eventId), updateData);
-      
+
     } catch (error) {
       logError('Error al actualizar evento', error as Error, { eventId });
       throw error;
+    }
+  }
+
+  // Marcar servicio como completado
+  static async markServiceComplete(
+    eventId: string,
+    userId: string,
+    status: 'completed' | 'not_done' | 'in_progress' | 'pending'
+  ): Promise<void> {
+    try {
+      const updateData: any = {
+        serviceStatus: status,
+        updatedAt: Timestamp.now()
+      };
+
+      if (status === 'completed') {
+        updateData.completedAt = Timestamp.now();
+        updateData.completedBy = userId;
+      } else {
+        // Si se cambia a otro estado, limpiar los campos de completado
+        updateData.completedAt = null;
+        updateData.completedBy = null;
+      }
+
+      await updateDoc(doc(db, 'calendar_events', eventId), updateData);
+      info('Estado del servicio actualizado', { eventId, status, userId });
+    } catch (error) {
+      logError('Error al actualizar estado del servicio', error as Error, { eventId, status });
+      throw error;
+    }
+  }
+
+  // Obtener eventos por estado de servicio
+  static async getEventsByServiceStatus(
+    calendarId: string,
+    status: 'completed' | 'not_done' | 'in_progress' | 'pending',
+    startDate?: Date,
+    endDate?: Date
+  ): Promise<CalendarEvent[]> {
+    try {
+      let q = query(
+        collection(db, 'calendar_events'),
+        where('calendarId', '==', calendarId),
+        where('serviceStatus', '==', status)
+      );
+
+      if (startDate && endDate) {
+        q = query(q,
+          where('startDate', '>=', Timestamp.fromDate(startDate)),
+          where('startDate', '<=', Timestamp.fromDate(endDate))
+        );
+      }
+
+      q = query(q, orderBy('startDate', 'desc'));
+      const snapshot = await getDocs(q);
+
+      const events: CalendarEvent[] = [];
+      snapshot.forEach(doc => {
+        const data = doc.data() as CalendarEventFirestore;
+        events.push({
+          ...data,
+          id: doc.id,
+          startDate: data.startDate.toDate(),
+          endDate: data.endDate.toDate(),
+          createdAt: data.createdAt.toDate(),
+          updatedAt: data.updatedAt.toDate(),
+          completedAt: data.completedAt?.toDate(),
+          recurring: data.recurring ? {
+            ...data.recurring,
+            endDate: data.recurring.endDate?.toDate()
+          } : undefined
+        });
+      });
+
+      return events;
+    } catch (error) {
+      logError('Error al obtener eventos por estado', error as Error, { calendarId, status });
+      return [];
     }
   }
 

@@ -21,7 +21,8 @@ interface LinksEditorProps {
   onUpdate: (updates: Partial<Card>) => void;
 }
 
-export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
+// ✅ React.memo para optimizar performance
+export const LinksEditor: React.FC<LinksEditorProps> = React.memo(({ card, onUpdate }) => {
   const [editingLink, setEditingLink] = useState<string | null>(null);
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
 
@@ -507,6 +508,8 @@ export const LinksEditor: React.FC<LinksEditorProps> = ({ card, onUpdate }) => {
       </div>
     </div>
   );
-};
+});
+
+LinksEditor.displayName = 'LinksEditor';
 
 export default LinksEditor;

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authService } from '@/services/auth';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { validateRegisterForm, sanitizeEmail, sanitizeString, type RegisterFormData } from '@/utils/validation';
@@ -14,6 +14,10 @@ export const Register: React.FC = () => {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Detectar plan seleccionado desde la URL
+  const selectedPlan = searchParams.get('plan')?.toUpperCase() || 'FREE';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,10 +43,23 @@ export const Register: React.FC = () => {
 
     try {
       const result = await authService.signUp(formData.email, formData.password, formData.name);
-      
+
       if (result.success) {
-        info('Registration successful', { component: 'register', email: formData.email });
-        navigate('/dashboard');
+        info('Registration successful', {
+          component: 'register',
+          email: formData.email,
+          selectedPlan
+        });
+
+        // Si seleccionó un plan de pago, redirigir a checkout (cuando esté implementado)
+        if (selectedPlan === 'PRO' || selectedPlan === 'BUSINESS') {
+          // TODO: Redirigir a checkout de Stripe cuando esté implementado
+          // Por ahora, solo muestra un mensaje y va al dashboard
+          console.log(`Usuario registrado con plan ${selectedPlan} - Redirigir a checkout`);
+          navigate('/dashboard?upgrade=' + selectedPlan.toLowerCase());
+        } else {
+          navigate('/dashboard');
+        }
       } else {
         setError(result.error || 'Error al crear la cuenta');
       }
@@ -76,6 +93,27 @@ export const Register: React.FC = () => {
         </div>
 
         <div className="card">
+          {/* Indicador de plan seleccionado */}
+          {selectedPlan !== 'FREE' && (
+            <div className="mb-6 p-4 bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/30 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-300">Plan seleccionado:</p>
+                  <p className="text-lg font-bold text-white">{selectedPlan}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-white">
+                    {selectedPlan === 'PRO' ? '€9.99' : '€40'}
+                  </p>
+                  <p className="text-xs text-slate-400">/mes</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Podrás completar el pago después de crear tu cuenta
+              </p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-slate-200 text-sm font-medium mb-2">

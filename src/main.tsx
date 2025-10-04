@@ -12,6 +12,7 @@ import { initializeMonitoring } from './services/monitoring'
 import { initializePerformanceMonitoring } from './utils/performance'
 import { initializeDefaultFeatureFlags } from './utils/initializeFeatureFlags'
 import { autoFixOnLoad } from './utils/fixFirebasePermissions'
+import { initializeCache } from './utils/persistentCache'
 import './utils/pwaUtils' // Initialize PWA service
 import './utils/costMonitoring' // Initialize cost monitoring (firebaseStats() command)
 
@@ -21,6 +22,7 @@ initializeMonitoring()
 initializePerformanceMonitoring()
 initializeDefaultFeatureFlags().catch(console.error)
 autoFixOnLoad() // Auto-fix permisos de Firebase en páginas admin
+initializeCache() // ✅ Inicializar cache persistente (reduce lecturas Firebase)
 
 const reactRuntime = React as unknown as {
   jsx?: typeof _jsx

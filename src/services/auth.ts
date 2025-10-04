@@ -198,10 +198,6 @@ export const authService = {
     }
   },
 
-  getCurrentUser(): FirebaseUser | null {
-    return auth.currentUser;
-  },
-
   async getUserData(uid: string): Promise<User | null> {
     try {
       const userDoc = await getDoc(doc(db, 'users', uid));

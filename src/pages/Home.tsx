@@ -1,30 +1,128 @@
 import React, { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Star, Users, Calendar, Building2, LogIn, Mail, Search } from 'lucide-react';
+import {
+  ArrowRight,
+  Users,
+  Calendar,
+  LogIn,
+  Mail,
+  Search,
+  Sparkles,
+  LayoutDashboard,
+  Smartphone,
+  Share2,
+  ShieldCheck,
+  Clock,
+  LineChart,
+  Quote,
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { CollaborativeCalendarService } from '@/services/collaborativeCalendar';
 import { authService } from '@/services/auth';
+import { useLayoutTheme } from '@/components/layout/Layout';
+import { PricingSection } from '@/components/pricing/PricingSection';
+
+interface Highlight {
+  label: string;
+  value: string;
+  helper: string;
+}
+
+const highlights: Highlight[] = [
+  {
+    label: 'Reservas confirmadas',
+    value: '70k+',
+    helper: 'Gestionadas automáticamente por KLYCS',
+  },
+  {
+    label: 'Tarjetas activas',
+    value: '28k',
+    helper: 'Profesionales que venden desde un solo enlace',
+  },
+  {
+    label: 'Tiempo de publicación',
+    value: '7 min',
+    helper: 'Desde la idea hasta tu tarjeta publicada',
+  },
+];
+
+const featureCards = [
+  {
+    icon: LayoutDashboard,
+    title: 'Edición modular',
+    description: 'Arrastra bloques de info, servicios, testimonios y convierte tu tarjeta en una mini web.',
+  },
+  {
+    icon: Smartphone,
+    title: 'UX móvil y desktop',
+    description: 'Microinteracciones fluidas, animaciones suaves y diseños responsivos listos para compartir.',
+  },
+  {
+    icon: Share2,
+    title: 'Link hub inteligente',
+    description: 'Integra links, videos, calendarios y funnels en un solo enlace personalizado.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Automatización confiable',
+    description: 'Pagos, recordatorios y confirmaciones con branding propio y métricas en vivo.',
+  },
+];
+
+const processSteps = [
+  {
+    icon: Sparkles,
+    label: 'Paso 1',
+    title: 'Diseña tu experiencia',
+    description: 'Selecciona un layout premium, define tu historia y destaca lo que te hace único.',
+  },
+  {
+    icon: Clock,
+    label: 'Paso 2',
+    title: 'Activa reservas y servicios',
+    description: 'Configura disponibilidad, formularios inteligentes y flujos de pago en minutos.',
+  },
+  {
+    icon: LineChart,
+    label: 'Paso 3',
+    title: 'Analiza y optimiza',
+    description: 'Recibe insights de clics, conversiones y rendimiento para ajustar tu estrategia.',
+  },
+];
+
+const testimonials = [
+  {
+    quote:
+      'Con KLYCS lancé mi tarjeta en menos de una hora. Mis clientes reservan, pagan y reciben recordatorios automáticos.',
+    author: 'Sofía Miranda',
+    role: 'Consultora de Marketing',
+  },
+  {
+    quote:
+      'Los embudos que puedo crear con bloques dinámicos son increíbles; es como tener landing pages vivas.',
+    author: 'Daniela Fuentes',
+    role: 'Product Designer',
+  },
+];
 
 export const Home: React.FC = () => {
   const navigate = useNavigate();
-  
-  // ===== ESTADO PARA ACCESO AL CALENDARIO =====
+  const { variant: layoutVariant } = useLayoutTheme();
+  const isDark = layoutVariant === 'dark';
+
   const [professionalEmail, setProfessionalEmail] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
 
-  // ===== HANDLERS MEMOIZADOS =====
   const handleEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setProfessionalEmail(e.target.value);
-    setSearchError(''); // Limpiar error al escribir
+    setSearchError('');
   }, []);
 
-  // ===== FUNCIÓN PARA BUSCAR Y ACCEDER AL CALENDARIO =====
   const handleProfessionalAccess = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!professionalEmail.trim()) {
       setSearchError('Por favor ingresa tu email');
       return;
@@ -34,299 +132,483 @@ export const Home: React.FC = () => {
     setSearchError('');
 
     try {
-      console.log('🔍 HOME: INICIANDO BÚSQUEDA CALENDARIO PARA EMAIL:', professionalEmail);
-      console.log('📅 HOME: Timestamp inicio:', Date.now());
-      
-      // ✅ VERIFICAR ESTADO DE AUTENTICACIÓN EN HOME
-      const currentUser = authService.getCurrentUser?.() || null;
-      console.log('👤 HOME: Usuario autenticado:', currentUser ? 'SÍ' : 'NO');
-      if (currentUser) {
-        console.log('🆔 HOME: UID del usuario:', currentUser.uid);
-        console.log('📧 HOME: Email del usuario:', currentUser.email);
-      }
-      
-      console.log('📋 HOME: Buscando calendarios con linkedEmail:', professionalEmail.trim());
-      
-      // Buscar todos los calendarios que tengan este linkedEmail
-      const allCalendars = await CollaborativeCalendarService.findCalendarsByLinkedEmail(professionalEmail.trim());
-      console.log('📅 HOME: Calendarios encontrados con este email:', allCalendars);
-      console.log('🔢 HOME: Cantidad de calendarios:', allCalendars.length);
-      
+      const allCalendars = await CollaborativeCalendarService.findCalendarsByLinkedEmail(
+        professionalEmail.trim()
+      );
+
       if (allCalendars.length === 0) {
-        console.log('❌ HOME: NO SE ENCONTRARON CALENDARIOS para el email:', professionalEmail.trim());
-        
-        // Buscar usuario para más información de debug
-        console.log('🔍 HOME: Buscando usuario por email...');
         const user = await authService.getUserByEmail(professionalEmail.trim());
-        console.log('👤 HOME: Usuario encontrado por email:', user ? 'SÍ' : 'NO', user?.uid);
-        
+
         if (user) {
-          console.log('📊 HOME: Obteniendo calendarios del usuario...');
-          const userCalendars = await CollaborativeCalendarService.getUserCalendars(user.uid);
-          console.log('📊 HOME: Calendarios del usuario:', userCalendars.length);
-          console.log('📄 HOME: Detalles de calendarios:', userCalendars.map(cal => ({
-            id: cal.id,
-            name: cal.name,
-            linkedEmail: cal.linkedEmail,
-            ownerId: cal.ownerId
-          })));
-          
-          // ✅ COMPARACIÓN DE EMAILS
-          userCalendars.forEach(cal => {
-            console.log(`🔍 HOME: Comparando "${cal.linkedEmail}" === "${professionalEmail.trim()}":`, cal.linkedEmail === professionalEmail.trim());
-          });
+          await CollaborativeCalendarService.getUserCalendars(user.uid);
         }
-        
+
         setSearchError(`No se encontró un calendario asignado al email: ${professionalEmail.trim()}`);
         return;
       }
 
-      const professionalCalendar = allCalendars[0]; // Tomar el primero
-      console.log('✅ HOME: CALENDARIO ENCONTRADO:', {
-        id: professionalCalendar.id,
-        name: professionalCalendar.name,
-        linkedEmail: professionalCalendar.linkedEmail
-      });
-
-      console.log('🔄 HOME: Redirigiendo a:', `/calendar/professional/${professionalCalendar.id}?email=${encodeURIComponent(professionalEmail)}`);
-      
-      // Redirigir al calendario del profesional
+      const professionalCalendar = allCalendars[0];
       navigate(`/calendar/professional/${professionalCalendar.id}?email=${encodeURIComponent(professionalEmail)}`);
-      
     } catch (error) {
-      console.error('❌ HOME: ERROR COMPLETO buscando calendario:', error);
-      console.error('🔥 HOME: Error type:', typeof error);
-      console.error('🔥 HOME: Error instanceof Error:', error instanceof Error);
-      console.error('🔥 HOME: Error message:', (error as any)?.message);
-      console.error('🔥 HOME: Error code:', (error as any)?.code);
-      console.error('🔥 HOME: Error name:', (error as any)?.name);
-      
-      setSearchError(`Error: ${error instanceof Error ? error.message : 'Error desconocido'} - Revisa la consola para más detalles`);
+      setSearchError(
+        `Error: ${error instanceof Error ? error.message : 'Error desconocido'} - Revisa la consola para más detalles`
+      );
     } finally {
       setIsSearching(false);
     }
   };
 
+  const heroGradient = isDark
+    ? 'from-[#111826] via-[#05070f] to-[#0d142d]'
+    : 'from-[#f6f7ff] via-[#fffdfa] to-[#eef4ff]';
+
+  const surfaceA = isDark
+    ? 'border border-white/10 bg-white/5 backdrop-blur-xl'
+    : 'border border-neutral-200 bg-white shadow-xl';
+
+  const surfaceB = isDark ? 'border border-white/10 bg-white/5 backdrop-blur' : 'border border-neutral-200 bg-white';
+
+  const textPrimary = isDark ? 'text-white' : 'text-neutral-900';
+  const textSecondary = isDark ? 'text-white/70' : 'text-neutral-600';
+  const textMuted = isDark ? 'text-white/60' : 'text-neutral-500';
+
+  const badgeClass = isDark
+    ? 'inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-white/70'
+    : 'inline-flex items-center gap-2 rounded-full bg-neutral-200 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-neutral-600';
+
+  const primaryButton = isDark
+    ? 'rounded-full bg-white px-6 text-[#05070f] transition-transform duration-200 hover:-translate-y-1'
+    : 'rounded-full bg-neutral-900 px-6 text-white transition-transform duration-200 hover:-translate-y-1';
+
+  const secondaryButton = isDark
+    ? 'rounded-full border border-white/30 bg-white/5 px-6 text-white transition-transform duration-200 hover:-translate-y-1 hover:bg-white/10'
+    : 'rounded-full border border-neutral-300 bg-white px-6 text-neutral-800 transition-transform duration-200 hover:-translate-y-1 hover:bg-neutral-100';
+
+  const subtleSurface = isDark ? 'border border-white/10 bg-white/5' : 'border border-neutral-200 bg-neutral-50';
+
   return (
-    <div className="space-y-20">
-      <section className="text-center space-y-8">
-        <div className="space-y-4">
-          <h1 className="text-4xl md:text-6xl font-bold text-gray-900">
-            Tu tarjeta digital
-            <br />
-            <span className="text-primary-600">profesional</span>
-          </h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Crea tu presencia digital en minutos. Comparte tus links importantes y gestiona tus reservas desde una sola plataforma.
-          </p>
+    <div className="min-h-screen">
+      <div className="relative overflow-hidden pb-24">
+        <div className="pointer-events-none absolute inset-0 -z-10">
+          <div className={`absolute inset-0 bg-gradient-to-br ${heroGradient}`} />
+          <div
+            className="absolute -top-32 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full blur-[180px]"
+            style={{ background: isDark ? 'rgba(59,130,246,0.18)' : 'rgba(59,130,246,0.12)' }}
+          />
+          <div
+            className="absolute bottom-[-160px] right-[-120px] h-[380px] w-[380px] rounded-full blur-[200px]"
+            style={{ background: isDark ? 'rgba(168,85,247,0.25)' : 'rgba(168,85,247,0.12)' }}
+          />
         </div>
-        
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link to="/register">
-            <Button size="lg" className="w-full sm:w-auto">
-              Comenzar gratis
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
-          <Link to="/demo">
-            <Button variant="outline" size="lg" className="w-full sm:w-auto">
-              Ver demo
-            </Button>
-          </Link>
-        </div>
-      </section>
 
-      {/* ===== SECCIÓN ACCESO AL CALENDARIO PARA PROFESIONALES ===== */}
-      <section className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-8 md:p-12">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center space-y-6 mb-8">
-            <div className="flex justify-center">
-              <div className="bg-blue-100 p-3 rounded-full">
-                <Calendar className="h-8 w-8 text-blue-600" />
-              </div>
-            </div>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-              Acceso al Calendario
-            </h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              ¿Eres un profesional? Accede directamente a tu calendario personalizado con tu email registrado.
-            </p>
-          </div>
-
-          <div className="max-w-md mx-auto">
-            <form onSubmit={handleProfessionalAccess} className="space-y-4">
-              <div className="space-y-2">
-                <label htmlFor="professional-email" className="block text-sm font-medium text-gray-700">
-                  Email del Profesional
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                  <Input
-                    key="professional-email-search-stable-input" 
-                    id="professional-email"
-                    type="email"
-                    placeholder="tu-email@ejemplo.com"
-                    value={professionalEmail}
-                    onChange={handleEmailChange}
-                    className="pl-10"
-                    disabled={isSearching}
-                  />
-                </div>
-              </div>
-              
-              {searchError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-600">{searchError}</p>
-                </div>
-              )}
-              
-              <Button 
-                type="submit" 
-                className="w-full" 
-                disabled={isSearching}
-                size="lg"
+        <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-8 sm:px-6 lg:px-8">
+          <Link to="/" className="flex items-center gap-3">
+            <span className={`flex h-11 w-11 items-center justify-center rounded-2xl text-lg font-semibold ${isDark ? 'bg-white/10 text-white' : 'bg-neutral-900 text-white'}`}>
+              K
+            </span>
+            <span className={`text-lg font-semibold tracking-wide ${textPrimary}`}>KLYCS</span>
+          </Link>
+          <nav className={`hidden items-center gap-8 text-sm font-medium md:flex ${textMuted}`}>
+            {[
+              { label: 'Producto', to: '/' },
+              { label: 'Plantillas', to: '/services' },
+              { label: 'Planes', to: '/pricing' },
+              { label: 'Recursos', to: '/help' },
+            ].map(({ label, to }) => (
+              <Link key={label} to={to} className={`transition-colors ${isDark ? 'hover:text-white' : 'hover:text-neutral-900'}`}>
+                {label}
+              </Link>
+            ))}
+          </nav>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/contact"
+              className={`hidden text-sm font-medium md:inline-flex ${isDark ? 'text-white/60 hover:text-white' : 'text-neutral-500 hover:text-neutral-800'}`}
+            >
+              Contáctanos
+            </Link>
+            <Link to="/login">
+              <Button
+                variant="outline"
+                size="sm"
+                className={isDark ? 'border-white/20 bg-white/5 text-white hover:bg-white hover:text-[#05070f]' : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-900 hover:text-white'}
               >
-                {isSearching ? (
-                  <>
-                    <Search className="mr-2 h-4 w-4 animate-spin" />
-                    Buscando calendario...
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="mr-2 h-4 w-4" />
-                    Acceder a mi calendario
-                  </>
-                )}
+                Ingresar
               </Button>
-            </form>
-            
-            <div className="mt-6 text-center">
-              <p className="text-sm text-gray-500">
-                ¿No tienes acceso? Contacta con el administrador de tu equipo.
-              </p>
-            </div>
+            </Link>
           </div>
-        </div>
-      </section>
+        </header>
 
-      <section className="grid md:grid-cols-3 gap-8">
-        <Card className="text-center space-y-4">
-          <div className="h-12 w-12 bg-primary-100 rounded-xl flex items-center justify-center mx-auto">
-            <Star className="h-6 w-6 text-primary-600" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-900">
-            Diseño profesional
-          </h3>
-          <p className="text-gray-600">
-            Plantillas diseñadas por expertos que se adaptan a tu marca personal o negocio.
-          </p>
-        </Card>
-
-        <Card className="text-center space-y-4">
-          <div className="h-12 w-12 bg-primary-100 rounded-xl flex items-center justify-center mx-auto">
-            <Users className="h-6 w-6 text-primary-600" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-900">
-            Fácil de compartir
-          </h3>
-          <p className="text-gray-600">
-            Un solo link para compartir todos tus enlaces importantes en redes sociales.
-          </p>
-        </Card>
-
-        <Card className="text-center space-y-4">
-          <div className="h-12 w-12 bg-primary-100 rounded-xl flex items-center justify-center mx-auto">
-            <Calendar className="h-6 w-6 text-primary-600" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-900">
-            Sistema de reservas
-          </h3>
-          <p className="text-gray-600">
-            Permite a tus clientes reservar citas directamente desde tu tarjeta digital.
-          </p>
-        </Card>
-      </section>
-
-      <section className="bg-primary-50 rounded-2xl p-8 md:p-12 text-center">
-        <div className="space-y-4">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
-            ¿Listo para comenzar?
-          </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Únete a miles de profesionales que ya usan Klycs para potenciar su presencia digital.
-          </p>
-          <Link to="/register">
-            <Button size="lg" className="mt-6">
-              Crear mi tarjeta gratis
-            </Button>
-          </Link>
-        </div>
-      </section>
-
-      {/* Footer with Business Access */}
-      <footer className="border-t border-gray-200 pt-12 pb-8">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="grid md:grid-cols-3 gap-8">
-            {/* Company Info */}
-            <div className="space-y-4">
-              <h3 className="font-bold text-lg text-gray-900">KLYCS</h3>
-              <p className="text-gray-600 text-sm">
-                La plataforma líder para crear tarjetas digitales profesionales y gestionar tu presencia online.
-              </p>
-            </div>
-
-            {/* Quick Links */}
-            <div className="space-y-4">
-              <h4 className="font-semibold text-gray-900">Enlaces rápidos</h4>
-              <div className="space-y-2">
-                <Link to="/demo" className="block text-sm text-gray-600 hover:text-primary-600">
-                  Ver Demo
-                </Link>
-                <Link to="/pricing" className="block text-sm text-gray-600 hover:text-primary-600">
-                  Precios
-                </Link>
-                <Link to="/help" className="block text-sm text-gray-600 hover:text-primary-600">
-                  Ayuda
-                </Link>
-              </div>
-            </div>
-
-            {/* Business Access */}
-            <div className="space-y-4">
-              <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
-                <div className="flex items-center gap-2 mb-2">
-                  <Building2 className="w-5 h-5 text-blue-600" />
-                  <h4 className="font-semibold text-gray-900">KLYCS Business</h4>
+        <main className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          {/* HERO */}
+          <section className={`relative overflow-hidden rounded-[40px] px-6 py-12 lg:px-16 lg:py-[72px] ${surfaceA}`}>
+            <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,3fr)_minmax(0,2.4fr)]">
+              <div className="space-y-10">
+                <div className="space-y-6">
+                  <div className={badgeClass}>Tarjetas digitales activas</div>
+                  <h1 className={`text-3xl font-semibold leading-tight sm:text-4xl lg:text-5xl ${textPrimary}`}>
+                    Lanza una tarjeta inmersiva, automatiza reservas y mantén tu marca en un solo enlace.
+                  </h1>
+                  <p className={`text-base leading-relaxed sm:text-lg ${textSecondary}`}>
+                    Diseña experiencias interactivas con bloques inteligentes, sincroniza calendarios y entiende qué convierte mejor en cada campaña.
+                  </p>
                 </div>
-                <p className="text-sm text-gray-600 mb-3">
-                  Acceso al panel de administración para gestionar plantillas y usuarios.
-                </p>
-                <Link to="/admin/login">
-                  <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700">
-                    Acceder al Panel
-                    <ArrowRight className="ml-2 h-3 w-3" />
-                  </Button>
-                </Link>
-                <p className="text-xs text-gray-500 mt-2">
-                  Solo para administradores autorizados
-                </p>
+
+                <div className="flex flex-wrap gap-4">
+                  <Link to="/register">
+                    <Button size="lg" className={primaryButton}>
+                      Crear mi tarjeta ahora
+                      <ArrowRight className="ml-2 h-5 w-5" />
+                    </Button>
+                  </Link>
+                  <Link to="/demo">
+                    <Button variant="outline" size="lg" className={secondaryButton}>
+                      Ver tarjetas en vivo
+                    </Button>
+                  </Link>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {highlights.map(({ label, value, helper }) => (
+                    <div
+                      key={label}
+                      className={`rounded-3xl px-6 py-5 transition duration-200 ${
+                        isDark ? 'border border-white/15 bg-white/5 text-white' : 'border border-neutral-200 bg-white text-neutral-800 shadow-sm'
+                      }`}
+                    >
+                      <p className={`text-2xl font-semibold ${textPrimary}`}>{value}</p>
+                      <p className={`mt-1 text-xs uppercase tracking-[0.25em] ${textMuted}`}>{label}</p>
+                      <p className={`mt-3 text-xs ${textSecondary}`}>{helper}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="relative">
+                <div className="absolute -top-12 left-6 right-0 mx-auto h-40 w-40 rounded-full bg-blue-400/20 blur-[120px]" />
+                <div className="relative mx-auto max-w-sm space-y-6">
+                  <div
+                    className={`overflow-hidden rounded-[28px] p-6 ${
+                      isDark ? 'border border-white/15 bg-[#0b1220] text-white/70 shadow-2xl' : 'border border-neutral-200 bg-white text-neutral-600 shadow-xl'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-medium ${textPrimary}`}>Agenda semanal</span>
+                      <span className={isDark ? 'text-xs text-emerald-300' : 'text-xs text-emerald-600'}>+18 reservas</span>
+                    </div>
+                    <div className="mt-6 space-y-4">
+                      {[1, 2, 3].map(slot => (
+                        <div
+                          key={slot}
+                          className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm ${
+                            isDark ? 'bg-white/5 text-white/80' : 'bg-neutral-100 text-neutral-700'
+                          } transition-transform duration-200 hover:-translate-y-[2px]`}
+                        >
+                          <div>
+                            <p className={`font-medium ${textPrimary}`}>Consulta estratégica</p>
+                            <p className={`text-xs ${textMuted}`}>30 min · Confirmación automática</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            className={
+                              isDark
+                                ? 'rounded-full bg-white/90 px-4 text-[#05070f] hover:bg-white'
+                                : 'rounded-full bg-neutral-900 px-4 text-white hover:bg-neutral-800'
+                            }
+                          >
+                            Reservar
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`rounded-[28px] border p-5 shadow-xl ${
+                      isDark ? 'border-white/10 bg-white/5 text-white/80' : 'border-neutral-200 bg-white text-neutral-600'
+                    }`}
+                  >
+                    <p className={`text-xs uppercase tracking-[0.35em] ${textMuted}`}>Tarjeta destacada</p>
+                    <h3 className={`mt-3 text-lg font-semibold ${textPrimary}`}>Claudia Estudio · Consultoría Creativa</h3>
+                    <ul className={`mt-4 space-y-2 text-sm ${textSecondary}`}>
+                      <li className="flex items-center gap-2">
+                        <Users className={`h-4 w-4 ${isDark ? 'text-emerald-300' : 'text-emerald-600'}`} /> Paquetes personalizados y testimonios en vivo
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Calendar className={`h-4 w-4 ${isDark ? 'text-sky-300' : 'text-sky-500'}`} /> Disponibilidad sincronizada en Google Calendar
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Sparkles className={`h-4 w-4 ${isDark ? 'text-violet-300' : 'text-violet-500'}`} /> Animaciones y embudos listos para campañas
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="border-t border-gray-200 mt-8 pt-6">
-            <div className="flex flex-col sm:flex-row justify-between items-center">
-              <p className="text-sm text-gray-500">
-                © 2024 KLYCS. Todos los derechos reservados.
+          {/* FEATURES */}
+          <section className="mt-24 space-y-12">
+            <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className={`text-xs font-semibold uppercase tracking-[0.35em] ${textMuted}`}>Valor en cada tarjeta</p>
+                <h2 className={`mt-2 text-3xl font-semibold ${textPrimary}`}>
+                  Todo lo que necesitas para convertir visitas en reservas reales.
+                </h2>
+              </div>
+              <Link to="/services" className="inline-flex">
+                <Button variant="outline" className={secondaryButton}>
+                  Explorar plantillas
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+              {featureCards.map(({ icon: Icon, title, description }) => (
+                <div
+                  key={title}
+                  className={`space-y-4 rounded-3xl p-6 transition-transform duration-300 hover:-translate-y-1 ${surfaceB}`}
+                >
+                  <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${isDark ? 'bg-white/10 text-white' : 'bg-neutral-900 text-white'}`}>
+                    <Icon className="h-6 w-6" />
+                  </div>
+                  <h3 className={`text-lg font-semibold ${textPrimary}`}>{title}</h3>
+                  <p className={`text-sm leading-relaxed ${textSecondary}`}>{description}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* PROCESS */}
+          <section className={`mt-24 grid gap-10 rounded-[32px] px-8 py-10 sm:px-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] ${surfaceB}`}>
+            <div className="space-y-6">
+              <p className={`text-xs font-semibold uppercase tracking-[0.35em] ${textMuted}`}>Flujo completo</p>
+              <h2 className={`text-3xl font-semibold ${textPrimary}`}>
+                Publica en minutos, automatiza reservas y escala con datos.
+              </h2>
+              <p className={`text-sm leading-relaxed ${textSecondary}`}>
+                Cada paso está diseñado para lanzar rápido, mantener tu contenido actualizado y entender cómo interactúan tus clientes con tu tarjeta.
               </p>
-              <div className="flex space-x-4 mt-4 sm:mt-0">
-                <Link to="/terms" className="text-sm text-gray-500 hover:text-gray-700">
+            </div>
+            <div className="grid gap-6 md:grid-cols-3">
+              {processSteps.map(({ icon: Icon, label, title, description }) => (
+                <div
+                  key={title}
+                  className={`relative rounded-3xl p-6 transition-transform duration-300 hover:-translate-y-1 ${surfaceB}`}
+                >
+                  <span className={`text-xs font-semibold uppercase tracking-[0.4em] ${textMuted}`}>{label}</span>
+                  <div className={`mt-4 flex h-12 w-12 items-center justify-center rounded-2xl ${isDark ? 'bg-white/10 text-white' : 'bg-neutral-900 text-white'}`}>
+                    <Icon className="h-6 w-6" />
+                  </div>
+                  <h3 className={`mt-6 text-lg font-semibold ${textPrimary}`}>{title}</h3>
+                  <p className={`mt-3 text-sm leading-relaxed ${textSecondary}`}>{description}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ACCESS */}
+          <section className={`mt-24 grid gap-12 rounded-[32px] px-8 py-12 sm:px-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] ${surfaceB}`}>
+            <div className="space-y-6">
+              <p className={`text-xs font-semibold uppercase tracking-[0.35em] ${textMuted}`}>Acceso inmediato</p>
+              <h2 className={`text-3xl font-semibold ${textPrimary}`}>
+                Profesionales y equipos se conectan desde cualquier dispositivo.
+              </h2>
+              <p className={`text-sm leading-relaxed ${textSecondary}`}>
+                Usa tu email corporativo para ingresar a tu calendario personalizado. Gestiona horarios, confirma reservas y mantén todo sincronizado con tu equipo.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className={`rounded-2xl p-4 text-sm ${surfaceB} ${textSecondary}`}>
+                  <p className={`font-semibold ${textPrimary}`}>Reconocimiento automático</p>
+                  <p>Relacionamos tu correo con tus tarjetas y calendarios en segundos.</p>
+                </div>
+                <div className={`rounded-2xl p-4 text-sm ${surfaceB} ${textSecondary}`}>
+                  <p className={`font-semibold ${textPrimary}`}>Seguridad integrada</p>
+                  <p>Autenticación y permisos alineados con tu organización.</p>
+                </div>
+              </div>
+            </div>
+            <div className={`rounded-3xl p-6 ${isDark ? 'border border-white/10 bg-[#0b1220] shadow-2xl' : 'border border-neutral-200 bg-white shadow-xl'}`}>
+              <form onSubmit={handleProfessionalAccess} className="space-y-4">
+                <div className="space-y-2">
+                  <label htmlFor="professional-email" className={`block text-sm font-semibold ${textPrimary}`}>
+                    Email del profesional
+                  </label>
+                  <div className="relative">
+                    <Mail className={`pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 ${isDark ? 'text-white/40' : 'text-neutral-400'}`} />
+                    <Input
+                      key="professional-email-search-stable-input"
+                      id="professional-email"
+                      type="email"
+                      placeholder="tu-email@ejemplo.com"
+                      value={professionalEmail}
+                      onChange={handleEmailChange}
+                      className={
+                        isDark
+                          ? 'pl-10 border-white/20 bg-white/5 text-white placeholder-white/40 focus:border-white/30 focus:ring-white/20'
+                          : 'pl-10 border-neutral-300 bg-white text-neutral-800 placeholder-neutral-400 focus:border-neutral-500 focus:ring-neutral-300'
+                      }
+                      disabled={isSearching}
+                    />
+                  </div>
+                </div>
+
+                {searchError && (
+                  <div className={`rounded-2xl border p-3 ${isDark ? 'border-red-500/40 bg-red-500/20 text-red-100' : 'border-red-200 bg-red-50 text-red-600'}`}>
+                    <p className="text-sm">{searchError}</p>
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  className={
+                    isDark
+                      ? 'w-full rounded-full bg-white py-3 text-[#05070f] transition-transform duration-200 hover:-translate-y-1 hover:bg-white/90'
+                      : 'w-full rounded-full bg-neutral-900 py-3 text-white transition-transform duration-200 hover:-translate-y-1 hover:bg-neutral-800'
+                  }
+                  disabled={isSearching}
+                  size="lg"
+                >
+                  {isSearching ? (
+                    <>
+                      <Search className="mr-2 h-4 w-4 animate-spin" />
+                      Buscando calendario...
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="mr-2 h-4 w-4" />
+                      Acceder a mi calendario
+                    </>
+                  )}
+                </Button>
+              </form>
+              <p className={`mt-4 text-center text-xs ${textSecondary}`}>
+                ¿Problemas con tu acceso? Contacta a tu administrador para validar tus permisos.
+              </p>
+            </div>
+          </section>
+
+          {/* PRICING */}
+          <PricingSection isDark={isDark} />
+
+          {/* TESTIMONIOS */}
+          <section className="mt-24 grid gap-6 md:grid-cols-2">
+            {testimonials.map(({ quote, author, role }) => (
+              <div
+                key={author}
+                className={`rounded-3xl p-8 transition-transform duration-200 hover:-translate-y-1 ${surfaceB}`}
+              >
+                <Quote className={`mb-4 h-8 w-8 ${isDark ? 'text-white/30' : 'text-neutral-300'}`} />
+                <p className={`text-lg leading-relaxed ${textSecondary}`}>{quote}</p>
+                <div className="mt-6 space-y-1">
+                  <p className={`text-sm font-semibold ${textPrimary}`}>{author}</p>
+                  <p className={`text-xs uppercase tracking-[0.25em] ${textMuted}`}>{role}</p>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          {/* FINAL CTA */}
+          <section className={`mt-24 rounded-[32px] px-8 py-12 text-center sm:px-10 md:px-16 ${surfaceB}`}>
+            <h2 className={`text-3xl font-semibold md:text-4xl ${textPrimary}`}>
+              ¿Listo para lanzar tu próxima tarjeta profesional?
+            </h2>
+            <p className={`mt-4 text-base ${textSecondary}`}>
+              Conecta servicios, pagos y analítica en minutos. Haz que cada interacción cuente.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+              <Link to="/register">
+                <Button size="lg" className={primaryButton}>
+                  Empezar gratis
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              </Link>
+              <Link to="/pricing">
+                <Button variant="outline" size="lg" className={secondaryButton}>
+                  Ver planes
+                </Button>
+              </Link>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <footer className={`${isDark ? 'border-t border-white/10 bg-[#04050c]' : 'border-t border-neutral-200 bg-[#f8f6f2]'}`}>
+        <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="grid gap-10 md:grid-cols-4">
+            <div className="space-y-4 md:col-span-2">
+              <Link to="/" className="flex items-center gap-3">
+                <span className={`flex h-10 w-10 items-center justify-center rounded-2xl text-lg font-bold ${isDark ? 'bg-white/10 text-white' : 'bg-neutral-900 text-white'}`}>
+                  K
+                </span>
+                <span className={`text-lg font-semibold ${textPrimary}`}>KLYCS</span>
+              </Link>
+              <p className={`text-sm ${textSecondary}`}>
+                La plataforma líder para crear tarjetas digitales profesionales con reservas inteligentes, analítica y branding premium.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <h4 className={`font-semibold ${textPrimary}`}>Explora</h4>
+              <div className={`space-y-2 text-sm ${textSecondary}`}>
+                <Link to="/demo" className={`block ${isDark ? 'hover:text-white' : 'hover:text-neutral-900'}`}>
+                  Tarjetas demo
+                </Link>
+                <Link to="/pricing" className={`block ${isDark ? 'hover:text-white' : 'hover:text-neutral-900'}`}>
+                  Planes y precios
+                </Link>
+                <Link to="/services" className={`block ${isDark ? 'hover:text-white' : 'hover:text-neutral-900'}`}>
+                  Directorio de plantillas
+                </Link>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <h4 className={`font-semibold ${textPrimary}`}>Recursos</h4>
+              <div className={`space-y-2 text-sm ${textSecondary}`}>
+                <Link to="/help" className={`block ${isDark ? 'hover:text-white' : 'hover:text-neutral-900'}`}>
+                  Centro de ayuda
+                </Link>
+                <Link to="/terms" className={`block ${isDark ? 'hover:text-white' : 'hover:text-neutral-900'}`}>
                   Términos
                 </Link>
-                <Link to="/privacy" className="text-sm text-gray-500 hover:text-gray-700">
+                <Link to="/privacy" className={`block ${isDark ? 'hover:text-white' : 'hover:text-neutral-900'}`}>
                   Privacidad
                 </Link>
               </div>
+            </div>
+          </div>
+
+          <div className={`mt-12 rounded-3xl p-6 ${isDark ? 'border border-white/10 bg-white/5 text-white/70' : 'border border-neutral-200 bg-white text-neutral-600 shadow-lg'}`}>
+            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className={`text-base font-semibold ${textPrimary}`}>KLYCS Business</p>
+                <p className={`mt-1 text-sm ${textSecondary}`}>
+                  Panel centralizado para equipos, plantillas avanzadas y workflows multi-marca.
+                </p>
+              </div>
+              <Link to="/admin/login">
+                <Button
+                  size="sm"
+                  className={isDark ? 'inline-flex items-center rounded-full bg-white px-5 text-[#05070f] hover:bg-white/90' : 'inline-flex items-center rounded-full bg-neutral-900 px-5 text-white hover:bg-neutral-800'}
+                >
+                  Acceder al panel
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+              <p className={`text-xs ${textSecondary}`}>Solo para administradores autorizados</p>
+            </div>
+          </div>
+
+          <div className={`mt-10 flex flex-col gap-4 border-t pt-6 text-sm sm:flex-row sm:items-center sm:justify-between ${isDark ? 'border-white/10 text-white/60' : 'border-neutral-200 text-neutral-500'}`}>
+            <p>© 2024 KLYCS. Todos los derechos reservados.</p>
+            <div className="flex items-center gap-4">
+              <span>Hecho para creadores y consultores.</span>
+              <Link to="/privacy" className={isDark ? 'hover:text-white' : 'hover:text-neutral-900'}>
+                Privacidad
+              </Link>
+              <Link to="/terms" className={isDark ? 'hover:text-white' : 'hover:text-neutral-900'}>
+                Términos
+              </Link>
             </div>
           </div>
         </div>
