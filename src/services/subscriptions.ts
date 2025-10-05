@@ -1002,64 +1002,6 @@ class SubscriptionsService {
     }
   }
 
-  /**
-   * Cancelar suscripción del usuario
-   * Mantiene el acceso hasta currentPeriodEnd
-   */
-  async cancelSubscription(userId: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const q = query(
-        collection(db, 'user_subscriptions'),
-        where('userId', '==', userId),
-        where('status', 'in', ['active', 'trialing'])
-      );
-
-      const snapshot = await getDocs(q);
-
-      if (snapshot.empty) {
-        return {
-          success: false,
-          error: 'No se encontró una suscripción activa'
-        };
-      }
-
-      const subscriptionDoc = snapshot.docs[0];
-      const subscription = subscriptionDoc.data() as UserSubscription;
-
-      // Si tiene Stripe, debemos cancelar en Stripe (TODO: cuando se implemente)
-      if (subscription.stripeSubscriptionId) {
-        // TODO: Llamar a Stripe API para cancelar
-        // await stripe.subscriptions.update(subscription.stripeSubscriptionId, { cancel_at_period_end: true });
-      }
-
-      // Actualizar en Firestore
-      await updateDoc(subscriptionDoc.ref, {
-        status: 'canceled',
-        canceledAt: Timestamp.now(),
-        cancelAtPeriodEnd: true,
-        updatedAt: Timestamp.now()
-      });
-
-      logger.info('Subscription canceled', {
-        userId,
-        subscriptionId: subscriptionDoc.id,
-        endsAt: subscription.currentPeriodEnd
-      });
-
-      return { success: true };
-
-    } catch (error) {
-      logger.error('Error canceling subscription', {
-        userId,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-
-      return {
-        success: false,
-        error: 'Error al cancelar la suscripción'
-      };
-    }
-  }
 }
 
 export const subscriptionsService = new SubscriptionsService();

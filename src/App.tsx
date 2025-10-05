@@ -8,28 +8,18 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { error as logError } from '@/utils/logger';
 
-// Import debug helpers for development
-import '@/utils/debugHelpers';
-import '@/utils/findCardId';
-import '@/utils/quickFix';
-import '@/utils/templateFinder';
-import '@/utils/forcePreview';
-import '@/utils/fixTemplateCode';
-import '@/utils/createSafeTemplate';
-import '@/utils/adminDebug';
-import '@/utils/fixFirestoreRules';
-import '@/utils/autoFix';
-import '@/utils/testIndividualLinkTemplates';
-import '@/utils/debugLinkTemplates';
-import '@/utils/testLinkTemplateFlow';
-import '@/utils/linkTemplatesSummary';
-import '@/utils/linkTemplatesFix';
-
-// Migration script
-import { fixProfessionalCalendars } from '@/utils/fixProfessionalCalendars';
-
-// Image diagnostics
-import '@/utils/diagnoseImages';
+// Debug helpers - Commented out to reduce console noise
+// Uncomment any of these if you need them in the browser console:
+// import '@/utils/debugHelpers';       // debugTemplate(), fixTemplate()
+// import '@/utils/findCardId';         // findCardId(), showAllCardIds()
+// import '@/utils/quickFix';           // quickFixTemplate()
+// import '@/utils/templateFinder';     // findTemplateByName()
+// import '@/utils/forcePreview';       // forcePreviewRefresh()
+// import '@/utils/fixTemplateCode';    // fixTemplateCode()
+// import '@/utils/createSafeTemplate'; // createSafeTemplate()
+// import '@/utils/adminDebug';         // checkAdminPermissions()
+// import '@/utils/fixFirestoreRules';  // fixAdminPermissions()
+// import '@/utils/diagnoseImages';     // diagnoseImages()
 
 // Lazy load pages for better performance with error handling
 const Home = React.lazy(() => 
@@ -389,23 +379,23 @@ const NotFound: React.FC = () => {
 };
 
 function App() {
-  // Ejecutar migración de calendarios profesionales solo una vez
-  React.useEffect(() => {
-    const migrationKey = 'professional_calendars_migration_v1';
-    const hasRun = localStorage.getItem(migrationKey);
-    
-    if (!hasRun) {
-      console.log('🔧 Ejecutando migración de calendarios profesionales...');
-      fixProfessionalCalendars()
-        .then(result => {
-          console.log('✅ Migración completada:', result);
-          localStorage.setItem(migrationKey, 'true');
-        })
-        .catch(error => {
-          console.error('❌ Error en la migración:', error);
-        });
-    }
-  }, []);
+  // Migration disabled - can be run manually from console if needed
+  // React.useEffect(() => {
+  //   const migrationKey = 'professional_calendars_migration_v1';
+  //   const hasRun = localStorage.getItem(migrationKey);
+  //   
+  //   if (!hasRun) {
+  //     console.log('🔧 Ejecutando migración de calendarios profesionales...');
+  //     fixProfessionalCalendars()
+  //       .then(result => {
+  //         console.log('✅ Migración completada:', result);
+  //         localStorage.setItem(migrationKey, 'true');
+  //       })
+  //       .catch(error => {
+  //         console.error('❌ Error en la migración:', error);
+  //       });
+  //   }
+  // }, []);
 
   return (
     <ErrorBoundary>
@@ -427,7 +417,9 @@ function App() {
           path="/login" 
           element={
             <PublicRoute>
-              <Login />
+              <Layout variant="auto">
+                <Login />
+              </Layout>
             </PublicRoute>
           } 
         />
@@ -435,7 +427,9 @@ function App() {
           path="/register" 
           element={
             <PublicRoute>
-              <Register />
+              <Layout variant="auto">
+                <Register />
+              </Layout>
             </PublicRoute>
           } 
         />
@@ -445,7 +439,9 @@ function App() {
           path="/team/login" 
           element={
             <PublicRoute>
-              <TeamLogin />
+              <Layout variant="auto">
+                <TeamLogin />
+              </Layout>
             </PublicRoute>
           } 
         />

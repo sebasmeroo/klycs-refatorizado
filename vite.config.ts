@@ -7,9 +7,16 @@ import { visualizer } from 'rollup-plugin-visualizer'
 export default defineConfig(({ mode, command }) => ({
   plugins: [
     react({
-      jsxRuntime: command === 'build' ? 'classic' : 'automatic',
-      jsxImportSource: 'react',
-      development: command === 'serve'
+      // Use automatic JSX runtime (React 17+)
+      jsxRuntime: 'automatic',
+      // Don't transform JSX in node_modules
+      exclude: /node_modules/,
+      // Babel config
+      babel: {
+        plugins: [],
+        babelrc: false,
+        configFile: false,
+      },
     }),
     viteSecurityPlugin(), // Plugin de headers de seguridad
     // Bundle analyzer (only in build mode)
@@ -23,22 +30,19 @@ export default defineConfig(({ mode, command }) => ({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      // Fix React useState undefined error - Force single React instance
-      'react': path.resolve(__dirname, './node_modules/react'),
-      'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
     },
     dedupe: ['react', 'react-dom']
   },
   build: {
     target: 'es2015',
     minify: 'terser',
-    sourcemap: false,
+    sourcemap: false, // Disable sourcemaps in production
     cssCodeSplit: true,
     terserOptions: {
       compress: {
-        drop_console: mode === 'production',
+        drop_console: false, // Keep console for debugging in production
         drop_debugger: mode === 'production',
-        pure_funcs: mode === 'production' ? ['console.log', 'console.warn', 'console.info'] : [],
+        pure_funcs: mode === 'production' ? ['console.log'] : [], // Only remove console.log, keep error/warn
       },
     },
     rollupOptions: {
@@ -48,8 +52,17 @@ export default defineConfig(({ mode, command }) => ({
         assetFileNames: '[name]-[hash].[ext]',
         // ✅ Code splitting optimizado - Separar vendors grandes
         manualChunks: (id) => {
-          // React core
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+          // React core - CRITICAL: Keep React and ReactDOM together
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+            return 'react-vendor';
+          }
+          // React internals (jsx-runtime, etc) - MUST be with React core
+          if (id.includes('node_modules/react') &&
+              (id.includes('jsx-runtime') || id.includes('jsx-dev-runtime'))) {
+            return 'react-vendor';
+          }
+          // Scheduler (used by React)
+          if (id.includes('node_modules/scheduler')) {
             return 'react-vendor';
           }
           // Firebase (bundle grande)

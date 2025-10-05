@@ -1,10 +1,12 @@
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signOut, 
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
   updateProfile,
   User as FirebaseUser,
-  AuthError
+  AuthError,
+  GoogleAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, query, collection, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
@@ -173,6 +175,97 @@ export const authService = {
           errorMessage = `Error: ${authError.message}`;
       }
       
+      return {
+        success: false,
+        error: errorMessage
+      };
+    }
+  },
+
+  async signInWithGoogle(): Promise<AuthResponse> {
+    try {
+      info('Attempting Google sign in with popup', { component: 'authService' });
+
+      const provider = new GoogleAuthProvider();
+
+      // Force account selection every time
+      provider.setCustomParameters({
+        prompt: 'select_account'
+      });
+
+      const result = await signInWithPopup(auth, provider);
+      const firebaseUser = result.user;
+
+      info('Google sign in successful', { component: 'authService', userId: firebaseUser.uid });
+
+      // Check if user document exists in Firestore
+      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+
+      if (userDoc.exists()) {
+        // Existing user - return their data
+        const userData = userDoc.data() as User;
+        info('Existing Google user data retrieved', { component: 'authService', userId: firebaseUser.uid });
+
+        return {
+          success: true,
+          user: userData
+        };
+      } else {
+        // New user - create document with Google data
+        const userData: User = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email!,
+          displayName: firebaseUser.displayName || 'Usuario',
+          photoURL: firebaseUser.photoURL || '',
+          bio: '',
+          username: '',
+          plan: 'FREE',
+          planExpirationDate: null,
+          stripeConnected: false,
+          links: [],
+          products: [],
+          professionals: [],
+          role: 'user',
+          createdAt: new Date(),
+        };
+
+        await setDoc(doc(db, 'users', firebaseUser.uid), userData);
+        info('New Google user document created', { component: 'authService', userId: firebaseUser.uid });
+
+        return {
+          success: true,
+          user: userData
+        };
+      }
+    } catch (err) {
+      error('Failed to sign in with Google', err as Error, { component: 'authService' });
+
+      const authError = err as AuthError;
+      let errorMessage = 'Error al iniciar sesión con Google';
+
+      switch (authError.code) {
+        case 'auth/popup-closed-by-user':
+          errorMessage = 'Has cerrado la ventana de inicio de sesión';
+          break;
+        case 'auth/popup-blocked':
+          errorMessage = 'El navegador bloqueó la ventana emergente. Permite pop-ups e intenta de nuevo';
+          break;
+        case 'auth/cancelled-popup-request':
+          errorMessage = 'Inicio de sesión cancelado';
+          break;
+        case 'auth/account-exists-with-different-credential':
+          errorMessage = 'Ya existe una cuenta con este email usando otro método de inicio de sesión';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'Error de conexión. Revisa tu internet';
+          break;
+        case 'auth/too-many-requests':
+          errorMessage = 'Demasiados intentos. Intenta más tarde';
+          break;
+        default:
+          errorMessage = `Error: ${authError.message}`;
+      }
+
       return {
         success: false,
         error: errorMessage

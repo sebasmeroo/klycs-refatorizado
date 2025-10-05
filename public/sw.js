@@ -1,6 +1,6 @@
 // Service Worker for Klycs PWA - Advanced Version
 // No CSP headers applied from SW
-const CACHE_VERSION = '3.0.0';
+const CACHE_VERSION = '3.1.0';
 const CACHE_NAME = `klycs-v${CACHE_VERSION}`;
 const STATIC_CACHE = `${CACHE_NAME}-static`;
 const DYNAMIC_CACHE = `${CACHE_NAME}-dynamic`;
@@ -107,13 +107,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // CRÍTICO: NO interceptar Firebase Auth, Storage o Firestore
+  // CRÍTICO: NO interceptar Firebase Auth, Storage, Firestore o Google APIs
   // Esto previene errores CORS y problemas con uploads
   if (url.hostname.includes('identitytoolkit.googleapis.com') ||
       url.hostname.includes('securetoken.googleapis.com') ||
       url.hostname.includes('firebasestorage.googleapis.com') ||
       url.hostname.includes('firestore.googleapis.com') ||
-      url.hostname.includes('firebase.googleapis.com')) {
+      url.hostname.includes('firebase.googleapis.com') ||
+      url.hostname.includes('apis.google.com') ||
+      url.hostname.includes('accounts.google.com') ||
+      url.hostname.includes('www.google.com') ||
+      url.hostname.includes('google-analytics.com') ||
+      url.hostname.includes('googletagmanager.com')) {
     // NO hacer nada - dejar pasar la request directamente
     return;
   }

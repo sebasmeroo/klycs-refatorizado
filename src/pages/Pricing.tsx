@@ -1,13 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, ShieldCheck, LayoutDashboard, ArrowRight, CircleCheck, Clock } from 'lucide-react';
+import { Sparkles, ShieldCheck, LayoutDashboard, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useLayoutTheme } from '@/components/layout/Layout';
 import { PricingSection } from '@/components/pricing/PricingSection';
 
 const billingHighlights = [
   {
-    icon: CircleCheck,
+    icon: CheckCircle,
     title: 'Cancelación sencilla',
     description: 'Puedes pausar o cancelar tu plan desde el panel cuando quieras.'
   },
