@@ -163,6 +163,72 @@ export class CollaborativeCalendarService {
     }
   }
 
+  // Obtener eventos de UN calendario específico (para vista de profesional)
+  static async getCalendarEvents(calendarId: string): Promise<CalendarEvent[]> {
+    try {
+      console.log(`🔍 Buscando eventos para calendario: ${calendarId}`);
+
+      const q = query(
+        collection(db, 'calendar_events'),
+        where('calendarId', '==', calendarId),
+        orderBy('startDate', 'asc')
+      );
+
+      const snapshot = await getDocs(q);
+      console.log(`📊 Eventos encontrados: ${snapshot.size}`);
+
+      const events: CalendarEvent[] = [];
+
+      snapshot.forEach(doc => {
+        const data = doc.data() as CalendarEventFirestore;
+
+        // Convertir Timestamp a Date manteniendo zona horaria local
+        const startDateUTC = data.startDate.toDate();
+        const startDate = new Date(
+          startDateUTC.getUTCFullYear(),
+          startDateUTC.getUTCMonth(),
+          startDateUTC.getUTCDate(),
+          startDateUTC.getUTCHours(),
+          startDateUTC.getUTCMinutes(),
+          0,
+          0
+        );
+
+        let endDate: Date | undefined;
+        if (data.endDate) {
+          const endDateUTC = data.endDate.toDate();
+          endDate = new Date(
+            endDateUTC.getUTCFullYear(),
+            endDateUTC.getUTCMonth(),
+            endDateUTC.getUTCDate(),
+            endDateUTC.getUTCHours(),
+            endDateUTC.getUTCMinutes(),
+            0,
+            0
+          );
+        }
+
+        events.push({
+          ...data,
+          id: doc.id,
+          startDate,
+          endDate,
+          createdAt: data.createdAt.toDate(),
+          updatedAt: data.updatedAt ? data.updatedAt.toDate() : data.createdAt.toDate(),
+          completedAt: data.completedAt ? data.completedAt.toDate() : undefined
+        });
+      });
+
+      console.log(`✅ ${events.length} eventos procesados para calendario ${calendarId}`);
+      return events;
+
+    } catch (error) {
+      console.error('❌ Error al obtener eventos del calendario:', error);
+      logError('Error al obtener eventos del calendario', error as Error, { calendarId });
+      throw error;
+    }
+  }
+
   // Obtener calendario por ID
   static async getCalendarById(calendarId: string): Promise<SharedCalendar | null> {
     try {
@@ -674,31 +740,19 @@ export class CalendarEventService {
       duration = Math.round((eventData.endDate.getTime() - eventData.startDate.getTime()) / (1000 * 60));
     }
     
-    // 🔧 CREAR TIMESTAMP SIN CONVERSIÓN DE ZONA HORARIA
-    // Guardar la fecha exactamente como está, sin ajustes UTC
-    const startDateUTC = new Date(Date.UTC(
-      eventData.startDate.getFullYear(),
-      eventData.startDate.getMonth(),
-      eventData.startDate.getDate(),
-      eventData.startDate.getHours(),
-      eventData.startDate.getMinutes(),
-      0,
-      0
-    ));
-    
-    console.log('🔧 Guardando evento:', {
+    // ✅ Guardar la fecha exactamente como está, sin conversiones de zona horaria
+    // No usar Date.UTC porque ya tenemos la hora local correcta
+    console.log('📅 Guardando evento:', {
       fechaOriginal: eventData.startDate,
       fechaOriginal_ISO: eventData.startDate.toISOString(),
-      fechaOriginal_dia: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][eventData.startDate.getDay()],
-      fechaUTC: startDateUTC.toISOString(),
-      timestamp_seconds: Math.floor(startDateUTC.getTime() / 1000)
+      fechaLocal: eventData.startDate.toLocaleString('es-ES')
     });
     
     // ✅ LIMPIAR VALORES UNDEFINED antes de enviar a Firebase
     const cleanEventData: any = {
       calendarId: eventData.calendarId,
       title: eventData.title,
-      startDate: Timestamp.fromDate(startDateUTC),
+      startDate: Timestamp.fromDate(eventData.startDate),
       isAllDay: eventData.isAllDay || false,
       createdBy: eventData.createdBy,
       attendees: eventData.attendees || [],
@@ -716,16 +770,7 @@ export class CalendarEventService {
     
     // Solo agregar endDate si existe
     if (eventData.endDate) {
-      const endDateUTC = new Date(Date.UTC(
-        eventData.endDate.getFullYear(),
-        eventData.endDate.getMonth(),
-        eventData.endDate.getDate(),
-        eventData.endDate.getHours(),
-        eventData.endDate.getMinutes(),
-        0,
-        0
-      ));
-      cleanEventData.endDate = Timestamp.fromDate(endDateUTC);
+      cleanEventData.endDate = Timestamp.fromDate(eventData.endDate);
     }
     
     // Solo agregar campos opcionales si tienen valor

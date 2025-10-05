@@ -56,9 +56,19 @@ service cloud.firestore {
       return request.resource.size() < 1000000;
     }
 
+    function isPublicCalendarData(calendarData) {
+      return calendarData != null && (
+        calendarData.isPublic == true ||
+        (calendarData.linkedEmail is string && calendarData.linkedEmail.size() > 0)
+      );
+    }
+
     // === REGLAS PARA USUARIOS ===
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin(request.auth.uid);
+      // Permitir leer/listar si estás autenticado (necesario para queries)
+      allow read, list: if isAuthenticated() ||
+                        isAdmin(request.auth.uid) ||
+                        request.auth == null; // Permitir lecturas públicas para validaciones por email
 
       allow create: if isOwner(userId) &&
                    isValidDocSize() &&
@@ -124,13 +134,10 @@ service cloud.firestore {
 
     // === REGLAS PARA CALENDARIOS COLABORATIVOS ===
     match /shared_calendars/{calendarId} {
-      function canAccessCalendar() {
-        return isOwner(resource.data.ownerId) ||
-               (isAuthenticated() &&
-                request.auth.token.email == resource.data.linkedEmail);
-      }
-
-      allow read: if canAccessCalendar() || isAdmin(request.auth.uid);
+      // Permitir leer/listar incluso sin autenticación para profesionales vinculados o calendarios públicos
+      allow read, list: if isAuthenticated() ||
+                        isAdmin(request.auth.uid) ||
+                        isPublicCalendarData(resource.data);
 
       allow create: if isAuthenticated() &&
                    isOwner(request.resource.data.ownerId) &&
@@ -138,31 +145,28 @@ service cloud.firestore {
                    request.resource.data.keys().hasAll(['name', 'ownerId', 'members', 'createdAt']) &&
                    isValidString(request.resource.data.name, 1, 100);
 
-      allow update: if canAccessCalendar() && isValidDocSize();
+      allow update: if isAuthenticated() && isValidDocSize();
 
-      allow delete: if isOwner(resource.data.ownerId);
+      allow delete: if isAuthenticated() &&
+                       (isOwner(resource.data.ownerId) || isAdmin(request.auth.uid));
     }
 
     // === REGLAS PARA EVENTOS DE CALENDARIO ===
     match /calendar_events/{eventId} {
-      function canAccessEvent() {
-        let calendar = get(/databases/$(database)/documents/shared_calendars/$(resource.data.calendarId));
-        return isOwner(calendar.data.ownerId) ||
-               (isAuthenticated() && request.auth.token.email == calendar.data.linkedEmail);
-      }
+      // Permitir leer/listar eventos si estás autenticado o si el calendario es accesible públicamente
+      allow read, list: if isAuthenticated() ||
+                        isAdmin(request.auth.uid) ||
+                        (resource.data.calendarId is string &&
+                         isPublicCalendarData(get(/databases/$(database)/documents/shared_calendars/$(resource.data.calendarId)).data));
 
-      allow read: if canAccessEvent();
-
+      // Permitir crear eventos - validar solo campos básicos
       allow create: if isAuthenticated() &&
                    isValidDocSize() &&
-                   request.resource.data.keys().hasAll(['title', 'calendarId', 'startDate', 'endDate', 'createdBy']) &&
-                   isValidString(request.resource.data.title, 1, 200) &&
-                   request.resource.data.startDate < request.resource.data.endDate &&
-                   isOwner(request.resource.data.createdBy);
+                   request.resource.data.title != null &&
+                   isValidString(request.resource.data.title, 1, 200);
 
-      allow update: if canAccessEvent() && isValidDocSize();
-
-      allow delete: if canAccessEvent();
+      // Permitir actualizar/eliminar eventos si estás autenticado
+      allow update, delete: if isAuthenticated();
     }
 
     // === REGLAS PARA COMENTARIOS ===
@@ -265,7 +269,7 @@ service cloud.firestore {
 
     // === REGLAS PARA FEATURE FLAGS ===
     match /featureFlags/{flagId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin(request.auth.uid);
     }
 
@@ -274,6 +278,25 @@ service cloud.firestore {
       allow read: if isAdmin(request.auth.uid);
       allow create: if isValidTimestamp(request.resource.data.timestamp.toMillis());
       allow update, delete: if false;
+    }
+
+    // === REGLAS PARA SUSCRIPCIONES ===
+    match /subscriptions/{subscriptionId} {
+      // Permitir leer tu propia suscripción o si eres admin
+      allow read: if isAuthenticated() &&
+                     (resource.data.userId == request.auth.uid || isAdmin(request.auth.uid));
+
+      // Permitir crear/actualizar tu propia suscripción
+      allow create, update: if isAuthenticated() &&
+                              request.resource.data.userId == request.auth.uid;
+
+      allow delete: if isAdmin(request.auth.uid);
+
+      // Subcoleción de uso
+      match /usage/{usageId} {
+        allow read, write: if isAuthenticated() &&
+                             get(/databases/$(database)/documents/subscriptions/$(subscriptionId)).data.userId == request.auth.uid;
+      }
     }
 
     // === BLOQUEAR TODO LO DEMÁS ===

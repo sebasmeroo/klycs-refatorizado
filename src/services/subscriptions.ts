@@ -408,9 +408,41 @@ class SubscriptionsService {
       );
 
       const snapshot = await getDocs(q);
-      
+
       if (snapshot.empty) {
-        return { success: false, error: 'No active subscription found' };
+        // NO HAY SUSCRIPCIÓN - Devolver plan FREE por defecto
+        const freePlan: SubscriptionPlan = {
+          id: 'free',
+          name: 'FREE',
+          description: 'Plan gratuito',
+          price: 0,
+          currency: 'eur',
+          interval: 'month',
+          intervalCount: 1,
+          features: [],
+          isActive: true,
+          sortOrder: 1,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        const freeSubscription: UserSubscription & { plan: SubscriptionPlan } = {
+          id: 'free-default',
+          userId,
+          planId: 'free',
+          stripeSubscriptionId: '',
+          stripeCustomerId: '',
+          status: 'active',
+          currentPeriodStart: new Date(),
+          currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          cancelAtPeriodEnd: false,
+          metadata: {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          plan: freePlan
+        };
+
+        return { success: true, data: freeSubscription };
       }
 
       // Tomar la primera suscripción activa
@@ -425,9 +457,9 @@ class SubscriptionsService {
 
       const plan = { id: planDoc.id, ...planDoc.data() } as SubscriptionPlan;
 
-      return { 
-        success: true, 
-        data: { ...subscription, plan } 
+      return {
+        success: true,
+        data: { ...subscription, plan }
       };
 
     } catch (error) {
