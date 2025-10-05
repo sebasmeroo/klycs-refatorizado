@@ -32,6 +32,7 @@ import {
 } from '@/types/calendar';
 import { info, error as logError } from '@/utils/logger';
 import { subscriptionsService } from '@/services/subscriptions';
+import { generateRecurringInstances } from '@/utils/recurrence';
 
 // ===== CALENDARIOS COMPARTIDOS =====
 
@@ -237,7 +238,7 @@ export class CollaborativeCalendarService {
       futureLimit.setFullYear(futureLimit.getFullYear() + 1); // Próximo año
 
       recurringEvents.forEach(parentEvent => {
-        const instances = CollaborativeCalendarService.generateRecurringInstances(parentEvent, today, futureLimit);
+        const instances = generateRecurringInstances(parentEvent, today, futureLimit);
         events.push(...instances);
       });
 
@@ -881,99 +882,6 @@ export class CalendarEventService {
     return parentEventId;
   }
 
-  // ✅ NUEVO: Generar instancias virtuales de un evento recurrente (en el cliente)
-  static generateRecurringInstances(
-    parentEvent: CalendarEvent,
-    startDate: Date,
-    endDate: Date
-  ): CalendarEvent[] {
-    if (!parentEvent.recurring || !parentEvent.recurring.weekdays || parentEvent.recurring.weekdays.length === 0) {
-      return [];
-    }
-
-    const instances: CalendarEvent[] = [];
-    const { recurring } = parentEvent;
-    const duration = parentEvent.endDate
-      ? parentEvent.endDate.getTime() - parentEvent.startDate.getTime()
-      : 0;
-
-    // Obtener hora y minutos del evento padre
-    const originalHours = parentEvent.startDate.getHours();
-    const originalMinutes = parentEvent.startDate.getMinutes();
-
-    // ✅ Obtener excepciones (fechas donde NO debe aparecer el evento)
-    const exceptions = recurring.exceptions || [];
-    const exceptionDates = exceptions.map((ex: any) => {
-      const date = ex instanceof Date ? ex : ex.toDate();
-      date.setHours(0, 0, 0, 0);
-      return date.getTime();
-    });
-
-    // Límite de fecha de fin si está configurado
-    const recurrenceEndDate = recurring.endDate || endDate;
-
-    let currentDate = new Date(parentEvent.startDate);
-    let weekCount = 0;
-    const maxWeeks = Math.min(recurring.count || 12, 52);
-    const intervalInDays = (recurring.interval || 1) * 7; // Convertir intervalo de semanas a días
-
-    // Iterar por cada semana según el intervalo
-    while (weekCount < maxWeeks && currentDate <= recurrenceEndDate) {
-      // Revisar cada día de la semana actual
-      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-        const checkDate = new Date(currentDate);
-        checkDate.setDate(currentDate.getDate() + dayOffset);
-
-        if (checkDate > recurrenceEndDate) break;
-
-        const dayOfWeek = checkDate.getDay();
-
-        // Si este día está en los días seleccionados
-        if (recurring.weekdays.includes(dayOfWeek) && checkDate >= startDate) {
-          const instanceStart = new Date(
-            checkDate.getFullYear(),
-            checkDate.getMonth(),
-            checkDate.getDate(),
-            originalHours,
-            originalMinutes,
-            0,
-            0
-          );
-
-          // ✅ Verificar si esta fecha está en las excepciones
-          const instanceDateOnly = new Date(instanceStart);
-          instanceDateOnly.setHours(0, 0, 0, 0);
-          const isException = exceptionDates.includes(instanceDateOnly.getTime());
-
-          // Solo crear la instancia si NO es una excepción
-          if (!isException) {
-            const instance: CalendarEvent = {
-              ...parentEvent,
-              id: `${parentEvent.id}_${instanceStart.getTime()}`,
-              startDate: instanceStart,
-              endDate: duration > 0 ? new Date(instanceStart.getTime() + duration) : undefined,
-              isRecurringInstance: true,
-              parentEventId: parentEvent.id,
-              recurring: undefined
-            };
-
-            instances.push(instance);
-          }
-        }
-      }
-
-      // ✅ Avanzar al siguiente intervalo
-      // interval=1 (semanal): +7 días
-      // interval=2 (cada 2 semanas): +14 días
-      // interval=3 (cada 3 semanas): +21 días
-      // interval=4 (mensual): +28 días
-      currentDate.setDate(currentDate.getDate() + intervalInDays);
-      weekCount++;
-    }
-
-    return instances;
-  }
-
   // Eliminar evento individual
   static async deleteEvent(eventId: string): Promise<void> {
     try {
@@ -1174,7 +1082,7 @@ export class CalendarEventService {
       futureLimit.setFullYear(futureLimit.getFullYear() + 1);
 
       recurringParents.forEach(parentEvent => {
-        const instances = CollaborativeCalendarService.generateRecurringInstances(parentEvent, today, futureLimit);
+        const instances = generateRecurringInstances(parentEvent, today, futureLimit);
         events.push(...instances);
       });
 
