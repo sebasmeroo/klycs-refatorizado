@@ -175,9 +175,10 @@ export class CollaborativeCalendarService {
       );
 
       const snapshot = await getDocs(q);
-      console.log(`📊 Eventos encontrados: ${snapshot.size}`);
+      console.log(`📊 Eventos encontrados en Firestore: ${snapshot.size}`);
 
       const events: CalendarEvent[] = [];
+      const recurringEvents: CalendarEvent[] = [];
 
       snapshot.forEach(doc => {
         const data = doc.data() as CalendarEventFirestore;
@@ -208,19 +209,40 @@ export class CollaborativeCalendarService {
           );
         }
 
-        events.push({
+        const event: CalendarEvent = {
           ...data,
           id: doc.id,
           startDate,
           endDate,
           createdAt: data.createdAt.toDate(),
           updatedAt: data.updatedAt ? data.updatedAt.toDate() : data.createdAt.toDate(),
-          completedAt: data.completedAt ? data.completedAt.toDate() : undefined
-        });
+          completedAt: data.completedAt ? data.completedAt.toDate() : undefined,
+          recurring: data.recurring ? {
+            ...data.recurring,
+            endDate: data.recurring.endDate?.toDate()
+          } : undefined
+        };
+
+        // Separar eventos recurrentes de eventos normales
+        if (event.recurring && !event.isRecurringInstance) {
+          recurringEvents.push(event);
+        } else {
+          events.push(event);
+        }
       });
 
-      console.log(`✅ ${events.length} eventos procesados para calendario ${calendarId}`);
-      return events;
+      // ✅ Generar instancias virtuales para eventos recurrentes
+      const today = new Date();
+      const futureLimit = new Date(today);
+      futureLimit.setFullYear(futureLimit.getFullYear() + 1); // Próximo año
+
+      recurringEvents.forEach(parentEvent => {
+        const instances = CollaborativeCalendarService.generateRecurringInstances(parentEvent, today, futureLimit);
+        events.push(...instances);
+      });
+
+      console.log(`✅ ${events.length} eventos totales (${snapshot.size} en Firestore, ${events.length - snapshot.size} instancias virtuales)`);
+      return events.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
     } catch (error) {
       console.error('❌ Error al obtener eventos del calendario:', error);
@@ -825,7 +847,7 @@ export class CalendarEventService {
     return docRef.id;
   }
 
-  // Crear eventos recurrentes (solo hacia adelante desde la fecha seleccionada)
+  // ✅ NUEVO: Crear eventos recurrentes (SOLO EVENTO PADRE - instancias se generan en el cliente)
   private static async createRecurringEvents(
     calendarId: string,
     eventData: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'>
@@ -835,159 +857,121 @@ export class CalendarEventService {
       throw new Error('Configuración de recurrencia inválida');
     }
 
-    console.log('🔄 Creando eventos recurrentes:', {
+    console.log('🔄 Creando evento recurrente (SOLO PADRE):', {
       weekdays: recurring.weekdays,
       count: recurring.count,
       interval: recurring.interval,
       startDate: eventData.startDate
     });
 
-    const createdEventIds: string[] = [];
-    const startDate = new Date(eventData.startDate);
-    
-    // Calcular duración en milisegundos (puede ser 0 si no hay endDate)
-    let duration = 0;
-    if (eventData.endDate) {
-      const endDate = new Date(eventData.endDate);
-      duration = endDate.getTime() - startDate.getTime();
-    }
-    
-    console.log(`⏱️ Duración calculada para recurrencia: ${duration}ms (${duration / 60000} minutos)`);
-    
-    // Limitar a un máximo razonable
-    const maxWeeks = Math.min(recurring.count || 12, 52);
-    
-    // Crear evento padre (el primero) SOLO si la fecha es hoy o futura
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const eventDate = new Date(startDate);
-    eventDate.setHours(0, 0, 0, 0);
-    
-    let parentEventId: string;
-    
-    if (eventDate >= today) {
-      // Crear el evento padre
-      parentEventId = await this.createSingleEvent(calendarId, eventData);
-      createdEventIds.push(parentEventId);
-      console.log('✅ Evento padre creado:', parentEventId);
-    } else {
-      console.log('⚠️ Fecha de inicio en el pasado, no se crea evento padre');
-      // Buscar la próxima ocurrencia válida
-      const nextOccurrence = this.findNextOccurrence(startDate, recurring.weekdays);
-      
-      // Crear fecha manteniendo zona horaria local
-      const nextStart = new Date(
-        nextOccurrence.getFullYear(),
-        nextOccurrence.getMonth(),
-        nextOccurrence.getDate(),
-        startDate.getHours(),
-        startDate.getMinutes(),
-        0,
-        0
-      );
-      
-      console.log(`📅 Próxima ocurrencia válida: ${nextStart.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} a las ${nextStart.getHours()}:${nextStart.getMinutes()}`);
-      
-      const nextEventData: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'> = {
-        ...eventData,
-        startDate: nextStart,
-        endDate: duration > 0 ? new Date(nextStart.getTime() + duration) : undefined
-      };
-      parentEventId = await this.createSingleEvent(calendarId, nextEventData);
-      createdEventIds.push(parentEventId);
-      startDate.setTime(nextStart.getTime());
-      console.log('✅ Primera ocurrencia futura creada:', parentEventId);
-    }
+    // ✅ SOLO crear el evento padre con la configuración de recurrencia
+    // Las instancias se generarán dinámicamente en el cliente
+    const parentEventId = await this.createSingleEvent(calendarId, eventData);
 
-    // Generar eventos para cada ocurrencia HACIA ADELANTE
-    // Obtener la hora y minutos del evento original
-    const originalHours = startDate.getHours();
-    const originalMinutes = startDate.getMinutes();
-    
-    console.log(`🕐 Hora original del evento: ${originalHours}:${originalMinutes}`);
-    console.log(`📅 Días de la semana seleccionados: ${recurring.weekdays.map(d => ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d]).join(', ')}`);
-    
-    let currentDate = new Date(startDate);
-    currentDate.setDate(currentDate.getDate() + 1); // Empezar desde el día siguiente
-    let weekCount = 0;
-    let createdCount = 0;
+    console.log(`✅ Evento recurrente creado: ${parentEventId}`);
+    console.log(`📅 Se generarán ${recurring.count} instancias virtuales en el calendario`);
 
-    while (weekCount < maxWeeks && createdCount < (maxWeeks * 7)) {
-      const dayOfWeek = currentDate.getDay();
-      
-      // Si este día está en los días seleccionados
-      if (recurring.weekdays.includes(dayOfWeek)) {
-        // Crear fecha manteniendo la zona horaria local
-        const instanceStart = new Date(
-          currentDate.getFullYear(),
-          currentDate.getMonth(),
-          currentDate.getDate(),
-          originalHours,
-          originalMinutes,
-          0,
-          0
-        );
-        
-        console.log(`📅 Creando instancia para ${instanceStart.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`, {
-          fecha: instanceStart.toISOString(),
-          diaSemana: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][instanceStart.getDay()],
-          hora: `${instanceStart.getHours()}:${instanceStart.getMinutes()}`,
-          hasCustomFields: !!eventData.customFieldsData,
-          customFieldsCount: eventData.customFieldsData ? Object.keys(eventData.customFieldsData).length : 0,
-          hasDescription: !!eventData.description,
-          hasLocation: !!eventData.location
-        });
-        
-        // Crear instanceData copiando TODOS los campos del evento original
-        const instanceData: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'> = {
-          ...eventData, // Esto incluye customFieldsData, description, location, etc.
-          startDate: instanceStart,
-          endDate: duration > 0 ? new Date(instanceStart.getTime() + duration) : undefined,
-          recurring: undefined // No incluir recurrencia en instancias
-        };
-        
-        const instanceId = await this.createSingleEvent(calendarId, instanceData, parentEventId);
-        createdEventIds.push(instanceId);
-        console.log(`✅ Instancia creada: ${instanceId} para el ${['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][instanceStart.getDay()]}`);
-      }
-      
-      // Avanzar al siguiente día
-      currentDate.setDate(currentDate.getDate() + 1);
-      createdCount++;
-      
-      // Contar semana cuando pasamos el domingo
-      if (dayOfWeek === 6) {
-        weekCount++;
-      }
-    }
-
-    console.log(`✅ ${createdEventIds.length} eventos recurrentes creados (solo futuro)`);
-    info('Eventos recurrentes creados', { 
-      parentEventId, 
-      count: createdEventIds.length,
-      calendarId 
+    info('Evento recurrente creado', {
+      parentEventId,
+      weekdays: recurring.weekdays,
+      count: recurring.count,
+      calendarId
     });
-    
+
     return parentEventId;
   }
 
-  // Método auxiliar para encontrar la próxima ocurrencia
-  private static findNextOccurrence(startDate: Date, weekdays: number[]): Date {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    let current = new Date(today);
-    current.setHours(startDate.getHours(), startDate.getMinutes(), 0, 0);
-    
-    // Buscar hasta 14 días adelante
-    for (let i = 0; i < 14; i++) {
-      if (weekdays.includes(current.getDay())) {
-        return current;
-      }
-      current.setDate(current.getDate() + 1);
+  // ✅ NUEVO: Generar instancias virtuales de un evento recurrente (en el cliente)
+  static generateRecurringInstances(
+    parentEvent: CalendarEvent,
+    startDate: Date,
+    endDate: Date
+  ): CalendarEvent[] {
+    if (!parentEvent.recurring || !parentEvent.recurring.weekdays || parentEvent.recurring.weekdays.length === 0) {
+      return [];
     }
-    
-    return current;
+
+    const instances: CalendarEvent[] = [];
+    const { recurring } = parentEvent;
+    const duration = parentEvent.endDate
+      ? parentEvent.endDate.getTime() - parentEvent.startDate.getTime()
+      : 0;
+
+    // Obtener hora y minutos del evento padre
+    const originalHours = parentEvent.startDate.getHours();
+    const originalMinutes = parentEvent.startDate.getMinutes();
+
+    // ✅ Obtener excepciones (fechas donde NO debe aparecer el evento)
+    const exceptions = recurring.exceptions || [];
+    const exceptionDates = exceptions.map((ex: any) => {
+      const date = ex instanceof Date ? ex : ex.toDate();
+      date.setHours(0, 0, 0, 0);
+      return date.getTime();
+    });
+
+    // Límite de fecha de fin si está configurado
+    const recurrenceEndDate = recurring.endDate || endDate;
+
+    let currentDate = new Date(parentEvent.startDate);
+    let weekCount = 0;
+    const maxWeeks = Math.min(recurring.count || 12, 52);
+    const intervalInDays = (recurring.interval || 1) * 7; // Convertir intervalo de semanas a días
+
+    // Iterar por cada semana según el intervalo
+    while (weekCount < maxWeeks && currentDate <= recurrenceEndDate) {
+      // Revisar cada día de la semana actual
+      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+        const checkDate = new Date(currentDate);
+        checkDate.setDate(currentDate.getDate() + dayOffset);
+
+        if (checkDate > recurrenceEndDate) break;
+
+        const dayOfWeek = checkDate.getDay();
+
+        // Si este día está en los días seleccionados
+        if (recurring.weekdays.includes(dayOfWeek) && checkDate >= startDate) {
+          const instanceStart = new Date(
+            checkDate.getFullYear(),
+            checkDate.getMonth(),
+            checkDate.getDate(),
+            originalHours,
+            originalMinutes,
+            0,
+            0
+          );
+
+          // ✅ Verificar si esta fecha está en las excepciones
+          const instanceDateOnly = new Date(instanceStart);
+          instanceDateOnly.setHours(0, 0, 0, 0);
+          const isException = exceptionDates.includes(instanceDateOnly.getTime());
+
+          // Solo crear la instancia si NO es una excepción
+          if (!isException) {
+            const instance: CalendarEvent = {
+              ...parentEvent,
+              id: `${parentEvent.id}_${instanceStart.getTime()}`,
+              startDate: instanceStart,
+              endDate: duration > 0 ? new Date(instanceStart.getTime() + duration) : undefined,
+              isRecurringInstance: true,
+              parentEventId: parentEvent.id,
+              recurring: undefined
+            };
+
+            instances.push(instance);
+          }
+        }
+      }
+
+      // ✅ Avanzar al siguiente intervalo
+      // interval=1 (semanal): +7 días
+      // interval=2 (cada 2 semanas): +14 días
+      // interval=3 (cada 3 semanas): +21 días
+      // interval=4 (mensual): +28 días
+      currentDate.setDate(currentDate.getDate() + intervalInDays);
+      weekCount++;
+    }
+
+    return instances;
   }
 
   // Eliminar evento individual
@@ -1001,84 +985,112 @@ export class CalendarEventService {
     }
   }
 
-  // Eliminar serie completa de eventos recurrentes
+  // ✅ ACTUALIZADO: Eliminar serie completa de eventos recurrentes (ahora solo elimina el padre)
   static async deleteRecurringSeries(parentEventId: string): Promise<void> {
     try {
-      console.log('🗑️ Eliminando serie completa de eventos, parentId:', parentEventId);
-      
-      // Buscar todos los eventos de la serie
-      const q = query(
-        collection(db, 'calendar_events'),
-        where('parentEventId', '==', parentEventId)
-      );
-      
-      const snapshot = await getDocs(q);
-      console.log(`📊 Encontrados ${snapshot.size} eventos hijos`);
-      
-      // Eliminar todos los eventos hijos
-      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
-      
-      // Eliminar el evento padre
+      console.log('🗑️ Eliminando serie completa de eventos recurrentes (solo padre):', parentEventId);
+
+      // ✅ Como ahora solo guardamos el evento padre, solo eliminamos ese documento
       await deleteDoc(doc(db, 'calendar_events', parentEventId));
-      
-      console.log(`✅ Serie completa eliminada: ${snapshot.size + 1} eventos`);
-      info('Serie de eventos eliminada', { parentEventId, count: snapshot.size + 1 });
-      
+
+      console.log(`✅ Serie completa eliminada (1 documento)`);
+      info('Serie de eventos eliminada', { parentEventId });
+
     } catch (error) {
       logError('Error al eliminar serie de eventos', error as Error, { parentEventId });
       throw error;
     }
   }
 
-  // Eliminar eventos recurrentes desde una fecha hacia adelante (mantener historial)
+  // ✅ NUEVO: Eliminar solo UNA instancia de un evento recurrente (crear excepción)
+  static async deleteRecurringInstance(
+    parentEventId: string,
+    instanceDate: Date
+  ): Promise<void> {
+    try {
+      console.log('🗑️ Eliminando instancia específica del evento recurrente:', {
+        parentEventId,
+        instanceDate: instanceDate.toISOString()
+      });
+
+      // ✅ Obtener el evento padre
+      const parentDoc = await getDoc(doc(db, 'calendar_events', parentEventId));
+
+      if (!parentDoc.exists()) {
+        throw new Error('Evento padre no encontrado');
+      }
+
+      const parentData = parentDoc.data();
+
+      // Crear array de excepciones si no existe
+      const exceptions = parentData.recurring?.exceptions || [];
+
+      // Agregar la fecha como excepción (solo fecha, sin hora)
+      const exceptionDate = new Date(instanceDate);
+      exceptionDate.setHours(0, 0, 0, 0);
+
+      exceptions.push(Timestamp.fromDate(exceptionDate));
+
+      // Actualizar evento padre con la nueva excepción
+      await updateDoc(doc(db, 'calendar_events', parentEventId), {
+        'recurring.exceptions': exceptions,
+        updatedAt: Timestamp.now()
+      });
+
+      console.log(`✅ Instancia del ${instanceDate.toLocaleDateString()} marcada como excepción`);
+      info('Instancia de evento recurrente eliminada', {
+        parentEventId,
+        exceptionDate: instanceDate.toISOString()
+      });
+
+    } catch (error) {
+      logError('Error al eliminar instancia recurrente', error as Error, { parentEventId, instanceDate });
+      throw error;
+    }
+  }
+
+  // ✅ ACTUALIZADO: Terminar recurrencia en una fecha específica (mantener historial)
   static async deleteRecurringSeriesFromDate(
-    parentEventId: string, 
+    parentEventId: string,
     fromDate: Date
   ): Promise<void> {
     try {
-      console.log('🗑️ Eliminando serie desde fecha:', {
+      console.log('🗑️ Terminando serie recurrente desde fecha:', {
         parentEventId,
         fromDate: fromDate.toISOString()
       });
-      
-      // Buscar todos los eventos de la serie desde la fecha indicada
-      const q = query(
-        collection(db, 'calendar_events'),
-        where('parentEventId', '==', parentEventId),
-        where('startDate', '>=', Timestamp.fromDate(fromDate))
-      );
-      
-      const snapshot = await getDocs(q);
-      console.log(`📊 Encontrados ${snapshot.size} eventos desde la fecha`);
-      
-      // Eliminar eventos desde la fecha hacia adelante
-      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
-      
-      // También eliminar el padre si es posterior a fromDate
+
+      // ✅ Ahora solo actualizamos el evento padre para que termine en esa fecha
+      // Las instancias virtuales se generarán automáticamente hasta esa fecha
       const parentDoc = await getDoc(doc(db, 'calendar_events', parentEventId));
-      if (parentDoc.exists()) {
-        const parentData = parentDoc.data();
-        const parentStartDate = parentData.startDate.toDate();
-        
-        if (parentStartDate >= fromDate) {
-          await deleteDoc(doc(db, 'calendar_events', parentEventId));
-          console.log('✅ Evento padre también eliminado (estaba en el rango)');
-        } else {
-          console.log('✅ Evento padre mantenido (está antes de la fecha)');
-        }
+
+      if (!parentDoc.exists()) {
+        throw new Error('Evento padre no encontrado');
       }
-      
-      console.log(`✅ Serie eliminada desde ${fromDate.toLocaleDateString()}: ${snapshot.size} eventos`);
-      info('Serie de eventos eliminada desde fecha', { 
-        parentEventId, 
-        fromDate: fromDate.toISOString(),
-        count: snapshot.size 
+
+      const parentData = parentDoc.data();
+      const parentStartDate = parentData.startDate.toDate();
+
+      if (parentStartDate >= fromDate) {
+        // Si el evento padre es posterior a la fecha, eliminarlo completamente
+        await deleteDoc(doc(db, 'calendar_events', parentEventId));
+        console.log('✅ Evento padre eliminado (estaba después de la fecha de corte)');
+      } else {
+        // Actualizar el evento padre para que termine antes de fromDate
+        await updateDoc(doc(db, 'calendar_events', parentEventId), {
+          'recurring.endDate': Timestamp.fromDate(fromDate),
+          updatedAt: Timestamp.now()
+        });
+        console.log(`✅ Serie recurrente actualizada para terminar el ${fromDate.toLocaleDateString()}`);
+      }
+
+      info('Serie de eventos modificada desde fecha', {
+        parentEventId,
+        fromDate: fromDate.toISOString()
       });
-      
+
     } catch (error) {
-      logError('Error al eliminar serie desde fecha', error as Error, { parentEventId, fromDate });
+      logError('Error al modificar serie desde fecha', error as Error, { parentEventId, fromDate });
       throw error;
     }
   }
@@ -1109,7 +1121,7 @@ export class CalendarEventService {
         
         snapshot.forEach(doc => {
           const data = doc.data() as CalendarEventFirestore;
-          
+
           // 🔧 CONVERTIR DE VUELTA DESDE UTC SIN CAMBIAR EL DÍA
           // Leer el Timestamp como UTC y crear una fecha local con los mismos valores
           const startDateUTC = data.startDate.toDate();
@@ -1122,18 +1134,22 @@ export class CalendarEventService {
             0,
             0
           );
-          
-          const endDateUTC = data.endDate.toDate();
-          const endDate = new Date(
-            endDateUTC.getUTCFullYear(),
-            endDateUTC.getUTCMonth(),
-            endDateUTC.getUTCDate(),
-            endDateUTC.getUTCHours(),
-            endDateUTC.getUTCMinutes(),
-            0,
-            0
-          );
-        
+
+          // ✅ Validar que endDate existe antes de convertir
+          let endDate: Date | undefined;
+          if (data.endDate) {
+            const endDateUTC = data.endDate.toDate();
+            endDate = new Date(
+              endDateUTC.getUTCFullYear(),
+              endDateUTC.getUTCMonth(),
+              endDateUTC.getUTCDate(),
+              endDateUTC.getUTCHours(),
+              endDateUTC.getUTCMinutes(),
+              0,
+              0
+            );
+          }
+
         const event: CalendarEvent = {
           ...data,
           id: doc.id,
@@ -1147,11 +1163,24 @@ export class CalendarEventService {
             endDate: data.recurring.endDate?.toDate()
           } : undefined
         };
-        
+
         events.push(event);
       });
-      
-      return events;
+
+      // ✅ Expandir eventos recurrentes en instancias virtuales
+      const recurringParents = events.filter(e => e.recurring && !e.isRecurringInstance);
+      const today = new Date();
+      const futureLimit = new Date(today);
+      futureLimit.setFullYear(futureLimit.getFullYear() + 1);
+
+      recurringParents.forEach(parentEvent => {
+        const instances = CollaborativeCalendarService.generateRecurringInstances(parentEvent, today, futureLimit);
+        events.push(...instances);
+      });
+
+      console.log(`✅ Total eventos expandidos: ${events.length} (${recurringParents.length} padres recurrentes generaron ${events.length - snapshot.size} instancias)`);
+
+      return events.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
       
     } catch (error) {
       console.error('❌ ERROR DETALLADO cargando eventos:', error);
@@ -1195,9 +1224,9 @@ export class CalendarEventService {
           ...data,
           id: doc.id,
           startDate: data.startDate.toDate(),
-          endDate: data.endDate.toDate(),
+          endDate: data.endDate ? data.endDate.toDate() : undefined,
           createdAt: data.createdAt.toDate(),
-          updatedAt: data.updatedAt.toDate(),
+          updatedAt: data.updatedAt ? data.updatedAt.toDate() : data.createdAt.toDate(),
           completedAt: data.completedAt?.toDate(),
           recurring: data.recurring ? {
             ...data.recurring,
@@ -1299,9 +1328,9 @@ export class CalendarEventService {
           ...data,
           id: doc.id,
           startDate: data.startDate.toDate(),
-          endDate: data.endDate.toDate(),
+          endDate: data.endDate ? data.endDate.toDate() : undefined,
           createdAt: data.createdAt.toDate(),
-          updatedAt: data.updatedAt.toDate(),
+          updatedAt: data.updatedAt ? data.updatedAt.toDate() : data.createdAt.toDate(),
           completedAt: data.completedAt?.toDate(),
           recurring: data.recurring ? {
             ...data.recurring,

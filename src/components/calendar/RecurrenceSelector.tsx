@@ -17,28 +17,51 @@ const WEEKDAYS = [
   { value: 6, label: 'S', fullLabel: 'Sábado' },
 ];
 
+const RECURRENCE_OPTIONS = [
+  { value: 'weekly', label: 'Semanal', interval: 1, defaultCount: 12 },
+  { value: 'biweekly', label: 'Cada 15 días', interval: 2, defaultCount: 8 },
+  { value: 'triweekly', label: 'Cada 3 semanas', interval: 3, defaultCount: 6 },
+  { value: 'monthly', label: 'Mensual', interval: 4, defaultCount: 6 }
+];
+
 export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
   value,
   onChange
 }) => {
   const [isRecurring, setIsRecurring] = React.useState(!!value && value.type !== 'none');
+  const [recurrenceType, setRecurrenceType] = React.useState('weekly');
 
   const toggleRecurrence = () => {
     const newValue = !isRecurring;
     setIsRecurring(newValue);
-    
+
     if (newValue) {
       // Activar recurrencia con valores por defecto
+      const option = RECURRENCE_OPTIONS[0];
       onChange({
         type: 'weekly',
-        interval: 1,
+        interval: option.interval,
         weekdays: [],
-        count: 12 // 12 semanas por defecto (3 meses)
+        count: option.defaultCount
       });
     } else {
       // Desactivar recurrencia
       onChange(null);
     }
+  };
+
+  const updateRecurrenceType = (type: string) => {
+    if (!value || !isRecurring) return;
+
+    const option = RECURRENCE_OPTIONS.find(opt => opt.value === type);
+    if (!option) return;
+
+    setRecurrenceType(type);
+    onChange({
+      ...value,
+      interval: option.interval,
+      count: option.defaultCount
+    });
   };
 
   const toggleWeekday = (day: number) => {
@@ -55,8 +78,21 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
     });
   };
 
-  const updateCount = (count: number) => {
+  const updateCount = (countValue: string) => {
     if (!value || !isRecurring) return;
+
+    // Permitir campo vacío temporalmente
+    if (countValue === '') {
+      onChange({
+        ...value,
+        count: 1 // Valor por defecto temporal
+      });
+      return;
+    }
+
+    const count = parseInt(countValue);
+    if (isNaN(count)) return;
+
     onChange({
       ...value,
       count: Math.min(Math.max(1, count), 52) // Limitar entre 1 y 52 semanas
@@ -73,10 +109,10 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
           </div>
           <div>
             <p className="text-sm font-medium text-gray-900">Evento Recurrente</p>
-            <p className="text-xs text-gray-600">Repetir este evento semanalmente</p>
+            <p className="text-xs text-gray-600">Repetir este evento periódicamente</p>
           </div>
         </div>
-        
+
         <button
           type="button"
           onClick={toggleRecurrence}
@@ -95,6 +131,29 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
       {/* Configuración de Recurrencia */}
       {isRecurring && value && (
         <div className="space-y-4 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+          {/* Tipo de Recurrencia */}
+          <div>
+            <label className="block text-sm font-medium text-gray-900 mb-2">
+              Frecuencia
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {RECURRENCE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => updateRecurrenceType(option.value)}
+                  className={`px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
+                    recurrenceType === option.value
+                      ? 'bg-purple-600 border-purple-500 text-white shadow-sm'
+                      : 'bg-white border-gray-300 text-gray-700 hover:border-purple-400 hover:bg-purple-50'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Selección de Días */}
           <div>
             <label className="block text-sm font-medium text-gray-900 mb-3">
@@ -135,17 +194,17 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
             </label>
             <div className="flex items-center gap-3">
               <input
-                type="number"
-                min="1"
-                max="52"
-                value={value.count || 12}
-                onChange={(e) => updateCount(parseInt(e.target.value) || 12)}
+                type="text"
+                inputMode="numeric"
+                value={value.count || ''}
+                onChange={(e) => updateCount(e.target.value)}
+                placeholder="12"
                 className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none"
               />
               <span className="text-sm text-gray-600">semanas</span>
             </div>
             <p className="text-xs text-gray-600 mt-1">
-              Se crearán hasta {value.count || 12} eventos (máximo 52)
+              Se crearán hasta {value.count || 12} eventos (máximo 52 semanas)
             </p>
           </div>
 

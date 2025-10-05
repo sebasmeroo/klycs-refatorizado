@@ -762,14 +762,18 @@ const DashboardBookings: React.FC = () => {
 
 
       const eventId = await CalendarEventService.createEvent(selectedProfessional.id, eventDataToSend);
-      
-      
+
+
       // ✅ RECARGAR EVENTOS DESDE FIREBASE para mostrar el nuevo evento
-      // ✅ Invalidar cache de React Query para recargar eventos
-      queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
-      
+      // ✅ Invalidar TODOS los caches relacionados para actualización inmediata
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+        queryClient.invalidateQueries({ queryKey: ['calendarEvents', selectedProfessional.id] }),
+        queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+      ]);
+
       closeCreateEventPanel();
-      alert(`✅ Evento "${newEventForm.title}" guardado correctamente en Firebase`);
+      alert(`✅ Evento "${newEventForm.title}" creado correctamente${recurrence ? ' (recurrente)' : ''}`);
       
     } catch (error) {
       console.error('❌ Error creando evento:', error);
@@ -1884,16 +1888,31 @@ const DashboardBookings: React.FC = () => {
 
           {/* Acciones de eliminación */}
           <div className="px-4 pb-4 space-y-2 border-b border-gray-200">
+            {/* 🐛 DEBUG INFO */}
+            {console.log('🔍 Event Debug:', {
+              id: selectedEvent.id,
+              isRecurringInstance: selectedEvent.isRecurringInstance,
+              parentEventId: selectedEvent.parentEventId,
+              hasRecurring: !!selectedEvent.recurring,
+              recurringType: selectedEvent.recurring?.type
+            })}
+
             {selectedEvent.recurring && !selectedEvent.isRecurringInstance ? (
-              // Es el evento padre - opción de eliminar toda la serie
+              // ✅ Es el evento padre - opción de eliminar toda la serie
+              <>
+              <p className="text-xs text-purple-600 mb-2">💡 Evento padre de serie recurrente</p>
               <button
                 onClick={async () => {
-                  if (confirm('¿Eliminar TODA la serie de eventos recurrentes?\n\nEsto eliminará todas las ocurrencias futuras.')) {
+                  if (confirm('¿Eliminar TODA la serie de eventos recurrentes?\n\nEsto eliminará todas las instancias virtuales. Solo se elimina 1 documento de Firestore.')) {
                     try {
                       await CalendarEventService.deleteRecurringSeries(selectedEvent.id);
                       setSelectedEvent(null);
-                      // Recargar eventos
-                      const calendarIds = calendars.map(cal => cal.id);
+                      // ✅ Invalidar cache
+                      await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+                        queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+                      ]);
+                      alert('✅ Serie de eventos eliminada correctamente');
                     } catch (error) {
                       console.error('Error eliminando serie:', error);
                       alert('Error al eliminar la serie de eventos');
@@ -1905,17 +1924,25 @@ const DashboardBookings: React.FC = () => {
                 <Trash2 className="w-4 h-4" />
                 <span>Eliminar serie completa</span>
               </button>
-            ) : selectedEvent.isRecurringInstance ? (
-              // Es una instancia - tres opciones: solo esta, desde aquí, o toda la serie
+              </>
+            ) : selectedEvent.isRecurringInstance && selectedEvent.parentEventId ? (
+              // ✅ Es una instancia virtual - opciones mejoradas
               <div className="space-y-2">
                 <button
                   onClick={async () => {
-                    if (confirm('¿Eliminar solo este evento?\n\nLos demás eventos de la serie se mantendrán.')) {
+                    if (confirm('¿Eliminar solo esta instancia del evento?\n\nLos demás eventos de la serie se mantendrán.')) {
                       try {
-                        await CalendarEventService.deleteEvent(selectedEvent.id);
+                        await CalendarEventService.deleteRecurringInstance(
+                          selectedEvent.parentEventId!,
+                          selectedEvent.startDate
+                        );
                         setSelectedEvent(null);
-                        // ✅ Invalidar cache de React Query
-                        queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
+                        // ✅ Invalidar cache
+                        await Promise.all([
+                          queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+                          queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+                        ]);
+                        alert('✅ Evento eliminado correctamente');
                       } catch (error) {
                         console.error('Error eliminando evento:', error);
                         alert('Error al eliminar el evento');
@@ -1925,39 +1952,46 @@ const DashboardBookings: React.FC = () => {
                   className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
                 >
                   <Trash2 className="w-4 h-4" />
-                  <span>Eliminar solo este evento</span>
+                  <span>Eliminar solo esta instancia</span>
                 </button>
                 <button
                   onClick={async () => {
-                    const eventDate = selectedEvent.startDate.toLocaleDateString('es-ES');
-                    if (confirm(`¿Eliminar desde este evento hacia adelante?\n\nSe eliminarán desde ${eventDate} en adelante.\nEl historial anterior se mantendrá.`)) {
+                    if (confirm('¿Eliminar desde esta fecha en adelante?\n\nSe eliminarán todas las instancias futuras.')) {
                       try {
                         await CalendarEventService.deleteRecurringSeriesFromDate(
                           selectedEvent.parentEventId!,
                           selectedEvent.startDate
                         );
                         setSelectedEvent(null);
-                        // Recargar eventos
-                        const calendarIds = calendars.map(cal => cal.id);
+                        // ✅ Invalidar cache
+                        await Promise.all([
+                          queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+                          queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+                        ]);
+                        alert('✅ Eventos futuros eliminados correctamente');
                       } catch (error) {
-                        console.error('Error eliminando serie desde fecha:', error);
-                        alert('Error al eliminar los eventos desde esta fecha');
+                        console.error('Error eliminando eventos futuros:', error);
+                        alert('Error al eliminar eventos futuros');
                       }
                     }
                   }}
                   className="w-full px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
                 >
                   <Trash2 className="w-4 h-4" />
-                  <span>Eliminar desde aquí →</span>
+                  <span>Eliminar desde hoy en adelante</span>
                 </button>
                 <button
                   onClick={async () => {
-                    if (confirm('¿Eliminar TODA la serie de eventos?\n\nEsto eliminará TODAS las ocurrencias, incluyendo el historial.')) {
+                    if (confirm('¿Eliminar TODA la serie de eventos?\n\nEsto eliminará el evento padre y todas las instancias.')) {
                       try {
                         await CalendarEventService.deleteRecurringSeries(selectedEvent.parentEventId!);
                         setSelectedEvent(null);
-                        // Recargar eventos
-                        const calendarIds = calendars.map(cal => cal.id);
+                        // ✅ Invalidar cache
+                        await Promise.all([
+                          queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+                          queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+                        ]);
+                        alert('✅ Serie completa eliminada correctamente');
                       } catch (error) {
                         console.error('Error eliminando serie:', error);
                         alert('Error al eliminar la serie de eventos');
@@ -1967,7 +2001,7 @@ const DashboardBookings: React.FC = () => {
                   className="w-full px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
                 >
                   <Trash2 className="w-4 h-4" />
-                  <span>Eliminar serie completa</span>
+                  <span>Eliminar TODA la serie</span>
                 </button>
               </div>
             ) : (
@@ -3639,7 +3673,143 @@ const DashboardBookings: React.FC = () => {
               </div>
 
               {/* Footer con acciones */}
-              <div className="p-6 bg-gray-50 border-t border-gray-200">
+              <div className="p-6 bg-gray-50 border-t border-gray-200 space-y-4">
+                {/* Botones de eliminación para eventos recurrentes */}
+                {(selectedEventInfo.parentEventId || selectedEventInfo.recurring) && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-gray-700 mb-2">
+                      {selectedEventInfo.parentEventId ? '🔄 Evento recurrente - Opciones de eliminación:' : '🔄 Serie recurrente - Eliminar:'}
+                    </p>
+
+                    {selectedEventInfo.parentEventId ? (
+                      // Es una instancia virtual de recurrencia
+                      <div className="grid grid-cols-1 gap-2">
+                        <button
+                          onClick={async () => {
+                            if (confirm('¿Eliminar solo esta instancia?\n\nLos demás eventos de la serie se mantendrán.')) {
+                              try {
+                                await CalendarEventService.deleteRecurringInstance(
+                                  selectedEventInfo.parentEventId!,
+                                  selectedEventInfo.startDate
+                                );
+                                setShowEventInfoModal(false);
+                                await Promise.all([
+                                  queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+                                  queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+                                ]);
+                                alert('✅ Instancia eliminada correctamente');
+                              } catch (error) {
+                                console.error('Error eliminando instancia:', error);
+                                alert('Error al eliminar la instancia');
+                              }
+                            }
+                          }}
+                          className="px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Eliminar solo esta instancia
+                        </button>
+
+                        <button
+                          onClick={async () => {
+                            if (confirm('¿Eliminar desde esta fecha en adelante?\n\nSe eliminarán todas las instancias futuras.')) {
+                              try {
+                                await CalendarEventService.deleteRecurringSeriesFromDate(
+                                  selectedEventInfo.parentEventId!,
+                                  selectedEventInfo.startDate
+                                );
+                                setShowEventInfoModal(false);
+                                await Promise.all([
+                                  queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+                                  queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+                                ]);
+                                alert('✅ Eventos futuros eliminados correctamente');
+                              } catch (error) {
+                                console.error('Error eliminando eventos futuros:', error);
+                                alert('Error al eliminar eventos futuros');
+                              }
+                            }
+                          }}
+                          className="px-3 py-2 bg-yellow-500 hover:bg-yellow-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Eliminar desde hoy →
+                        </button>
+
+                        <button
+                          onClick={async () => {
+                            if (confirm('¿Eliminar TODA la serie de eventos?\n\nEsto eliminará el evento padre y todas las instancias.')) {
+                              try {
+                                await CalendarEventService.deleteRecurringSeries(selectedEventInfo.parentEventId!);
+                                setShowEventInfoModal(false);
+                                await Promise.all([
+                                  queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+                                  queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+                                ]);
+                                alert('✅ Serie completa eliminada correctamente');
+                              } catch (error) {
+                                console.error('Error eliminando serie:', error);
+                                alert('Error al eliminar la serie');
+                              }
+                            }
+                          }}
+                          className="px-3 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Eliminar TODA la serie
+                        </button>
+                      </div>
+                    ) : (
+                      // Es el evento padre
+                      <button
+                        onClick={async () => {
+                          if (confirm('¿Eliminar TODA la serie de eventos recurrentes?\n\nEsto eliminará todas las instancias virtuales.')) {
+                            try {
+                              await CalendarEventService.deleteRecurringSeries(selectedEventInfo.id);
+                              setShowEventInfoModal(false);
+                              await Promise.all([
+                                queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+                                queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
+                              ]);
+                              alert('✅ Serie eliminada correctamente');
+                            } catch (error) {
+                              console.error('Error eliminando serie:', error);
+                              alert('Error al eliminar la serie');
+                            }
+                          }
+                        }}
+                        className="px-3 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Eliminar serie completa
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Botón eliminar evento normal (no recurrente) */}
+                {!selectedEventInfo.parentEventId && !selectedEventInfo.recurring && (
+                  <button
+                    onClick={async () => {
+                      if (confirm('¿Eliminar este evento?')) {
+                        try {
+                          await CalendarEventService.deleteEvent(selectedEventInfo.id);
+                          setShowEventInfoModal(false);
+                          queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
+                          alert('✅ Evento eliminado correctamente');
+                        } catch (error) {
+                          console.error('Error eliminando evento:', error);
+                          alert('Error al eliminar el evento');
+                        }
+                      }
+                    }}
+                    className="w-full px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Eliminar evento
+                  </button>
+                )}
+
                 <div className="flex flex-col sm:flex-row gap-3">
                   {/* Botón marcar como completado */}
                   <button

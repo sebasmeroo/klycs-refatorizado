@@ -155,8 +155,9 @@ export interface RecurrencePattern {
   interval: number; // cada X días/semanas/meses/años
   weekdays?: number[]; // para recurrencia semanal [0=Dom, 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb]
   monthDay?: number; // día del mes para recurrencia mensual
-  endDate?: Date;
-  count?: number; // número de repeticiones (máximo 52 para evitar crear demasiados eventos)
+  endDate?: Date; // fecha de fin de la recurrencia
+  count?: number; // número de repeticiones (máximo 52 semanas)
+  exceptions?: Date[] | Timestamp[]; // ✅ NUEVO: fechas específicas donde NO debe aparecer el evento
 }
 
 export interface EventReminder {
