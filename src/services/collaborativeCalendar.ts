@@ -931,17 +931,31 @@ export class CalendarEventService {
       const parentData = parentDoc.data();
 
       // Crear array de excepciones si no existe
-      const exceptions = parentData.recurring?.exceptions || [];
+      const existingExceptions = parentData.recurring?.exceptions || [];
 
       // Agregar la fecha como excepción (solo fecha, sin hora)
       const exceptionDate = new Date(instanceDate);
       exceptionDate.setHours(0, 0, 0, 0);
 
-      exceptions.push(Timestamp.fromDate(exceptionDate));
+      const exceptionTimestamp = Timestamp.fromDate(exceptionDate);
+
+      // Evitar duplicados comparando por día
+      const hasException = existingExceptions.some((ex: any) => {
+        const exDate = ex instanceof Timestamp ? ex.toDate() : new Date(ex);
+        exDate.setHours(0, 0, 0, 0);
+        return exDate.getTime() === exceptionDate.getTime();
+      });
+
+      if (hasException) {
+        console.log('ℹ️ La instancia ya está marcada como excepción, no se duplica');
+        return;
+      }
+
+      existingExceptions.push(exceptionTimestamp);
 
       // Actualizar evento padre con la nueva excepción
       await updateDoc(doc(db, 'calendar_events', parentEventId), {
-        'recurring.exceptions': exceptions,
+        'recurring.exceptions': existingExceptions,
         updatedAt: Timestamp.now()
       });
 
@@ -979,17 +993,26 @@ export class CalendarEventService {
       const parentData = parentDoc.data();
       const parentStartDate = parentData.startDate.toDate();
 
-      if (parentStartDate >= fromDate) {
+      const normalizedFromDate = new Date(fromDate);
+      normalizedFromDate.setHours(0, 0, 0, 0);
+
+      if (parentStartDate >= normalizedFromDate) {
         // Si el evento padre es posterior a la fecha, eliminarlo completamente
         await deleteDoc(doc(db, 'calendar_events', parentEventId));
         console.log('✅ Evento padre eliminado (estaba después de la fecha de corte)');
       } else {
-        // Actualizar el evento padre para que termine antes de fromDate
-        await updateDoc(doc(db, 'calendar_events', parentEventId), {
-          'recurring.endDate': Timestamp.fromDate(fromDate),
-          updatedAt: Timestamp.now()
-        });
-        console.log(`✅ Serie recurrente actualizada para terminar el ${fromDate.toLocaleDateString()}`);
+        // No permitir que la fecha de fin quede antes del inicio del evento
+        if (normalizedFromDate <= parentStartDate) {
+          await deleteDoc(doc(db, 'calendar_events', parentEventId));
+          console.log('✅ Serie eliminada: la fecha de corte es igual o anterior al inicio');
+        } else {
+          // Actualizar el evento padre para que termine antes de fromDate
+          await updateDoc(doc(db, 'calendar_events', parentEventId), {
+            'recurring.endDate': Timestamp.fromDate(normalizedFromDate),
+            updatedAt: Timestamp.now()
+          });
+          console.log(`✅ Serie recurrente actualizada para terminar el ${normalizedFromDate.toLocaleDateString()}`);
+        }
       }
 
       info('Serie de eventos modificada desde fecha', {

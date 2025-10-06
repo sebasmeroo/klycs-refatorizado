@@ -18,10 +18,10 @@ const WEEKDAYS = [
 ];
 
 const RECURRENCE_OPTIONS = [
-  { value: 'weekly', label: 'Semanal', interval: 1, defaultCount: 12 },
-  { value: 'biweekly', label: 'Cada 15 días', interval: 2, defaultCount: 8 },
-  { value: 'triweekly', label: 'Cada 3 semanas', interval: 3, defaultCount: 6 },
-  { value: 'monthly', label: 'Mensual', interval: 4, defaultCount: 6 }
+  { key: 'weekly', label: 'Semanal', interval: 1, defaultCount: 12, patternType: 'weekly' as const },
+  { key: 'biweekly', label: 'Cada 15 días', interval: 2, defaultCount: 8, patternType: 'weekly' as const },
+  { key: 'triweekly', label: 'Cada 3 semanas', interval: 3, defaultCount: 6, patternType: 'weekly' as const },
+  { key: 'monthly', label: 'Mensual', interval: 4, defaultCount: 6, patternType: 'monthly' as const }
 ];
 
 export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
@@ -31,6 +31,27 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
   const [isRecurring, setIsRecurring] = React.useState(!!value && value.type !== 'none');
   const [recurrenceType, setRecurrenceType] = React.useState('weekly');
 
+  React.useEffect(() => {
+    if (value && value.type && value.type !== 'none') {
+      setIsRecurring(true);
+
+      const matched = RECURRENCE_OPTIONS.find(option => {
+        if (option.patternType === 'monthly' && value.type === 'monthly') {
+          return true;
+        }
+        if (value.type === 'weekly' && option.patternType === 'weekly') {
+          return option.interval === value.interval;
+        }
+        return false;
+      });
+
+      setRecurrenceType(matched?.key ?? 'weekly');
+    } else {
+      setIsRecurring(false);
+      setRecurrenceType('weekly');
+    }
+  }, [value]);
+
   const toggleRecurrence = () => {
     const newValue = !isRecurring;
     setIsRecurring(newValue);
@@ -39,26 +60,28 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
       // Activar recurrencia con valores por defecto
       const option = RECURRENCE_OPTIONS[0];
       onChange({
-        type: 'weekly',
+        type: option.patternType,
         interval: option.interval,
         weekdays: [],
         count: option.defaultCount
       });
+      setRecurrenceType(option.key);
     } else {
       // Desactivar recurrencia
       onChange(null);
     }
   };
 
-  const updateRecurrenceType = (type: string) => {
+  const updateRecurrenceType = (key: string) => {
     if (!value || !isRecurring) return;
 
-    const option = RECURRENCE_OPTIONS.find(opt => opt.value === type);
+    const option = RECURRENCE_OPTIONS.find(opt => opt.key === key);
     if (!option) return;
 
-    setRecurrenceType(type);
+    setRecurrenceType(key);
     onChange({
       ...value,
+      type: option.patternType,
       interval: option.interval,
       count: option.defaultCount
     });
@@ -139,11 +162,11 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
             <div className="grid grid-cols-2 gap-2">
               {RECURRENCE_OPTIONS.map((option) => (
                 <button
-                  key={option.value}
+                  key={option.key}
                   type="button"
-                  onClick={() => updateRecurrenceType(option.value)}
+                  onClick={() => updateRecurrenceType(option.key)}
                   className={`px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
-                    recurrenceType === option.value
+                    recurrenceType === option.key
                       ? 'bg-purple-600 border-purple-500 text-white shadow-sm'
                       : 'bg-white border-gray-300 text-gray-700 hover:border-purple-400 hover:bg-purple-50'
                   }`}
@@ -201,10 +224,14 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
                 placeholder="12"
                 className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none"
               />
-              <span className="text-sm text-gray-600">semanas</span>
+              <span className="text-sm text-gray-600">
+                {recurrenceType === 'monthly' ? 'periodos (cada 4 semanas)' : 'semanas'}
+              </span>
             </div>
             <p className="text-xs text-gray-600 mt-1">
-              Se crearán hasta {value.count || 12} eventos (máximo 52 semanas)
+              {recurrenceType === 'monthly'
+                ? `Se crearán hasta ${value.count || 6} periodos (equivalente a ${(value.count || 6) * 4} semanas)`
+                : `Se crearán hasta ${value.count || 12} semanas (máximo 52)`}
             </p>
           </div>
 
@@ -215,7 +242,9 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
               <p className="font-medium mb-1">¿Cómo funciona?</p>
               <p className="text-blue-700">
                 {value.weekdays && value.weekdays.length > 0 ? (
-                  <>El evento se creará automáticamente cada semana en los días seleccionados durante {value.count || 12} semanas.</>
+                  recurrenceType === 'monthly'
+                    ? <>El evento se repetirá cada 4 semanas en los días seleccionados durante {value.count || 6} periodos.</>
+                    : <>El evento se creará automáticamente en los días seleccionados durante {value.count || 12} semanas.</>
                 ) : (
                   <>Selecciona al menos un día de la semana para crear eventos recurrentes.</>
                 )}

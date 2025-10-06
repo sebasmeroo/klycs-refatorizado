@@ -9,6 +9,7 @@ import {
   getDocs,
 
 } from 'firebase/firestore';
+import { FirebaseError } from 'firebase/app';
 import { db } from '@/lib/firebase';
 import { logger } from '@/utils/logger';
 
@@ -63,6 +64,12 @@ export interface UsageRecord {
 class SubscriptionsService {
   private readonly STRIPE_API_URL = 'https://api.stripe.com/v1';
   private readonly stripeSecretKey = process.env.VITE_STRIPE_SECRET_KEY;
+  private readonly subscriptionCache = new Map<string, { data: UserSubscription & { plan: SubscriptionPlan }; expiresAt: number }>();
+  private readonly subscriptionCacheTTL = 5 * 60 * 1000; // 5 minutes
+  private readonly planCache = new Map<string, { data: SubscriptionPlan; expiresAt: number }>();
+  private readonly planCacheTTL = 10 * 60 * 1000; // 10 minutes
+  private readonly usageCache = new Map<string, { value: number; expiresAt: number }>();
+  private readonly usageCacheTTL = 60 * 1000; // 60 seconds
 
   // Planes predefinidos - OPTIMIZADOS
   private readonly DEFAULT_PLANS: Omit<SubscriptionPlan, 'id' | 'createdAt' | 'updatedAt'>[] = [
@@ -401,6 +408,11 @@ class SubscriptionsService {
    */
   async getUserSubscription(userId: string): Promise<{ success: boolean; data?: UserSubscription & { plan: SubscriptionPlan }; error?: string }> {
     try {
+      const cached = this.subscriptionCache.get(userId);
+      if (cached && cached.expiresAt > Date.now()) {
+        return { success: true, data: cached.data };
+      }
+
       const q = query(
         collection(db, 'user_subscriptions'),
         where('userId', '==', userId),
@@ -410,38 +422,11 @@ class SubscriptionsService {
       const snapshot = await getDocs(q);
 
       if (snapshot.empty) {
-        // NO HAY SUSCRIPCIÓN - Devolver plan FREE por defecto
-        const freePlan: SubscriptionPlan = {
-          id: 'free',
-          name: 'FREE',
-          description: 'Plan gratuito',
-          price: 0,
-          currency: 'eur',
-          interval: 'month',
-          intervalCount: 1,
-          features: [],
-          isActive: true,
-          sortOrder: 1,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-
-        const freeSubscription: UserSubscription & { plan: SubscriptionPlan } = {
-          id: 'free-default',
-          userId,
-          planId: 'free',
-          stripeSubscriptionId: '',
-          stripeCustomerId: '',
-          status: 'active',
-          currentPeriodStart: new Date(),
-          currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-          cancelAtPeriodEnd: false,
-          metadata: {},
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          plan: freePlan
-        };
-
+        const freeSubscription = this.buildFreeSubscription(userId);
+        this.subscriptionCache.set(userId, {
+          data: freeSubscription,
+          expiresAt: Date.now() + this.subscriptionCacheTTL
+        });
         return { success: true, data: freeSubscription };
       }
 
@@ -449,17 +434,22 @@ class SubscriptionsService {
       const subscriptionDoc = snapshot.docs[0];
       const subscription = { id: subscriptionDoc.id, ...subscriptionDoc.data() } as UserSubscription;
 
-      // Obtener detalles del plan
-      const planDoc = await getDoc(doc(db, 'subscription_plans', subscription.planId));
-      if (!planDoc.exists()) {
+      // Obtener detalles del plan con cache
+      const plan = await this.getPlan(subscription.planId);
+      if (!plan) {
         throw new Error('Plan not found');
       }
 
-      const plan = { id: planDoc.id, ...planDoc.data() } as SubscriptionPlan;
+      const payload = { ...subscription, plan } as UserSubscription & { plan: SubscriptionPlan };
+
+      this.subscriptionCache.set(userId, {
+        data: payload,
+        expiresAt: Date.now() + this.subscriptionCacheTTL
+      });
 
       return {
         success: true,
-        data: { ...subscription, plan }
+        data: payload
       };
 
     } catch (error) {
@@ -687,13 +677,14 @@ class SubscriptionsService {
           metadata
         };
 
-        const docRef = doc(collection(db, 'usage_records'));
-        await setDoc(docRef, usageData);
+      const docRef = doc(collection(db, 'usage_records'));
+      await setDoc(docRef, usageData);
 
-        return { success: true };
-      }
+      this.bumpUsageCache(userId, metric, quantity);
+      return { success: true };
+    }
 
-      const subscription = subscriptionResult.data;
+    const subscription = subscriptionResult.data;
 
       const usageData: Omit<UsageRecord, 'id'> = {
         userId: userId,
@@ -708,6 +699,7 @@ class SubscriptionsService {
       await setDoc(docRef, usageData);
 
       logger.info('Usage recorded', { userId, metric, quantity });
+      this.bumpUsageCache(userId, metric, quantity);
 
       return { success: true };
 
@@ -789,6 +781,13 @@ class SubscriptionsService {
   }
 
   private async getCurrentUsage(userId: string, metric: UsageRecord['metric']): Promise<number> {
+    const cacheKey = this.getUsageCacheKey(userId, metric);
+    const cached = this.usageCache.get(cacheKey);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
     // Obtener uso del período actual (último mes)
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
@@ -801,11 +800,30 @@ class SubscriptionsService {
       where('timestamp', '>=', startOfMonth)
     );
 
-    const snapshot = await getDocs(q);
-    return snapshot.docs.reduce((total, doc) => {
-      const data = doc.data() as UsageRecord;
-      return total + data.quantity;
-    }, 0);
+    try {
+      const snapshot = await getDocs(q);
+      const total = snapshot.docs.reduce((sum, doc) => {
+        const data = doc.data() as UsageRecord;
+        return sum + data.quantity;
+      }, 0);
+
+      this.setUsageCache(userId, metric, total);
+      return total;
+
+    } catch (error) {
+      const firebaseError = error as FirebaseError;
+
+      if (firebaseError?.code === 'failed-precondition') {
+        logger.warn('Missing Firestore index for usage_records query', {
+          userId,
+          metric,
+          hint: 'Create composite index on usage_records (userId ==, metric ==, timestamp >=)'
+        });
+        return 0;
+      }
+
+      throw error;
+    }
   }
 
   private getFreePlanLimits(): Record<string, number> {
@@ -866,6 +884,87 @@ class SubscriptionsService {
 
     // Default: FREE
     return this.getFreePlanLimits();
+  }
+
+  private buildFreeSubscription(userId: string): UserSubscription & { plan: SubscriptionPlan } {
+    const now = new Date();
+    const freePlan: SubscriptionPlan = {
+      id: 'free',
+      name: 'FREE',
+      description: 'Plan gratuito',
+      price: 0,
+      currency: 'eur',
+      interval: 'month',
+      intervalCount: 1,
+      features: [],
+      isActive: true,
+      sortOrder: 1,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    return {
+      id: 'free-default',
+      userId,
+      planId: 'free',
+      stripeSubscriptionId: '',
+      stripeCustomerId: '',
+      status: 'active',
+      currentPeriodStart: now,
+      currentPeriodEnd: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
+      cancelAtPeriodEnd: false,
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+      plan: freePlan
+    };
+  }
+
+  private async getPlan(planId: string): Promise<SubscriptionPlan | null> {
+    if (!planId) {
+      return null;
+    }
+
+    const cached = this.planCache.get(planId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const planDoc = await getDoc(doc(db, 'subscription_plans', planId));
+    if (!planDoc.exists()) {
+      return null;
+    }
+
+    const plan = { id: planDoc.id, ...planDoc.data() } as SubscriptionPlan;
+    this.planCache.set(planId, {
+      data: plan,
+      expiresAt: Date.now() + this.planCacheTTL
+    });
+
+    return plan;
+  }
+
+  private getUsageCacheKey(userId: string, metric: UsageRecord['metric']): string {
+    return `${userId}:${metric}`;
+  }
+
+  private setUsageCache(userId: string, metric: UsageRecord['metric'], value: number) {
+    this.usageCache.set(this.getUsageCacheKey(userId, metric), {
+      value,
+      expiresAt: Date.now() + this.usageCacheTTL
+    });
+  }
+
+  private bumpUsageCache(userId: string, metric: UsageRecord['metric'], increment: number) {
+    const key = this.getUsageCacheKey(userId, metric);
+    const cached = this.usageCache.get(key);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      this.usageCache.set(key, {
+        value: cached.value + increment,
+        expiresAt: cached.expiresAt
+      });
+    }
   }
 
   /**

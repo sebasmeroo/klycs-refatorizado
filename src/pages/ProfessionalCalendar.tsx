@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   Calendar as CalendarIcon,
@@ -32,15 +32,33 @@ export const ProfessionalCalendar: React.FC = () => {
   const [searchParams] = useSearchParams();
   const professionalEmail = searchParams.get('email');
 
-  // ===== REACT QUERY HOOKS =====
-  const { data: calendar, isLoading: calendarLoading, error: calendarError } = useCalendar(calendarId);
-  const { data: eventsData, isLoading: eventsLoading } = useCalendarEvents(calendarId);
-
-  // ===== ESTADO =====
-  const events = eventsData || [];
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+
+  // ===== REACT QUERY HOOKS =====
+  const { data: calendar, isLoading: calendarLoading, error: calendarError } = useCalendar(calendarId);
+  const visibleRange = useMemo(() => {
+    const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    start.setMonth(start.getMonth() - 1);
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    end.setMonth(end.getMonth() + 2);
+    end.setDate(0);
+    end.setHours(23, 59, 59, 999);
+
+    return {
+      startDate: start,
+      endDate: end
+    };
+  }, [currentDate]);
+
+  const { data: eventsData, isLoading: eventsLoading } = useCalendarEvents(calendarId, visibleRange);
+
+  // ===== ESTADO =====
+  const events = eventsData || [];
   const loading = calendarLoading || eventsLoading;
   const [error, setError] = useState('');
   const [updatingStatus, setUpdatingStatus] = useState(false);

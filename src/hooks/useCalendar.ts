@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CollaborativeCalendarService } from '@/services/collaborativeCalendar';
+import { CollaborativeCalendarService, CalendarEventService } from '@/services/collaborativeCalendar';
 import { SharedCalendar } from '@/types/calendar';
 import { costMonitoring } from '@/utils/costMonitoring';
 
@@ -49,21 +49,31 @@ export const useCalendar = (calendarId: string | undefined) => {
 /**
  * Hook para obtener eventos de un calendario con cache
  */
-export const useCalendarEvents = (calendarId: string | undefined) => {
+export const useCalendarEvents = (
+  calendarId: string | undefined,
+  options?: { startDate?: Date; endDate?: Date }
+) => {
+  const startKey = options?.startDate?.toISOString() ?? 'start';
+  const endKey = options?.endDate?.toISOString() ?? 'end';
+
   return useQuery({
-    queryKey: ['calendarEvents', calendarId],
+    queryKey: ['calendarEvents', calendarId, startKey, endKey],
     queryFn: async () => {
       if (!calendarId) return [];
 
       costMonitoring.trackFirestoreRead(1);
-      const events = await CollaborativeCalendarService.getCalendarEvents(calendarId);
+      const events = await CalendarEventService.getCalendarEvents(
+        [calendarId],
+        options?.startDate,
+        options?.endDate
+      );
 
       // Track lecturas adicionales (1 por cada evento)
       costMonitoring.trackFirestoreRead(events.length);
 
       return events;
     },
-    staleTime: 3 * 60 * 1000, // 3 minutos (eventos cambian más frecuentemente)
+    staleTime: 3 * 60 * 1000,
     cacheTime: 10 * 60 * 1000,
     enabled: !!calendarId,
     refetchOnWindowFocus: false,
@@ -73,31 +83,36 @@ export const useCalendarEvents = (calendarId: string | undefined) => {
 /**
  * Hook para obtener eventos de múltiples calendarios con cache
  */
-export const useMultipleCalendarEvents = (calendarIds: string[] | undefined) => {
-  // ✅ Solo crear queryKey si hay IDs válidos
-  const queryKey = calendarIds && calendarIds.length > 0
-    ? ['multipleCalendarEvents', calendarIds.join(',')]
-    : ['multipleCalendarEvents', 'empty'];
+export const useMultipleCalendarEvents = (
+  calendarIds: string[] | undefined,
+  options?: { startDate?: Date; endDate?: Date }
+) => {
+  const normalizedIds = calendarIds && calendarIds.length > 0
+    ? [...calendarIds].sort().join(',')
+    : 'empty';
+  const startKey = options?.startDate?.toISOString() ?? 'start';
+  const endKey = options?.endDate?.toISOString() ?? 'end';
 
   return useQuery({
-    queryKey,
+    queryKey: ['multipleCalendarEvents', normalizedIds, startKey, endKey],
     queryFn: async () => {
       if (!calendarIds || calendarIds.length === 0) return [];
 
       costMonitoring.trackFirestoreRead(1);
-
-      // Importar el servicio correcto
-      const { CalendarEventService } = await import('@/services/collaborativeCalendar');
-      const events = await CalendarEventService.getCalendarEvents(calendarIds);
+      const events = await CalendarEventService.getCalendarEvents(
+        calendarIds,
+        options?.startDate,
+        options?.endDate
+      );
 
       // Track lecturas adicionales (1 por cada evento)
       costMonitoring.trackFirestoreRead(events.length);
 
       return events;
     },
-    staleTime: 3 * 60 * 1000, // 3 minutos
+    staleTime: 3 * 60 * 1000,
     cacheTime: 10 * 60 * 1000,
-    enabled: !!calendarIds && calendarIds.length > 0, // ✅ Solo ejecuta si hay IDs
+    enabled: !!calendarIds && calendarIds.length > 0,
     refetchOnWindowFocus: false,
   });
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar as CalendarIcon, 
   Plus,
@@ -87,13 +87,34 @@ export const Bookings: React.FC = () => {
   const calendars = calendarsData || [];
 
   // ✅ React Query - Carga eventos con cache de 5 minutos
-  const calendarIds = calendarState.selectedCalendars.length > 0
-    ? calendarState.selectedCalendars
-    : calendars.map(c => c.id);
+  const calendarIds = useMemo(() => {
+    if (calendarState.selectedCalendars.length === 0) {
+      return calendars.map(c => c.id);
+    }
+    return calendarState.selectedCalendars;
+  }, [calendars, calendarState.selectedCalendars]);
+
+  const visibleRange = useMemo(() => {
+    const current = calendarState.currentDate;
+    const rangeStart = new Date(current.getFullYear(), current.getMonth(), 1);
+    rangeStart.setMonth(rangeStart.getMonth() - 1);
+    rangeStart.setDate(1);
+    rangeStart.setHours(0, 0, 0, 0);
+
+    const rangeEnd = new Date(current.getFullYear(), current.getMonth(), 1);
+    rangeEnd.setMonth(rangeEnd.getMonth() + 2);
+    rangeEnd.setDate(0);
+    rangeEnd.setHours(23, 59, 59, 999);
+
+    return {
+      startDate: rangeStart,
+      endDate: rangeEnd
+    };
+  }, [calendarState.currentDate]);
 
   const { data: eventsData } = useMultipleCalendarEvents(
-    calendarIds,
-    calendarState.currentDate
+    calendarIds.length > 0 ? calendarIds : undefined,
+    visibleRange
   );
   const events = eventsData || [];
 

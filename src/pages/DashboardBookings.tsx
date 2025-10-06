@@ -82,6 +82,9 @@ const PROFESSIONAL_COLOR_PALETTE = [
   '#6366F1'
 ];
 
+const sortEventsByStartDate = (events: CalendarEvent[]): CalendarEvent[] =>
+  [...events].sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+
 const slugify = (value: string) =>
   value
     .toLowerCase()
@@ -111,15 +114,40 @@ const DashboardBookings: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  // ===== REACT QUERY HOOKS =====
-  const { data: calendarsData, isLoading: calendarsLoading } = useUserCalendars(user?.uid);
-  const calendarIds = calendarsData?.map(cal => cal.id) || [];
-  const { data: eventsData, isLoading: eventsLoading } = useMultipleCalendarEvents(calendarIds.length > 0 ? calendarIds : undefined);
-  const createEventMutation = useCreateEvent();
-  const updateEventMutation = useUpdateEvent();
-  const deleteEventMutation = useDeleteEvent();
+  const addEventToCaches = useCallback((event: CalendarEvent) => {
+    if (event.recurring && event.recurring.type !== 'none') {
+      return;
+    }
 
-  // ===== ESTADO =====
+    queryClient.setQueryData<CalendarEvent[]>(['calendarEvents', event.calendarId], (old) => {
+      const base = Array.isArray(old) ? old : [];
+      const filtered = base.filter(existing => existing.id !== event.id);
+      filtered.push(event);
+      return sortEventsByStartDate(filtered);
+    });
+
+    queryClient.setQueriesData<CalendarEvent[]>({ queryKey: ['multipleCalendarEvents'] }, (old) => {
+      if (!Array.isArray(old)) return old;
+      const filtered = old.filter(existing => existing.id !== event.id);
+      filtered.push(event);
+      return sortEventsByStartDate(filtered);
+    });
+  }, [queryClient]);
+
+  const removeEventFromCaches = useCallback((eventId: string, calendarId?: string) => {
+    if (calendarId) {
+      queryClient.setQueryData<CalendarEvent[]>(['calendarEvents', calendarId], (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(evt => evt.id !== eventId && evt.parentEventId !== eventId);
+      });
+    }
+
+    queryClient.setQueriesData<CalendarEvent[]>({ queryKey: ['multipleCalendarEvents'] }, (old) => {
+      if (!Array.isArray(old)) return old;
+      return old.filter(evt => evt.id !== eventId && evt.parentEventId !== eventId);
+    });
+  }, [queryClient]);
+
   const [calendarState, setCalendarState] = useState<CalendarState>({
     currentDate: new Date(),
     view: 'month',
@@ -128,10 +156,47 @@ const DashboardBookings: React.FC = () => {
     isEditingEvent: false
   });
 
+  // ===== REACT QUERY HOOKS =====
+  const { data: calendarsData, isLoading: calendarsLoading } = useUserCalendars(user?.uid);
+  const calendarIds = useMemo(() => {
+    const ids = calendarsData?.map(cal => cal.id) ?? [];
+    if (calendarState.selectedCalendars.length === 0 || calendarState.selectedCalendars.includes(GENERAL_CALENDAR_ID)) {
+      return ids;
+    }
+    return calendarState.selectedCalendars;
+  }, [calendarsData, calendarState.selectedCalendars]);
+
+  const visibleRange = useMemo(() => {
+    const current = calendarState.currentDate;
+    const rangeStart = new Date(current.getFullYear(), current.getMonth(), 1);
+    rangeStart.setMonth(rangeStart.getMonth() - 1);
+    rangeStart.setDate(1);
+    rangeStart.setHours(0, 0, 0, 0);
+
+    const rangeEnd = new Date(current.getFullYear(), current.getMonth(), 1);
+    rangeEnd.setMonth(rangeEnd.getMonth() + 2);
+    rangeEnd.setDate(0);
+    rangeEnd.setHours(23, 59, 59, 999);
+
+    return {
+      startDate: rangeStart,
+      endDate: rangeEnd
+    };
+  }, [calendarState.currentDate]);
+
+  const { data: eventsData, isLoading: eventsLoading } = useMultipleCalendarEvents(
+    calendarIds.length > 0 ? calendarIds : undefined,
+    visibleRange
+  );
+  const createEventMutation = useCreateEvent();
+  const updateEventMutation = useUpdateEvent();
+  const deleteEventMutation = useDeleteEvent();
+
+  // ===== ESTADO =====
   const calendars = calendarsData || [];
-  const events = eventsData || [];
-  const [stats, setStats] = useState<CalendarStats | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+    const events = eventsData || [];
+    const [stats, setStats] = useState<CalendarStats | null>(null);
+    const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventComments, setEventComments] = useState<EventComment[]>([]);
   const [calendarUsers, setCalendarUsers] = useState<CalendarUser[]>([]);
   const [showAddProfessional, setShowAddProfessional] = useState(false);
@@ -157,6 +222,7 @@ const DashboardBookings: React.FC = () => {
   const [selectedProfessional, setSelectedProfessional] = useState<SharedCalendar | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
+  const [creatingEvent, setCreatingEvent] = useState(false);
   const [newEventForm, setNewEventForm] = useState({
     title: '',
     description: '',
@@ -235,7 +301,7 @@ const DashboardBookings: React.FC = () => {
       eventsThisWeek: 0,
       mostActiveCalendar: 'Calendario General'
     });
-  }, [events.length, calendars.length]); // ✅ Solo cuando cambia la cantidad
+  }, [events.length, calendars.length]);
 
   // ✅ Inicializar vista solo una vez
   useEffect(() => {
@@ -696,12 +762,22 @@ const DashboardBookings: React.FC = () => {
       return;
     }
 
+    if (creatingEvent) {
+      return;
+    }
+
     if (!user?.uid) {
       alert('Error: Usuario no autenticado');
       return;
     }
-    
+
+    if (recurrence && recurrence.type !== 'none' && (!recurrence.weekdays || recurrence.weekdays.length === 0)) {
+      alert('Selecciona al menos un día para la recurrencia antes de crear el evento.');
+      return;
+    }
+
     try {
+      setCreatingEvent(true);
       
       const startDateTime = new Date(selectedDate);
       const [startHour, startMinute] = newEventForm.startTime.split(':').map(Number);
@@ -763,14 +839,41 @@ const DashboardBookings: React.FC = () => {
 
       const eventId = await CalendarEventService.createEvent(selectedProfessional.id, eventDataToSend);
 
+      const now = new Date();
+      const createdEvent: CalendarEvent = {
+        id: eventId,
+        calendarId: selectedProfessional.id,
+        title: eventDataToSend.title,
+        description,
+        startDate: startDateTime,
+        endDate: endDateTime,
+        isAllDay: eventDataToSend.isAllDay,
+        location,
+        color: selectedProfessional.color,
+        hasEndTime: newEventForm.hasEndTime,
+        duration: eventDurationMinutes,
+        createdBy: user.uid,
+        attendees: eventDataToSend.attendees,
+        comments: [],
+        attachments: [],
+        recurring: recurrence && recurrence.type !== 'none' ? { ...recurrence } : undefined,
+        isRecurringInstance: false,
+        status: eventDataToSend.status,
+        visibility: eventDataToSend.visibility,
+        reminders: [],
+        customFieldsData: Object.keys(customFieldsData).length > 0 ? { ...customFieldsData } : undefined,
+        createdAt: now,
+        updatedAt: now
+      };
 
-      // ✅ RECARGAR EVENTOS DESDE FIREBASE para mostrar el nuevo evento
-      // ✅ Invalidar TODOS los caches relacionados para actualización inmediata
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
-        queryClient.invalidateQueries({ queryKey: ['calendarEvents', selectedProfessional.id] }),
-        queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
-      ]);
+      addEventToCaches(createdEvent);
+
+      if (recurrence && recurrence.type !== 'none') {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+          queryClient.invalidateQueries({ queryKey: ['calendarEvents', selectedProfessional.id] })
+        ]);
+      }
 
       closeCreateEventPanel();
       alert(`✅ Evento "${newEventForm.title}" creado correctamente${recurrence ? ' (recurrente)' : ''}`);
@@ -778,8 +881,20 @@ const DashboardBookings: React.FC = () => {
     } catch (error) {
       console.error('❌ Error creando evento:', error);
       alert(`❌ Error al crear evento: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setCreatingEvent(false);
     }
-  }, [selectedDate, selectedProfessional, newEventForm, user?.uid, calendars, closeCreateEventPanel]);
+  }, [
+    selectedDate,
+    selectedProfessional,
+    newEventForm,
+    recurrence,
+    customFieldsData,
+    user?.uid,
+    closeCreateEventPanel,
+    addEventToCaches,
+    queryClient
+  ]);
   
   // Handler para actualizar evento
   const handleUpdateEvent = useCallback(async () => {
@@ -1907,11 +2022,7 @@ const DashboardBookings: React.FC = () => {
                     try {
                       await CalendarEventService.deleteRecurringSeries(selectedEvent.id);
                       setSelectedEvent(null);
-                      // ✅ Invalidar cache
-                      await Promise.all([
-                        queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
-                        queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
-                      ]);
+                      removeEventFromCaches(selectedEvent.id, selectedEvent.calendarId);
                       alert('✅ Serie de eventos eliminada correctamente');
                     } catch (error) {
                       console.error('Error eliminando serie:', error);
@@ -1937,11 +2048,7 @@ const DashboardBookings: React.FC = () => {
                           selectedEvent.startDate
                         );
                         setSelectedEvent(null);
-                        // ✅ Invalidar cache
-                        await Promise.all([
-                          queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
-                          queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
-                        ]);
+                        removeEventFromCaches(selectedEvent.id, selectedEvent.calendarId);
                         alert('✅ Evento eliminado correctamente');
                       } catch (error) {
                         console.error('Error eliminando evento:', error);
@@ -1986,11 +2093,7 @@ const DashboardBookings: React.FC = () => {
                       try {
                         await CalendarEventService.deleteRecurringSeries(selectedEvent.parentEventId!);
                         setSelectedEvent(null);
-                        // ✅ Invalidar cache
-                        await Promise.all([
-                          queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
-                          queryClient.invalidateQueries({ queryKey: ['calendarEvents'] })
-                        ]);
+                        removeEventFromCaches(selectedEvent.parentEventId!, selectedEvent.calendarId);
                         alert('✅ Serie completa eliminada correctamente');
                       } catch (error) {
                         console.error('Error eliminando serie:', error);
@@ -2012,8 +2115,7 @@ const DashboardBookings: React.FC = () => {
                     try {
                       await CalendarEventService.deleteEvent(selectedEvent.id);
                       setSelectedEvent(null);
-                      // ✅ Invalidar cache de React Query
-                      queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
+                      removeEventFromCaches(selectedEvent.id, selectedEvent.calendarId);
                     } catch (error) {
                       console.error('Error eliminando evento:', error);
                       alert('Error al eliminar el evento');
@@ -2378,11 +2480,15 @@ const DashboardBookings: React.FC = () => {
             </button>
             <button
               onClick={handleCreateEvent}
-              disabled={!newEventForm.title.trim()}
+              disabled={!newEventForm.title.trim() || creatingEvent}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
             >
-              <Plus className="w-4 h-4" />
-              <span>Crear Evento</span>
+              {creatingEvent ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4" />
+              )}
+              <span>{creatingEvent ? 'Creando...' : 'Crear Evento'}</span>
             </button>
           </div>
             </div>

@@ -25,14 +25,24 @@ export function generateRecurringInstances(
     return date.getTime();
   });
 
-  const recurrenceEndDate = recurring.endDate || endDate;
+  const firstPossibleDate = new Date(startDate);
+  firstPossibleDate.setHours(0, 0, 0, 0);
+  const parentDateOnly = new Date(parentEvent.startDate);
+  parentDateOnly.setHours(0, 0, 0, 0);
 
-  let currentDate = new Date(parentEvent.startDate);
-  let weekCount = 0;
+  // Empezar desde el mayor entre la fecha del padre y la fecha de inicio solicitada
+  const generationStart = parentDateOnly > firstPossibleDate ? parentDateOnly : firstPossibleDate;
+  generationStart.setHours(0, 0, 0, 0);
+
+  const recurrenceEndDate = recurring.endDate || endDate;
+  recurrenceEndDate.setHours(23, 59, 59, 999);
+
+  let currentDate = new Date(generationStart);
+  let generatedWeeks = 0;
   const maxWeeks = Math.min(recurring.count || 12, 52);
   const intervalInDays = (recurring.interval || 1) * 7;
 
-  while (weekCount < maxWeeks && currentDate <= recurrenceEndDate) {
+  while (generatedWeeks < maxWeeks && currentDate <= recurrenceEndDate) {
     for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
       const checkDate = new Date(currentDate);
       checkDate.setDate(currentDate.getDate() + dayOffset);
@@ -41,7 +51,7 @@ export function generateRecurringInstances(
 
       const dayOfWeek = checkDate.getDay();
 
-      if (recurring.weekdays.includes(dayOfWeek) && checkDate >= startDate) {
+      if (recurring.weekdays.includes(dayOfWeek) && checkDate >= generationStart) {
         const instanceStart = new Date(
           checkDate.getFullYear(),
           checkDate.getMonth(),
@@ -54,6 +64,10 @@ export function generateRecurringInstances(
 
         const instanceDateOnly = new Date(instanceStart);
         instanceDateOnly.setHours(0, 0, 0, 0);
+
+        if (instanceStart.getTime() === parentEvent.startDate.getTime()) {
+          continue;
+        }
 
         if (!exceptionDates.includes(instanceDateOnly.getTime())) {
           const instanceEnd = duration > 0 ? new Date(instanceStart.getTime() + duration) : undefined;
@@ -72,8 +86,8 @@ export function generateRecurringInstances(
     }
 
     currentDate.setDate(currentDate.getDate() + intervalInDays);
-    weekCount++;
+    generatedWeeks++;
   }
 
-  return instances;
+  return instances.filter(instance => instance.startDate >= generationStart && instance.startDate <= recurrenceEndDate);
 }
