@@ -85,6 +85,33 @@ const PROFESSIONAL_COLOR_PALETTE = [
 const sortEventsByStartDate = (events: CalendarEvent[]): CalendarEvent[] =>
   [...events].sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
+const LocationMapPreview: React.FC<{ query?: string; className?: string }> = ({ query, className }) => {
+  if (!query || !query.trim()) {
+    return null;
+  }
+
+  const mapSrc = `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
+
+  return (
+    <div className={className}>
+      <div className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+        <MapPin className="w-3 h-3" />
+        Vista previa de la ubicación
+      </div>
+      <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+        <iframe
+          title={`Mapa de ${query}`}
+          src={mapSrc}
+          loading="lazy"
+          allowFullScreen
+          className="w-full h-48"
+          referrerPolicy="no-referrer-when-downgrade"
+        />
+      </div>
+    </div>
+  );
+};
+
 const slugify = (value: string) =>
   value
     .toLowerCase()
@@ -147,6 +174,11 @@ const DashboardBookings: React.FC = () => {
       return old.filter(evt => evt.id !== eventId && evt.parentEventId !== eventId);
     });
   }, [queryClient]);
+
+  const updateEventInCaches = useCallback((updatedEvent: CalendarEvent, previousCalendarId: string) => {
+    removeEventFromCaches(updatedEvent.id, previousCalendarId);
+    addEventToCaches(updatedEvent);
+  }, [addEventToCaches, removeEventFromCaches]);
 
   const [calendarState, setCalendarState] = useState<CalendarState>({
     currentDate: new Date(),
@@ -242,10 +274,12 @@ const DashboardBookings: React.FC = () => {
   const [editEventForm, setEditEventForm] = useState({
     title: '',
     description: '',
+    date: '',
     startTime: '09:00',
     endTime: '10:00',
     location: '',
-    hasEndTime: true
+    hasEndTime: true,
+    calendarId: ''
   });
   
   // Estados para ver todos los eventos de un día
@@ -676,10 +710,12 @@ const DashboardBookings: React.FC = () => {
     setEditEventForm({
       title: event.title,
       description: event.description || '',
+      date: event.startDate.toISOString().slice(0, 10),
       startTime,
       endTime,
       location: event.location || '',
-      hasEndTime
+      hasEndTime,
+      calendarId: event.calendarId
     });
     
     // Cargar campos personalizados si existen
@@ -700,10 +736,12 @@ const DashboardBookings: React.FC = () => {
     setEditEventForm({
       title: '',
       description: '',
+      date: '',
       startTime: '09:00',
       endTime: '10:00',
       location: '',
-      hasEndTime: true
+      hasEndTime: true,
+      calendarId: ''
     });
     setCustomFieldsData({});
   }, []);
@@ -903,9 +941,15 @@ const DashboardBookings: React.FC = () => {
       return;
     }
 
+    if (!editEventForm.date) {
+      alert('Selecciona la fecha del evento');
+      return;
+    }
+
     try {
       
-      const startDateTime = new Date(editingEvent.startDate);
+      const baseDate = new Date(editEventForm.date);
+      const startDateTime = new Date(baseDate);
       const [startHour, startMinute] = editEventForm.startTime.split(':').map(Number);
       startDateTime.setHours(startHour, startMinute, 0, 0);
       
@@ -915,13 +959,16 @@ const DashboardBookings: React.FC = () => {
         hasEndTime: editEventForm.hasEndTime,
         updatedAt: new Date()
       };
-      
+
+      const targetCalendarId = editEventForm.calendarId || editingEvent.calendarId;
+      updates.calendarId = targetCalendarId;
+
       // Solo agregar endDate si se especificó hora de fin
       let endDateTime: Date | undefined;
       let eventDurationMinutes: number | undefined;
 
       if (editEventForm.hasEndTime) {
-        endDateTime = new Date(editingEvent.startDate);
+        endDateTime = new Date(baseDate);
         const [endHour, endMinute] = editEventForm.endTime.split(':').map(Number);
         endDateTime.setHours(endHour, endMinute, 0, 0);
         updates.endDate = endDateTime;
@@ -957,19 +1004,32 @@ const DashboardBookings: React.FC = () => {
 
 
       await CalendarEventService.updateEvent(editingEvent.id, updates);
-      
-      
-      // ✅ Invalidar cache de React Query para recargar eventos
-      queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] });
-      
+
+
+      const now = new Date();
+      const updatedEvent: CalendarEvent = {
+        ...editingEvent,
+        ...updates,
+        startDate: startDateTime,
+        endDate: updates.endDate ?? undefined,
+        duration: eventDurationMinutes ?? editingEvent.duration,
+        calendarId: targetCalendarId,
+        updatedAt: now,
+        description: updates.description ?? '',
+        location: updates.location ?? '',
+        customFieldsData: updates.customFieldsData ?? editingEvent.customFieldsData
+      };
+
+      updateEventInCaches(updatedEvent, editingEvent.calendarId);
+
       closeEditEventPanel();
       alert(`✅ Evento "${editEventForm.title}" actualizado correctamente`);
-      
+
     } catch (error) {
       console.error('❌ Error actualizando evento:', error);
       alert(`❌ Error al actualizar evento: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
-  }, [editingEvent, editEventForm, customFieldsData, calendars, closeEditEventPanel]);
+  }, [editingEvent, editEventForm, customFieldsData, closeEditEventPanel, updateEventInCaches]);
   
   const getCurrentProfessionalInfo = () => {
     if (calendarState.selectedCalendars.includes(GENERAL_CALENDAR_ID)) {
@@ -2334,19 +2394,20 @@ const DashboardBookings: React.FC = () => {
             />
               </div>
                         
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Ubicación
-            </label>
-            <input
-              key="event-location-stable-input" 
-              type="text"
-              value={newEventForm.location}
-              onChange={handleEventLocationChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Ej: Consultorio 2, Online, etc."
-            />
-          </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Ubicación
+                </label>
+                <input
+                  key="event-location-stable-input" 
+                  type="text"
+                  value={newEventForm.location}
+                  onChange={handleEventLocationChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Ej: Consultorio 2, Online, etc."
+                />
+                <LocationMapPreview query={newEventForm.location} className="mt-3" />
+              </div>
 
           {/* Divider */}
           <div className="border-t border-gray-200 my-4"></div>
@@ -2700,14 +2761,17 @@ const DashboardBookings: React.FC = () => {
                     );
                     
                     setGlobalCustomFields(sanitizedFields);
-                    setCalendars(prev => prev.map(calendar => ({
-                      ...calendar,
-                      settings: {
-                        ...calendar.settings,
-                        customFields: sanitizedFields
-                      },
-                      updatedAt: new Date()
-                    })));
+                    queryClient.setQueryData<SharedCalendar[]>(['calendars', user.uid], (prev) => {
+                      if (!Array.isArray(prev)) return prev;
+                      return prev.map(calendar => ({
+                        ...calendar,
+                        settings: {
+                          ...calendar.settings,
+                          customFields: sanitizedFields
+                        },
+                        updatedAt: new Date()
+                      }));
+                    });
 
                   } catch (error) {
                     console.error('❌ Error al guardar campos:', error);
@@ -3182,7 +3246,38 @@ const DashboardBookings: React.FC = () => {
                   placeholder="Detalles adicionales del evento..."
                 />
               </div>
-              
+
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Fecha
+                  </label>
+                  <input
+                    type="date"
+                    value={editEventForm.date}
+                    onChange={(e) => setEditEventForm(prev => ({ ...prev, date: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Profesional / Calendario
+                  </label>
+                  <select
+                    value={editEventForm.calendarId}
+                    onChange={(e) => setEditEventForm(prev => ({ ...prev, calendarId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="" disabled>Selecciona un calendario</option>
+                    {[{ id: GENERAL_CALENDAR_ID, name: 'Calendario General' }, ...calendars].map(calendar => (
+                      <option key={calendar.id} value={calendar.id}>
+                        {calendar.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Ubicación
@@ -3194,6 +3289,7 @@ const DashboardBookings: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Ej: Consultorio 2, Online, etc."
                 />
+                <LocationMapPreview query={editEventForm.location} className="mt-3" />
               </div>
 
               {/* Campos Personalizados */}
@@ -3669,6 +3765,7 @@ const DashboardBookings: React.FC = () => {
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-700">Ubicación</p>
                         <p className="text-gray-900">{selectedEventInfo.location}</p>
+                        <LocationMapPreview query={selectedEventInfo.location} className="mt-3" />
                       </div>
                     </div>
                   )}

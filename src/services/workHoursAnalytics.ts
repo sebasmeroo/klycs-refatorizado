@@ -1,6 +1,5 @@
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { CalendarEvent, WorkHoursStats } from '@/types/calendar';
+import { CalendarEventService } from '@/services/collaborativeCalendar';
+import { WorkHoursStats } from '@/types/calendar';
 
 /**
  * Servicio para calcular horas trabajadas y analytics de profesionales
@@ -20,28 +19,21 @@ export class WorkHoursAnalyticsService {
     onlyCompleted: boolean = true
   ): Promise<number> {
     try {
-      let q = query(
-        collection(db, 'calendar_events'),
-        where('calendarId', '==', calendarId),
-        where('startDate', '>=', Timestamp.fromDate(startDate)),
-        where('startDate', '<=', Timestamp.fromDate(endDate))
-      );
+      const { events } = await CalendarEventService.getCalendarEvents([
+        calendarId
+      ], startDate, endDate);
 
-      const snapshot = await getDocs(q);
-      let totalMinutes = 0;
-
-      snapshot.forEach(doc => {
-        const data = doc.data();
-
-        // Si onlyCompleted=true, solo contar los servicios completados
-        if (onlyCompleted && data.serviceStatus !== 'completed') {
-          return; // Skip este evento
+      const totalMinutes = events.reduce((sum, event) => {
+        if (onlyCompleted && event.serviceStatus !== 'completed') {
+          return sum;
         }
 
-        if (data.duration && data.duration > 0) {
-          totalMinutes += data.duration;
+        if (event.duration && event.duration > 0) {
+          return sum + event.duration;
         }
-      });
+
+        return sum;
+      }, 0);
 
       return totalMinutes / 60; // Convertir a horas
     } catch (error) {
@@ -64,33 +56,24 @@ export class WorkHoursAnalyticsService {
       const yearStart = new Date(startYear, 0, 1);
       const yearEnd = new Date(startYear, 11, 31, 23, 59, 59);
 
-      const q = query(
-        collection(db, 'calendar_events'),
-        where('calendarId', '==', calendarId),
-        where('startDate', '>=', Timestamp.fromDate(yearStart)),
-        where('startDate', '<=', Timestamp.fromDate(yearEnd))
-      );
-
-      const snapshot = await getDocs(q);
+      const { events } = await CalendarEventService.getCalendarEvents([
+        calendarId
+      ], yearStart, yearEnd);
 
       // Agrupar por mes
       const monthlyData: Record<string, { hours: number; events: number }> = {};
       let totalHours = 0;
 
-      snapshot.forEach(doc => {
-        const data = doc.data();
-
-        // Si onlyCompleted=true, solo contar los servicios completados
-        if (onlyCompleted && data.serviceStatus !== 'completed') {
-          return; // Skip este evento
+      events.forEach(event => {
+        if (onlyCompleted && event.serviceStatus !== 'completed') {
+          return;
         }
 
-        if (data.duration && data.duration > 0) {
-          const hours = data.duration / 60;
+        if (event.duration && event.duration > 0) {
+          const hours = event.duration / 60;
           totalHours += hours;
 
-          // Obtener mes en formato YYYY-MM
-          const eventDate = data.startDate.toDate();
+          const eventDate = event.startDate;
           const monthKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}`;
 
           if (!monthlyData[monthKey]) {

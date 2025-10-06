@@ -62,14 +62,14 @@ export const useCalendarEvents = (
       if (!calendarId) return [];
 
       costMonitoring.trackFirestoreRead(1);
-      const events = await CalendarEventService.getCalendarEvents(
+      const { events, fetchedCount } = await CalendarEventService.getCalendarEvents(
         [calendarId],
         options?.startDate,
         options?.endDate
       );
 
       // Track lecturas adicionales (1 por cada evento)
-      costMonitoring.trackFirestoreRead(events.length);
+      costMonitoring.trackFirestoreRead(fetchedCount);
 
       return events;
     },
@@ -77,6 +77,7 @@ export const useCalendarEvents = (
     cacheTime: 10 * 60 * 1000,
     enabled: !!calendarId,
     refetchOnWindowFocus: false,
+    keepPreviousData: true,
   });
 };
 
@@ -99,14 +100,14 @@ export const useMultipleCalendarEvents = (
       if (!calendarIds || calendarIds.length === 0) return [];
 
       costMonitoring.trackFirestoreRead(1);
-      const events = await CalendarEventService.getCalendarEvents(
+      const { events, fetchedCount } = await CalendarEventService.getCalendarEvents(
         calendarIds,
         options?.startDate,
         options?.endDate
       );
 
       // Track lecturas adicionales (1 por cada evento)
-      costMonitoring.trackFirestoreRead(events.length);
+      costMonitoring.trackFirestoreRead(fetchedCount);
 
       return events;
     },
@@ -114,6 +115,7 @@ export const useMultipleCalendarEvents = (
     cacheTime: 10 * 60 * 1000,
     enabled: !!calendarIds && calendarIds.length > 0,
     refetchOnWindowFocus: false,
+    keepPreviousData: true,
   });
 };
 

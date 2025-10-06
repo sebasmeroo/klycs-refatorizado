@@ -15,7 +15,8 @@ import {
   serverTimestamp,
   writeBatch,
   arrayUnion,
-  arrayRemove
+  arrayRemove,
+  QueryConstraint
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import {
@@ -1030,88 +1031,124 @@ export class CalendarEventService {
   static async getCalendarEvents(
     calendarIds: string[],
     startDate?: Date,
-    endDate?: Date
-  ): Promise<CalendarEvent[]> {
+    endDate?: Date,
+    options?: { limit?: number }
+  ): Promise<{ events: CalendarEvent[]; fetchedCount: number }> {
     try {
-      let q = query(
-        collection(db, 'calendar_events'),
-        where('calendarId', 'in', calendarIds.slice(0, 10))
-      );
-      
-      if (startDate && endDate) {
-        q = query(q,
-          where('startDate', '>=', Timestamp.fromDate(startDate)),
-          where('startDate', '<=', Timestamp.fromDate(endDate))
-        );
+      if (!calendarIds || calendarIds.length === 0) {
+        return { events: [], fetchedCount: 0 };
       }
-      
-      q = query(q, orderBy('startDate', 'asc'));
-        const snapshot = await getDocs(q);
-        
-        const events: CalendarEvent[] = [];
-        
-        snapshot.forEach(doc => {
-          const data = doc.data() as CalendarEventFirestore;
 
-          // 🔧 CONVERTIR DE VUELTA DESDE UTC SIN CAMBIAR EL DÍA
-          // Leer el Timestamp como UTC y crear una fecha local con los mismos valores
-          const startDateUTC = data.startDate.toDate();
-          const startDate = new Date(
-            startDateUTC.getUTCFullYear(),
-            startDateUTC.getUTCMonth(),
-            startDateUTC.getUTCDate(),
-            startDateUTC.getUTCHours(),
-            startDateUTC.getUTCMinutes(),
+      const normalizedIds = Array.from(new Set(calendarIds.filter(Boolean)));
+      if (normalizedIds.length === 0) {
+        return { events: [], fetchedCount: 0 };
+      }
+
+      const constraints: QueryConstraint[] = [];
+      const [firstId] = normalizedIds;
+
+      if (normalizedIds.length === 1) {
+        constraints.push(where('calendarId', '==', firstId));
+      } else {
+        constraints.push(where('calendarId', 'in', normalizedIds.slice(0, 10)));
+      }
+
+      if (startDate) {
+        constraints.push(where('startDate', '>=', Timestamp.fromDate(startDate)));
+      }
+
+      if (endDate) {
+        constraints.push(where('startDate', '<=', Timestamp.fromDate(endDate)));
+      }
+
+      constraints.push(orderBy('startDate', 'asc'));
+
+      if (options?.limit) {
+        constraints.push(limit(options.limit));
+      }
+
+      const q = query(collection(db, 'calendar_events'), ...constraints);
+      const snapshot = await getDocs(q);
+
+      const events: CalendarEvent[] = [];
+
+      snapshot.forEach(doc => {
+        const data = doc.data() as CalendarEventFirestore;
+
+        const startDateUTC = data.startDate.toDate();
+        const startDateLocal = new Date(
+          startDateUTC.getUTCFullYear(),
+          startDateUTC.getUTCMonth(),
+          startDateUTC.getUTCDate(),
+          startDateUTC.getUTCHours(),
+          startDateUTC.getUTCMinutes(),
+          0,
+          0
+        );
+
+        let endDateLocal: Date | undefined;
+        if (data.endDate) {
+          const endDateUTC = data.endDate.toDate();
+          endDateLocal = new Date(
+            endDateUTC.getUTCFullYear(),
+            endDateUTC.getUTCMonth(),
+            endDateUTC.getUTCDate(),
+            endDateUTC.getUTCHours(),
+            endDateUTC.getUTCMinutes(),
             0,
             0
           );
-
-          // ✅ Validar que endDate existe antes de convertir
-          let endDate: Date | undefined;
-          if (data.endDate) {
-            const endDateUTC = data.endDate.toDate();
-            endDate = new Date(
-              endDateUTC.getUTCFullYear(),
-              endDateUTC.getUTCMonth(),
-              endDateUTC.getUTCDate(),
-              endDateUTC.getUTCHours(),
-              endDateUTC.getUTCMinutes(),
-              0,
-              0
-            );
-          }
+        }
 
         const event: CalendarEvent = {
           ...data,
           id: doc.id,
-          startDate,
-          endDate,
+          startDate: startDateLocal,
+          endDate: endDateLocal,
           createdAt: data.createdAt.toDate(),
           updatedAt: data.updatedAt.toDate(),
           completedAt: data.completedAt?.toDate(),
-          recurring: data.recurring ? {
-            ...data.recurring,
-            endDate: data.recurring.endDate?.toDate()
-          } : undefined
+          recurring: data.recurring
+            ? {
+                ...data.recurring,
+                endDate: data.recurring.endDate?.toDate()
+              }
+            : undefined
         };
 
         events.push(event);
       });
 
-      // ✅ Expandir eventos recurrentes en instancias virtuales
+      const expansionStartSource = startDate ? new Date(startDate) : new Date();
+      expansionStartSource.setHours(0, 0, 0, 0);
+
+      const expansionEndSource = endDate
+        ? new Date(endDate)
+        : (() => {
+            const fallback = new Date();
+            fallback.setMonth(fallback.getMonth() + 12);
+            fallback.setHours(23, 59, 59, 999);
+            return fallback;
+          })();
+
       const recurringParents = events.filter(e => e.recurring && !e.isRecurringInstance);
-      const today = new Date();
-      const futureLimit = new Date(today);
-      futureLimit.setFullYear(futureLimit.getFullYear() + 1);
 
       recurringParents.forEach(parentEvent => {
-        const instances = generateRecurringInstances(parentEvent, today, futureLimit);
+        const instances = generateRecurringInstances(
+          parentEvent,
+          new Date(expansionStartSource),
+          new Date(expansionEndSource)
+        );
         events.push(...instances);
       });
 
-      console.log(`✅ Total eventos expandidos: ${events.length} (${recurringParents.length} padres recurrentes generaron ${events.length - snapshot.size} instancias)`);
+      const sortedEvents = events.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
-      return events.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+      console.log(
+        `✅ Total eventos expandidos: ${sortedEvents.length} (${recurringParents.length} padres recurrentes generaron ${sortedEvents.length - snapshot.size} instancias)`
+      );
+
+      return { events: sortedEvents, fetchedCount: snapshot.size };
       
     } catch (error) {
       console.error('❌ ERROR DETALLADO cargando eventos:', error);
@@ -1121,7 +1158,7 @@ export class CalendarEventService {
       console.error('🔥 Error stack:', (error as any)?.stack);
       
       logError('Error al obtener eventos', error as Error, { calendarIds });
-      return [];
+      return { events: [], fetchedCount: 0 };
     }
   }
 
@@ -1371,7 +1408,7 @@ export class CalendarStatsService {
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(startOfWeek.getDate() + 6);
       
-      const allEvents = await CalendarEventService.getCalendarEvents(calendarIds);
+      const { events: allEvents } = await CalendarEventService.getCalendarEvents(calendarIds);
       const upcomingEvents = allEvents.filter(e => e.startDate >= now);
       const eventsThisMonth = allEvents.filter(e => 
         e.startDate >= startOfMonth && e.startDate <= endOfMonth

@@ -34,8 +34,12 @@ export function generateRecurringInstances(
   const generationStart = parentDateOnly > firstPossibleDate ? parentDateOnly : firstPossibleDate;
   generationStart.setHours(0, 0, 0, 0);
 
-  const recurrenceEndDate = recurring.endDate || endDate;
-  recurrenceEndDate.setHours(23, 59, 59, 999);
+  const recurrenceEndDateSource = recurring.endDate
+    ? new Date(recurring.endDate)
+    : new Date(endDate);
+  recurrenceEndDateSource.setHours(23, 59, 59, 999);
+
+  const recurrenceEndDate = recurrenceEndDateSource;
 
   let currentDate = new Date(generationStart);
   let generatedWeeks = 0;

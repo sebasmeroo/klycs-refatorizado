@@ -184,7 +184,8 @@ class SecurityHeadersService {
             'https://hooks.stripe.com',
             'https://accounts.google.com',
             'https://calendar.google.com',
-            'https://outlook.live.com'
+            'https://outlook.live.com',
+            'https://*.firebaseapp.com'
           ],
           childSrc: ["'self'", 'blob:'],
           workerSrc: ["'self'", 'blob:'],
