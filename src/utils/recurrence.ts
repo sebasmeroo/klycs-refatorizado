@@ -87,7 +87,7 @@ export function generateRecurringInstances(
             ?? parentEvent.recurringInstancesStatus?.[legacyInstanceKey];
           const parentDefaultStatus = parentEvent.recurringInstancesStatus?.[parentStatusKey]
             ?? parentEvent.recurringInstancesStatus?.[legacyParentKey];
-          const defaultStatus = parentEvent.serviceStatus ?? parentDefaultStatus?.status ?? 'pending';
+          const defaultStatus = parentDefaultStatus?.status ?? 'pending';
 
           instances.push({
             ...parentEvent,

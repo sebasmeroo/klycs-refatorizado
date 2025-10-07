@@ -1321,25 +1321,10 @@ export class CalendarEventService {
         const oldParentKey = `${eventId}_${parentStart.toISOString()}`;
         const oldLegacyParentKey = parentStart.toISOString();
 
-        if (status === 'pending') {
-          updateData[`recurringInstancesStatus.${parentStatusKey}`] = deleteField();
-          updateData[`recurringInstancesStatus.${legacyParentKey}`] = deleteField();
-          updateData[`recurringInstancesStatus.${oldParentKey}`] = deleteField();
-          updateData[`recurringInstancesStatus.${oldLegacyParentKey}`] = deleteField();
-        } else {
-          const statusPayload = {
-            status,
-            updatedAt: now,
-            updatedBy: userId,
-            completedAt: status === 'completed' ? now : null,
-            completedBy: status === 'completed' ? userId : null
-          };
-
-          updateData[`recurringInstancesStatus.${parentStatusKey}`] = statusPayload;
-          updateData[`recurringInstancesStatus.${legacyParentKey}`] = statusPayload;
-          updateData[`recurringInstancesStatus.${oldParentKey}`] = deleteField();
-          updateData[`recurringInstancesStatus.${oldLegacyParentKey}`] = deleteField();
-        }
+        updateData[`recurringInstancesStatus.${parentStatusKey}`] = deleteField();
+        updateData[`recurringInstancesStatus.${legacyParentKey}`] = deleteField();
+        updateData[`recurringInstancesStatus.${oldParentKey}`] = deleteField();
+        updateData[`recurringInstancesStatus.${oldLegacyParentKey}`] = deleteField();
       }
 
       await updateDoc(docRef, updateData);
