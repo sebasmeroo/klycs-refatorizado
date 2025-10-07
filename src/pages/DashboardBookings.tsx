@@ -340,10 +340,16 @@ const DashboardBookings: React.FC = () => {
   const [showEventInfoModal, setShowEventInfoModal] = useState(false);
   const [selectedEventInfo, setSelectedEventInfo] = useState<CalendarEvent | null>(null);
   const [showDeleteOptions, setShowDeleteOptions] = useState(false);
+  const [showDuplicateOptions, setShowDuplicateOptions] = useState(false);
+  const [duplicateForm, setDuplicateForm] = useState({
+    date: ''
+  });
+  const [duplicatingEvent, setDuplicatingEvent] = useState(false);
 
   useEffect(() => {
     if (!showEventInfoModal) {
       setShowDeleteOptions(false);
+      setShowDuplicateOptions(false);
     }
   }, [showEventInfoModal]);
 
@@ -940,6 +946,123 @@ const DashboardBookings: React.FC = () => {
       setUpdatingServiceStatus(null);
     }
   }, [user?.uid, dayEventsView, selectedEventInfo, editingEvent, queryClient]);
+
+  const handleDuplicateEvent = useCallback(async () => {
+    if (!selectedEventInfo) return;
+    if (!duplicateForm.date) {
+      alert('Selecciona la fecha destino para duplicar la reserva');
+      return;
+    }
+
+    try {
+      setDuplicatingEvent(true);
+
+      const startDate = new Date(duplicateForm.date);
+      startDate.setHours(
+        selectedEventInfo.startDate.getHours(),
+        selectedEventInfo.startDate.getMinutes(),
+        0,
+        0
+      );
+
+      let endDate: Date | undefined;
+      let durationMinutes: number | undefined;
+
+      if (selectedEventInfo.hasEndTime && selectedEventInfo.endDate) {
+        durationMinutes = Math.max(0, Math.round((selectedEventInfo.endDate.getTime() - selectedEventInfo.startDate.getTime()) / 60000));
+        if (durationMinutes > 0) {
+          endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+        }
+      } else if (selectedEventInfo.duration && selectedEventInfo.duration > 0) {
+        durationMinutes = selectedEventInfo.duration;
+        endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+      }
+
+      const eventData: any = {
+        calendarId: selectedEventInfo.calendarId,
+        title: selectedEventInfo.title,
+        startDate,
+        isAllDay: selectedEventInfo.isAllDay,
+        hasEndTime: selectedEventInfo.hasEndTime,
+        color: selectedEventInfo.color,
+        createdBy: user?.uid ?? selectedEventInfo.createdBy,
+        attendees: Array.isArray(selectedEventInfo.attendees) ? [...selectedEventInfo.attendees] : [],
+        comments: [],
+        attachments: Array.isArray(selectedEventInfo.attachments) ? [...selectedEventInfo.attachments] : [],
+        status: selectedEventInfo.status ?? 'confirmed',
+        visibility: selectedEventInfo.visibility ?? 'public',
+        reminders: Array.isArray(selectedEventInfo.reminders) ? [...selectedEventInfo.reminders] : [],
+        customFieldsData: selectedEventInfo.customFieldsData ? { ...selectedEventInfo.customFieldsData } : undefined
+      };
+
+      if (endDate) {
+        eventData.endDate = endDate;
+        if (durationMinutes && durationMinutes > 0) {
+          eventData.duration = durationMinutes;
+        }
+      }
+
+      if (selectedEventInfo.description) {
+        eventData.description = selectedEventInfo.description;
+      }
+
+      if (selectedEventInfo.location) {
+        eventData.location = selectedEventInfo.location;
+      }
+
+      if (selectedEventInfo.recurring && selectedEventInfo.recurring.type !== 'none') {
+        // No duplicamos la recurrencia completa; solo un evento único
+      }
+
+      const newEventId = await CalendarEventService.createEvent(selectedEventInfo.calendarId, eventData);
+
+      const now = new Date();
+      const duplicatedEvent: CalendarEvent = {
+        ...selectedEventInfo,
+        id: newEventId,
+        startDate,
+        endDate,
+        duration: durationMinutes ?? selectedEventInfo.duration,
+        createdBy: user?.uid ?? selectedEventInfo.createdBy,
+        attendees: Array.isArray(selectedEventInfo.attendees) ? [...selectedEventInfo.attendees] : [],
+        attachments: Array.isArray(selectedEventInfo.attachments) ? [...selectedEventInfo.attachments] : [],
+        comments: [],
+        recurring: undefined,
+        parentEventId: undefined,
+        isRecurringInstance: false,
+        serviceStatus: 'pending',
+        completedAt: undefined,
+        completedBy: undefined,
+        recurringInstancesStatus: undefined,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      addEventToCaches(duplicatedEvent);
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+        queryClient.invalidateQueries({ queryKey: ['calendarEvents', selectedEventInfo.calendarId] })
+      ]);
+
+      setShowDuplicateOptions(false);
+      alert(`✅ Reserva duplicada para ${startDate.toLocaleDateString('es-ES')} a las ${startDate.toLocaleTimeString('es-ES', {
+        hour: '2-digit',
+        minute: '2-digit'
+      })}`);
+    } catch (error) {
+      console.error('Error duplicando evento:', error);
+      alert(`❌ Error al duplicar: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setDuplicatingEvent(false);
+    }
+  }, [
+    selectedEventInfo,
+    duplicateForm,
+    user?.uid,
+    addEventToCaches,
+    queryClient
+  ]);
 
   const handleCreateEvent = useCallback(async () => {
     if (!selectedDate || !selectedProfessional || !newEventForm.title.trim()) {
@@ -2058,6 +2181,10 @@ const DashboardBookings: React.FC = () => {
                       setSelectedEventInfo(event);
                       setShowEventInfoModal(true);
                       setShowDeleteOptions(false);
+                      setShowDuplicateOptions(false);
+                      setDuplicateForm({
+                        date: event.startDate.toISOString().slice(0, 10)
+                      });
                     }}
                     onMouseEnter={(e) => {
                       console.log('Month view - Mouse enter event:', event.title);
@@ -3723,6 +3850,10 @@ const DashboardBookings: React.FC = () => {
                       setSelectedEventInfo(event);
                       setShowEventInfoModal(true);
                       setShowDeleteOptions(false);
+                      setShowDuplicateOptions(false);
+                      setDuplicateForm({
+                        date: event.startDate.toISOString().slice(0, 10)
+                      });
                     }}
                     onMouseEnter={(e) => {
                       console.log('Day list - Mouse enter event:', event.title);
@@ -3926,11 +4057,29 @@ const DashboardBookings: React.FC = () => {
                         setShowEventInfoModal(false);
                         openEditEventPanel(selectedEventInfo);
                         setShowDeleteOptions(false);
+                        setShowDuplicateOptions(false);
                       }}
                       className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                       title="Editar evento"
                     >
                       <Edit3 className="w-5 h-5" />
+                    </button>
+
+                    {/* Botón duplicar */}
+                    <button
+                      onClick={() => {
+                        if (selectedEventInfo) {
+                      setDuplicateForm({
+                        date: selectedEventInfo.startDate.toISOString().slice(0, 10)
+                      });
+                        }
+                        setShowDuplicateOptions(prev => !prev);
+                        setShowDeleteOptions(false);
+                      }}
+                      className={`p-2 rounded-lg transition-colors ${showDuplicateOptions ? 'bg-white/25' : 'hover:bg-white/20'}`}
+                      title="Duplicar"
+                    >
+                      <Copy className="w-5 h-5" />
                     </button>
 
                     {/* Botón eliminar */}
@@ -3947,6 +4096,7 @@ const DashboardBookings: React.FC = () => {
                       onClick={() => {
                         setShowEventInfoModal(false);
                         setShowDeleteOptions(false);
+                        setShowDuplicateOptions(false);
                       }}
                       className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                     >
@@ -3954,6 +4104,51 @@ const DashboardBookings: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {showDuplicateOptions && (
+                  <div className="px-6 mb-4">
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-blue-700 flex items-center gap-2">
+                          <Repeat className="w-4 h-4" />
+                          Duplicar reserva
+                        </span>
+                        <button
+                          onClick={() => setShowDuplicateOptions(false)}
+                          className="p-1 text-blue-600 hover:text-blue-800"
+                          title="Cerrar panel de duplicación"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-blue-800 mb-1">Fecha destino</label>
+                        <input
+                          type="date"
+                          value={duplicateForm.date}
+                          onChange={(e) => setDuplicateForm({ date: e.target.value })}
+                          className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                      </div>
+
+                      <p className="text-xs text-blue-700">
+                        Copiamos título, horario, duración, descripción, ubicación, asistentes y campos personalizados. Puedes editar el duplicado después de crearlo.
+                      </p>
+
+                      <div className="flex justify-end">
+                        <button
+                          onClick={handleDuplicateEvent}
+                          disabled={duplicatingEvent}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {duplicatingEvent ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                          {duplicatingEvent ? 'Duplicando...' : 'Duplicar reserva'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Estado del servicio */}
                 <div className="flex items-center gap-2">
