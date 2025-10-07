@@ -18,10 +18,10 @@ const WEEKDAYS = [
 ];
 
 const RECURRENCE_OPTIONS = [
-  { key: 'weekly', label: 'Semanal', interval: 1, defaultCount: 12, patternType: 'weekly' as const },
-  { key: 'biweekly', label: 'Cada 15 días', interval: 2, defaultCount: 8, patternType: 'weekly' as const },
-  { key: 'triweekly', label: 'Cada 3 semanas', interval: 3, defaultCount: 6, patternType: 'weekly' as const },
-  { key: 'monthly', label: 'Mensual', interval: 4, defaultCount: 6, patternType: 'monthly' as const }
+  { key: 'weekly', label: 'Semanal', interval: 1, patternType: 'weekly' as const },
+  { key: 'biweekly', label: 'Cada 15 días', interval: 2, patternType: 'weekly' as const },
+  { key: 'triweekly', label: 'Cada 3 semanas', interval: 3, patternType: 'weekly' as const },
+  { key: 'monthly', label: 'Mensual', interval: 4, patternType: 'monthly' as const }
 ];
 
 export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
@@ -62,8 +62,7 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
       onChange({
         type: option.patternType,
         interval: option.interval,
-        weekdays: [],
-        count: option.defaultCount
+        weekdays: []
       });
       setRecurrenceType(option.key);
     } else {
@@ -82,8 +81,7 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
     onChange({
       ...value,
       type: option.patternType,
-      interval: option.interval,
-      count: option.defaultCount
+      interval: option.interval
     });
   };
 
@@ -98,27 +96,6 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
     onChange({
       ...value,
       weekdays: newWeekdays
-    });
-  };
-
-  const updateCount = (countValue: string) => {
-    if (!value || !isRecurring) return;
-
-    // Permitir campo vacío temporalmente
-    if (countValue === '') {
-      onChange({
-        ...value,
-        count: 1 // Valor por defecto temporal
-      });
-      return;
-    }
-
-    const count = parseInt(countValue);
-    if (isNaN(count)) return;
-
-    onChange({
-      ...value,
-      count: Math.min(Math.max(1, count), 52) // Limitar entre 1 y 52 semanas
     });
   };
 
@@ -210,31 +187,6 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
             )}
           </div>
 
-          {/* Número de Repeticiones */}
-          <div>
-            <label className="block text-sm font-medium text-gray-900 mb-2">
-              Duración de la recurrencia
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={value.count || ''}
-                onChange={(e) => updateCount(e.target.value)}
-                placeholder="12"
-                className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none"
-              />
-              <span className="text-sm text-gray-600">
-                {recurrenceType === 'monthly' ? 'periodos (cada 4 semanas)' : 'semanas'}
-              </span>
-            </div>
-            <p className="text-xs text-gray-600 mt-1">
-              {recurrenceType === 'monthly'
-                ? `Se crearán hasta ${value.count || 6} periodos (equivalente a ${(value.count || 6) * 4} semanas)`
-                : `Se crearán hasta ${value.count || 12} semanas (máximo 52)`}
-            </p>
-          </div>
-
           {/* Info */}
           <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <Calendar className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
@@ -243,8 +195,8 @@ export const RecurrenceSelector: React.FC<RecurrenceSelectorProps> = ({
               <p className="text-blue-700">
                 {value.weekdays && value.weekdays.length > 0 ? (
                   recurrenceType === 'monthly'
-                    ? <>El evento se repetirá cada 4 semanas en los días seleccionados durante {value.count || 6} periodos.</>
-                    : <>El evento se creará automáticamente en los días seleccionados durante {value.count || 12} semanas.</>
+                    ? <>El evento se repetirá cada 4 semanas en los días seleccionados hasta que lo detengas.</>
+                    : <>El evento se creará automáticamente en los días seleccionados hasta que lo detengas.</>
                 ) : (
                   <>Selecciona al menos un día de la semana para crear eventos recurrentes.</>
                 )}

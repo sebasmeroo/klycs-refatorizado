@@ -43,7 +43,7 @@ export function generateRecurringInstances(
 
   let currentDate = new Date(generationStart);
   let generatedWeeks = 0;
-  const maxWeeks = Math.min(recurring.count || 12, 52);
+  const maxWeeks = Math.min(recurring.count ?? 52, 52);
   const intervalInDays = (recurring.interval || 1) * 7;
 
   while (generatedWeeks < maxWeeks && currentDate <= recurrenceEndDate) {

@@ -265,6 +265,55 @@ const DashboardBookings: React.FC = () => {
   });
   const [recurrence, setRecurrence] = useState<RecurrencePattern | null>(null);
   const [customFieldsData, setCustomFieldsData] = useState<Record<string, any>>({});
+  const [showEditRecurrence, setShowEditRecurrence] = useState(false);
+  const [editRecurrence, setEditRecurrence] = useState<RecurrencePattern | null>(null);
+
+  const sanitizeRecurrence = useCallback((pattern: RecurrencePattern | null | undefined): RecurrencePattern | null => {
+    if (!pattern || pattern.type === 'none') {
+      return null;
+    }
+
+    const sanitized: RecurrencePattern = {
+      type: pattern.type,
+      interval: pattern.interval ?? 1
+    };
+
+    if (pattern.weekdays && pattern.weekdays.length > 0) {
+      sanitized.weekdays = [...pattern.weekdays].sort((a, b) => a - b);
+    } else {
+      sanitized.weekdays = [];
+    }
+
+    if (typeof pattern.monthDay === 'number') {
+      sanitized.monthDay = pattern.monthDay;
+    }
+
+    if (pattern.endDate instanceof Date) {
+      sanitized.endDate = new Date(pattern.endDate.getTime());
+    }
+
+    if (pattern.exceptions && pattern.exceptions.length > 0) {
+      const mappedExceptions = pattern.exceptions
+        .map(exception => {
+          if (!exception) return null;
+          if (exception instanceof Date) {
+            return new Date(exception.getTime());
+          }
+          if (typeof (exception as any).toDate === 'function') {
+            const converted = (exception as any).toDate();
+            return converted instanceof Date ? converted : null;
+          }
+          return null;
+        })
+        .filter((value): value is Date => value instanceof Date);
+
+      if (mappedExceptions.length > 0) {
+        sanitized.exceptions = mappedExceptions;
+      }
+    }
+
+    return sanitized;
+  }, []);
   const [showCalendarSettings, setShowCalendarSettings] = useState(false);
   const [globalCustomFields, setGlobalCustomFields] = useState<CustomEventField[]>([]);
   
@@ -724,10 +773,19 @@ const DashboardBookings: React.FC = () => {
     } else {
       setCustomFieldsData({});
     }
-    
+
+    if (event.recurring && !event.isRecurringInstance && event.recurring.type !== 'none') {
+      const normalized = sanitizeRecurrence(event.recurring);
+      setEditRecurrence(normalized);
+      setShowEditRecurrence(!!normalized);
+    } else {
+      setEditRecurrence(null);
+      setShowEditRecurrence(false);
+    }
+
     // Cerrar modal de evento si estaba abierto
     setSelectedEvent(null);
-  }, []);
+  }, [sanitizeRecurrence]);
   
   // Handler para cerrar panel de edición
   const closeEditEventPanel = useCallback(() => {
@@ -744,6 +802,8 @@ const DashboardBookings: React.FC = () => {
       calendarId: ''
     });
     setCustomFieldsData({});
+    setEditRecurrence(null);
+    setShowEditRecurrence(false);
   }, []);
   
   // Handler para abrir panel de eventos del día
@@ -757,6 +817,32 @@ const DashboardBookings: React.FC = () => {
     setShowDayEventsPanel(false);
     setDayEventsView(null);
   }, []);
+
+  const handleEditRecurrenceToggle = useCallback(() => {
+    if (!editingEvent || editingEvent.isRecurringInstance) {
+      return;
+    }
+
+    if (showEditRecurrence) {
+      setShowEditRecurrence(false);
+      return;
+    }
+
+    const eventWeekday = editingEvent.startDate.getDay();
+
+    const existing = sanitizeRecurrence(editRecurrence);
+    if (existing) {
+      setEditRecurrence({ ...existing });
+    } else {
+      setEditRecurrence({
+        type: 'weekly',
+        interval: 1,
+        weekdays: [eventWeekday]
+      });
+    }
+
+    setShowEditRecurrence(true);
+  }, [editRecurrence, editingEvent, showEditRecurrence, sanitizeRecurrence]);
 
   // Handler para marcar servicio como completado/no realizado
   const handleMarkServiceStatus = useCallback(async (
@@ -865,8 +951,9 @@ const DashboardBookings: React.FC = () => {
       }
 
       // Agregar recurrencia si está activada
-      if (recurrence && recurrence.type !== 'none') {
-        eventDataToSend.recurring = recurrence;
+      const sanitizedCreateRecurrence = sanitizeRecurrence(recurrence);
+      if (sanitizedCreateRecurrence) {
+        eventDataToSend.recurring = sanitizedCreateRecurrence;
       }
 
       // Agregar campos personalizados si existen
@@ -894,7 +981,7 @@ const DashboardBookings: React.FC = () => {
         attendees: eventDataToSend.attendees,
         comments: [],
         attachments: [],
-        recurring: recurrence && recurrence.type !== 'none' ? { ...recurrence } : undefined,
+        recurring: sanitizedCreateRecurrence ?? undefined,
         isRecurringInstance: false,
         status: eventDataToSend.status,
         visibility: eventDataToSend.visibility,
@@ -931,7 +1018,8 @@ const DashboardBookings: React.FC = () => {
     user?.uid,
     closeCreateEventPanel,
     addEventToCaches,
-    queryClient
+    queryClient,
+    sanitizeRecurrence
   ]);
   
   // Handler para actualizar evento
@@ -947,12 +1035,41 @@ const DashboardBookings: React.FC = () => {
     }
 
     try {
-      
+
       const baseDate = new Date(editEventForm.date);
       const startDateTime = new Date(baseDate);
       const [startHour, startMinute] = editEventForm.startTime.split(':').map(Number);
       startDateTime.setHours(startHour, startMinute, 0, 0);
       
+      const previousRecurring = editingEvent.recurring && editingEvent.recurring.type !== 'none'
+        ? editingEvent.recurring
+        : null;
+
+      const previousSanitizedRecurring = sanitizeRecurrence(previousRecurring);
+
+      let shouldUpdateRecurring = false;
+      let draftRecurring: RecurrencePattern | null = previousRecurring;
+
+      if (showEditRecurrence) {
+        shouldUpdateRecurring = true;
+        draftRecurring = editRecurrence && editRecurrence.type !== 'none' ? editRecurrence : null;
+      } else if (previousRecurring && editRecurrence === null) {
+        // El usuario desactivó la recurrencia con el selector y luego ocultó el panel
+        shouldUpdateRecurring = true;
+        draftRecurring = null;
+      }
+
+      const sanitizedFinalRecurring = sanitizeRecurrence(draftRecurring);
+
+      if (shouldUpdateRecurring && sanitizedFinalRecurring && sanitizedFinalRecurring.weekdays.length === 0) {
+        alert('Selecciona al menos un día para la recurrencia antes de guardar.');
+        return;
+      }
+
+      const recurrenceChanged = shouldUpdateRecurring
+        ? JSON.stringify(previousSanitizedRecurring ?? null) !== JSON.stringify(sanitizedFinalRecurring ?? null)
+        : false;
+
       const updates: any = {
         title: editEventForm.title.trim(),
         startDate: startDateTime,
@@ -1002,11 +1119,18 @@ const DashboardBookings: React.FC = () => {
         updates.customFieldsData = { ...customFieldsData };
       }
 
+      if (shouldUpdateRecurring) {
+        updates.recurring = sanitizedFinalRecurring ? { ...sanitizedFinalRecurring } : null;
+        updates.isRecurringInstance = false;
+        updates.parentEventId = null;
+      }
+
 
       await CalendarEventService.updateEvent(editingEvent.id, updates);
 
 
       const now = new Date();
+
       const updatedEvent: CalendarEvent = {
         ...editingEvent,
         ...updates,
@@ -1020,7 +1144,20 @@ const DashboardBookings: React.FC = () => {
         customFieldsData: updates.customFieldsData ?? editingEvent.customFieldsData
       };
 
+      if (shouldUpdateRecurring) {
+        updatedEvent.recurring = sanitizedFinalRecurring ?? undefined;
+        updatedEvent.isRecurringInstance = false;
+        updatedEvent.parentEventId = undefined;
+      }
+
       updateEventInCaches(updatedEvent, editingEvent.calendarId);
+
+      if (recurrenceChanged) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
+          queryClient.invalidateQueries({ queryKey: ['calendarEvents', targetCalendarId] })
+        ]);
+      }
 
       closeEditEventPanel();
       alert(`✅ Evento "${editEventForm.title}" actualizado correctamente`);
@@ -1029,7 +1166,17 @@ const DashboardBookings: React.FC = () => {
       console.error('❌ Error actualizando evento:', error);
       alert(`❌ Error al actualizar evento: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
-  }, [editingEvent, editEventForm, customFieldsData, closeEditEventPanel, updateEventInCaches]);
+  }, [
+    editingEvent,
+    editEventForm,
+    customFieldsData,
+    closeEditEventPanel,
+    updateEventInCaches,
+    showEditRecurrence,
+    editRecurrence,
+    queryClient,
+    sanitizeRecurrence
+  ]);
   
   const getCurrentProfessionalInfo = () => {
     if (calendarState.selectedCalendars.includes(GENERAL_CALENDAR_ID)) {
@@ -3291,6 +3438,46 @@ const DashboardBookings: React.FC = () => {
                 />
                 <LocationMapPreview query={editEventForm.location} className="mt-3" />
               </div>
+
+              {editingEvent && !editingEvent.isRecurringInstance && (
+                <>
+                  <div className="border-t border-gray-200 my-4"></div>
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                          <Repeat className="w-4 h-4 text-purple-600" />
+                          Reserva recurrente
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Convierte esta reserva en un patrón semanal o mensual sin salir del panel.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleEditRecurrenceToggle}
+                        className="px-3 py-1.5 text-sm font-medium rounded-lg border border-purple-200 text-purple-600 hover:bg-purple-50 transition-colors"
+                      >
+                        {showEditRecurrence ? 'Ocultar' : editingEvent.recurring ? 'Editar recurrencia' : 'Convertir en recurrente'}
+                      </button>
+                    </div>
+
+                    {showEditRecurrence && (
+                      <div className="pt-1">
+                        <RecurrenceSelector
+                          value={editRecurrence}
+                          onChange={setEditRecurrence}
+                        />
+                        {(!editRecurrence || editRecurrence.type === 'none') && (
+                          <p className="text-xs text-gray-500 mt-3">
+                            Activa el interruptor superior y elige los días para crear la recurrencia.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
 
               {/* Campos Personalizados */}
               {globalCustomFields && 

@@ -185,30 +185,14 @@ export class CollaborativeCalendarService {
       snapshot.forEach(doc => {
         const data = doc.data() as CalendarEventFirestore;
 
-        // Convertir Timestamp a Date manteniendo zona horaria local
-        const startDateUTC = data.startDate.toDate();
-        const startDate = new Date(
-          startDateUTC.getUTCFullYear(),
-          startDateUTC.getUTCMonth(),
-          startDateUTC.getUTCDate(),
-          startDateUTC.getUTCHours(),
-          startDateUTC.getUTCMinutes(),
-          0,
-          0
-        );
+        // Convertir Timestamp a Date sin recalcular la zona horaria manualmente
+        const startDateSource = data.startDate.toDate();
+        const startDate = new Date(startDateSource.getTime());
 
         let endDate: Date | undefined;
         if (data.endDate) {
-          const endDateUTC = data.endDate.toDate();
-          endDate = new Date(
-            endDateUTC.getUTCFullYear(),
-            endDateUTC.getUTCMonth(),
-            endDateUTC.getUTCDate(),
-            endDateUTC.getUTCHours(),
-            endDateUTC.getUTCMinutes(),
-            0,
-            0
-          );
+          const endDateSource = data.endDate.toDate();
+          endDate = new Date(endDateSource.getTime());
         }
 
         const event: CalendarEvent = {
@@ -861,7 +845,7 @@ export class CalendarEventService {
 
     console.log('🔄 Creando evento recurrente (SOLO PADRE):', {
       weekdays: recurring.weekdays,
-      count: recurring.count,
+      count: recurring.count ?? 'sin límite',
       interval: recurring.interval,
       startDate: eventData.startDate
     });
@@ -871,12 +855,17 @@ export class CalendarEventService {
     const parentEventId = await this.createSingleEvent(calendarId, eventData);
 
     console.log(`✅ Evento recurrente creado: ${parentEventId}`);
-    console.log(`📅 Se generarán ${recurring.count} instancias virtuales en el calendario`);
+    if (typeof recurring.count === 'number') {
+      console.log(`📅 Se generarán ${recurring.count} instancias virtuales en el calendario`);
+    } else {
+      console.log('📅 Recurrencia sin límite establecido (se generan instancias según el rango visible en el cliente)');
+    }
 
     info('Evento recurrente creado', {
       parentEventId,
       weekdays: recurring.weekdays,
-      count: recurring.count,
+      interval: recurring.interval,
+      count: recurring.count ?? null,
       calendarId
     });
 
@@ -1075,36 +1064,19 @@ export class CalendarEventService {
       snapshot.forEach(doc => {
         const data = doc.data() as CalendarEventFirestore;
 
-        const startDateUTC = data.startDate.toDate();
-        const startDateLocal = new Date(
-          startDateUTC.getUTCFullYear(),
-          startDateUTC.getUTCMonth(),
-          startDateUTC.getUTCDate(),
-          startDateUTC.getUTCHours(),
-          startDateUTC.getUTCMinutes(),
-          0,
-          0
-        );
+        const startDateLocal = data.startDate.toDate();
 
+        // Clonar la instancia para prevenir efectos secundarios al mutar fechas
         let endDateLocal: Date | undefined;
         if (data.endDate) {
-          const endDateUTC = data.endDate.toDate();
-          endDateLocal = new Date(
-            endDateUTC.getUTCFullYear(),
-            endDateUTC.getUTCMonth(),
-            endDateUTC.getUTCDate(),
-            endDateUTC.getUTCHours(),
-            endDateUTC.getUTCMinutes(),
-            0,
-            0
-          );
+          endDateLocal = data.endDate.toDate();
         }
 
         const event: CalendarEvent = {
           ...data,
           id: doc.id,
-          startDate: startDateLocal,
-          endDate: endDateLocal,
+          startDate: new Date(startDateLocal.getTime()),
+          endDate: endDateLocal ? new Date(endDateLocal.getTime()) : undefined,
           createdAt: data.createdAt.toDate(),
           updatedAt: data.updatedAt.toDate(),
           completedAt: data.completedAt?.toDate(),
