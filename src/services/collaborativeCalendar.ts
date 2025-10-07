@@ -16,7 +16,8 @@ import {
   writeBatch,
   arrayUnion,
   arrayRemove,
-  QueryConstraint
+  QueryConstraint,
+  deleteField
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import {
@@ -29,11 +30,36 @@ import {
   SharedCalendarFirestore,
   CalendarEventFirestore,
   UserCalendarSettings,
-  CalendarStats
+  CalendarStats,
+  RecurringInstanceStatus
 } from '@/types/calendar';
 import { info, error as logError } from '@/utils/logger';
 import { subscriptionsService } from '@/services/subscriptions';
 import { generateRecurringInstances } from '@/utils/recurrence';
+
+const normalizeRecurringStatuses = (
+  raw?: CalendarEventFirestore['recurringInstancesStatus']
+): Record<string, RecurringInstanceStatus> | undefined => {
+  if (!raw) return undefined;
+
+  const result: Record<string, RecurringInstanceStatus> = {};
+
+  Object.entries(raw).forEach(([key, value]) => {
+    if (!value) return;
+
+    const status: RecurringInstanceStatus = {
+      status: value.status,
+      updatedAt: value.updatedAt?.toDate() ?? new Date(),
+      updatedBy: value.updatedBy || undefined,
+      completedBy: value.completedBy || undefined,
+      completedAt: value.completedAt ? value.completedAt.toDate() || undefined : undefined
+    };
+
+    result[key] = status;
+  });
+
+  return Object.keys(result).length > 0 ? result : undefined;
+};
 
 // ===== CALENDARIOS COMPARTIDOS =====
 
@@ -195,6 +221,8 @@ export class CollaborativeCalendarService {
           endDate = new Date(endDateSource.getTime());
         }
 
+        const recurringStatuses = normalizeRecurringStatuses(data.recurringInstancesStatus);
+
         const event: CalendarEvent = {
           ...data,
           id: doc.id,
@@ -206,8 +234,20 @@ export class CollaborativeCalendarService {
           recurring: data.recurring ? {
             ...data.recurring,
             endDate: data.recurring.endDate?.toDate()
-          } : undefined
+          } : undefined,
+          recurringInstancesStatus: recurringStatuses
         };
+
+        if (recurringStatuses) {
+          const baseKey = `${event.id}_${event.startDate.getTime()}`;
+          const legacyKey = event.startDate.getTime().toString();
+          const baseStatus = recurringStatuses[baseKey] ?? recurringStatuses[legacyKey];
+          if (baseStatus) {
+            event.serviceStatus = baseStatus.status;
+            event.completedAt = baseStatus.completedAt ?? event.completedAt;
+            event.completedBy = baseStatus.completedBy ?? event.completedBy;
+          }
+        }
 
         // Separar eventos recurrentes de eventos normales
         if (event.recurring && !event.isRecurringInstance) {
@@ -795,6 +835,24 @@ export class CalendarEventService {
       cleanEventData.customFieldsData = eventData.customFieldsData;
     }
 
+    if (eventData.recurringInstancesStatus && Object.keys(eventData.recurringInstancesStatus).length > 0) {
+      const serializedStatuses: Record<string, any> = {};
+      Object.entries(eventData.recurringInstancesStatus).forEach(([key, value]) => {
+        if (!value) return;
+        serializedStatuses[key] = {
+          status: value.status,
+          updatedAt: Timestamp.fromDate(value.updatedAt),
+          updatedBy: value.updatedBy,
+          completedAt: value.completedAt ? Timestamp.fromDate(value.completedAt) : null,
+          completedBy: value.completedBy ?? null
+        };
+      });
+
+      if (Object.keys(serializedStatuses).length > 0) {
+        cleanEventData.recurringInstancesStatus = serializedStatuses;
+      }
+    }
+
     // Marcar si es una instancia de evento recurrente
     if (parentEventId) {
       cleanEventData.isRecurringInstance = true;
@@ -1072,7 +1130,9 @@ export class CalendarEventService {
           endDateLocal = data.endDate.toDate();
         }
 
-        const event: CalendarEvent = {
+        const recurringStatuses = normalizeRecurringStatuses(data.recurringInstancesStatus);
+
+        events.push({
           ...data,
           id: doc.id,
           startDate: new Date(startDateLocal.getTime()),
@@ -1085,10 +1145,9 @@ export class CalendarEventService {
                 ...data.recurring,
                 endDate: data.recurring.endDate?.toDate()
               }
-            : undefined
-        };
-
-        events.push(event);
+            : undefined,
+          recurringInstancesStatus: recurringStatuses
+        });
       });
 
       const expansionStartSource = startDate ? new Date(startDate) : new Date();
@@ -1160,7 +1219,9 @@ export class CalendarEventService {
 
       snapshot.forEach(doc => {
         const data = doc.data() as CalendarEventFirestore;
-        events.push({
+        const recurringStatuses = normalizeRecurringStatuses(data.recurringInstancesStatus);
+
+        const event: CalendarEvent = {
           ...data,
           id: doc.id,
           startDate: data.startDate.toDate(),
@@ -1171,8 +1232,21 @@ export class CalendarEventService {
           recurring: data.recurring ? {
             ...data.recurring,
             endDate: data.recurring.endDate?.toDate()
-          } : undefined
-        });
+          } : undefined,
+          recurringInstancesStatus: recurringStatuses
+        };
+
+        if (recurringStatuses) {
+          const baseKey = event.startDate.toISOString();
+          const baseStatus = recurringStatuses[baseKey];
+          if (baseStatus) {
+            event.serviceStatus = baseStatus.status;
+            event.completedAt = baseStatus.completedAt ?? event.completedAt;
+            event.completedBy = baseStatus.completedBy ?? event.completedBy;
+          }
+        }
+
+        events.push(event);
       });
 
       callback(events);
@@ -1215,24 +1289,124 @@ export class CalendarEventService {
     status: 'completed' | 'not_done' | 'in_progress' | 'pending'
   ): Promise<void> {
     try {
+      const docRef = doc(db, 'calendar_events', eventId);
+      const snapshot = await getDoc(docRef);
+
+      if (!snapshot.exists()) {
+        throw new Error('Evento no encontrado');
+      }
+
+      const data = snapshot.data() as CalendarEventFirestore;
+      const now = Timestamp.now();
+
       const updateData: any = {
         serviceStatus: status,
-        updatedAt: Timestamp.now()
+        updatedAt: now
       };
 
       if (status === 'completed') {
-        updateData.completedAt = Timestamp.now();
+        updateData.completedAt = now;
         updateData.completedBy = userId;
       } else {
-        // Si se cambia a otro estado, limpiar los campos de completado
         updateData.completedAt = null;
         updateData.completedBy = null;
       }
 
-      await updateDoc(doc(db, 'calendar_events', eventId), updateData);
+      if (data.recurring && !data.isRecurringInstance) {
+        const parentStart = data.startDate.toDate();
+        const parentStartKey = parentStart.getTime();
+        const parentStatusKey = `${eventId}_${parentStartKey}`;
+        const legacyParentKey = parentStartKey.toString();
+
+        const oldParentKey = `${eventId}_${parentStart.toISOString()}`;
+        const oldLegacyParentKey = parentStart.toISOString();
+
+        if (status === 'pending') {
+          updateData[`recurringInstancesStatus.${parentStatusKey}`] = deleteField();
+          updateData[`recurringInstancesStatus.${legacyParentKey}`] = deleteField();
+          updateData[`recurringInstancesStatus.${oldParentKey}`] = deleteField();
+          updateData[`recurringInstancesStatus.${oldLegacyParentKey}`] = deleteField();
+        } else {
+          const statusPayload = {
+            status,
+            updatedAt: now,
+            updatedBy: userId,
+            completedAt: status === 'completed' ? now : null,
+            completedBy: status === 'completed' ? userId : null
+          };
+
+          updateData[`recurringInstancesStatus.${parentStatusKey}`] = statusPayload;
+          updateData[`recurringInstancesStatus.${legacyParentKey}`] = statusPayload;
+          updateData[`recurringInstancesStatus.${oldParentKey}`] = deleteField();
+          updateData[`recurringInstancesStatus.${oldLegacyParentKey}`] = deleteField();
+        }
+      }
+
+      await updateDoc(docRef, updateData);
       info('Estado del servicio actualizado', { eventId, status, userId });
     } catch (error) {
       logError('Error al actualizar estado del servicio', error as Error, { eventId, status });
+      throw error;
+    }
+  }
+
+  static async updateRecurringInstanceStatus(
+    parentEventId: string,
+    instanceDate: Date,
+    userId: string,
+    status: 'completed' | 'not_done' | 'in_progress' | 'pending'
+  ): Promise<void> {
+    try {
+      const instanceTimestamp = instanceDate.getTime();
+      const instanceKey = `${parentEventId}_${instanceTimestamp}`;
+      const legacyKey = instanceTimestamp.toString();
+      const docRef = doc(db, 'calendar_events', parentEventId);
+      const now = Timestamp.now();
+
+      const oldKey = `${parentEventId}_${instanceDate.toISOString()}`;
+      const oldLegacyKey = instanceDate.toISOString();
+
+      if (status === 'pending') {
+        await updateDoc(docRef, {
+          [`recurringInstancesStatus.${instanceKey}`]: deleteField(),
+          [`recurringInstancesStatus.${legacyKey}`]: deleteField(),
+          [`recurringInstancesStatus.${oldKey}`]: deleteField(),
+          [`recurringInstancesStatus.${oldLegacyKey}`]: deleteField(),
+          updatedAt: now
+        });
+        info('Estado de instancia recurrente restablecido', { parentEventId, instanceKey, status, userId });
+        return;
+      }
+
+      const statusData: any = {
+        status,
+        updatedAt: now,
+        updatedBy: userId
+      };
+
+      if (status === 'completed') {
+        statusData.completedAt = now;
+        statusData.completedBy = userId;
+      } else {
+        statusData.completedAt = null;
+        statusData.completedBy = null;
+      }
+
+      await updateDoc(docRef, {
+        [`recurringInstancesStatus.${instanceKey}`]: statusData,
+        [`recurringInstancesStatus.${legacyKey}`]: statusData,
+        [`recurringInstancesStatus.${oldKey}`]: deleteField(),
+        [`recurringInstancesStatus.${oldLegacyKey}`]: deleteField(),
+        updatedAt: now
+      });
+
+      info('Estado de instancia recurrente actualizado', { parentEventId, instanceKey, status, userId });
+    } catch (error) {
+      logError('Error al actualizar instancia recurrente', error as Error, {
+        parentEventId,
+        instanceDate: instanceDate.toISOString(),
+        status
+      });
       throw error;
     }
   }

@@ -122,10 +122,21 @@ export interface CalendarEvent {
   
   // Campos personalizados
   customFieldsData?: Record<string, any>; // Valores de campos personalizados
+
+  // Estado individual de instancias recurrentes
+  recurringInstancesStatus?: Record<string, RecurringInstanceStatus>;
   
   // Metadatos
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface RecurringInstanceStatus {
+  status: 'completed' | 'not_done' | 'in_progress' | 'pending';
+  updatedAt: Date;
+  updatedBy?: string;
+  completedAt?: Date;
+  completedBy?: string;
 }
 
 export interface EventComment {
@@ -253,6 +264,13 @@ export interface CalendarEventFirestore extends Omit<CalendarEvent, 'startDate' 
   updatedAt: Timestamp;
   completedAt?: Timestamp;
   recurring?: Omit<RecurrencePattern, 'endDate'> & { endDate?: Timestamp };
+  recurringInstancesStatus?: Record<string, {
+    status: 'completed' | 'not_done' | 'in_progress' | 'pending';
+    updatedAt: Timestamp;
+    updatedBy?: string;
+    completedAt?: Timestamp | null;
+    completedBy?: string | null;
+  }>;
 }
 
 export interface SharedCalendarFirestore extends Omit<SharedCalendar, 'createdAt' | 'updatedAt' | 'inviteExpiresAt' | 'members'> {

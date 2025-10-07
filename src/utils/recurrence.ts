@@ -76,6 +76,19 @@ export function generateRecurringInstances(
         if (!exceptionDates.includes(instanceDateOnly.getTime())) {
           const instanceEnd = duration > 0 ? new Date(instanceStart.getTime() + duration) : undefined;
 
+          const parentStartKey = parentEvent.startDate.getTime();
+          const instanceStartKey = instanceStart.getTime();
+
+          const parentStatusKey = `${parentEvent.id}_${parentStartKey}`;
+          const legacyParentKey = parentStartKey.toString();
+          const instanceKey = `${parentEvent.id}_${instanceStartKey}`;
+          const legacyInstanceKey = instanceStartKey.toString();
+          const override = parentEvent.recurringInstancesStatus?.[instanceKey]
+            ?? parentEvent.recurringInstancesStatus?.[legacyInstanceKey];
+          const parentDefaultStatus = parentEvent.recurringInstancesStatus?.[parentStatusKey]
+            ?? parentEvent.recurringInstancesStatus?.[legacyParentKey];
+          const defaultStatus = parentEvent.serviceStatus ?? parentDefaultStatus?.status ?? 'pending';
+
           instances.push({
             ...parentEvent,
             id: `${parentEvent.id}_${instanceStart.getTime()}`,
@@ -84,6 +97,9 @@ export function generateRecurringInstances(
             isRecurringInstance: true,
             parentEventId: parentEvent.id,
             recurring: undefined,
+            serviceStatus: override?.status ?? defaultStatus,
+            completedAt: override?.completedAt ?? (defaultStatus === 'completed' ? parentEvent.completedAt : undefined),
+            completedBy: override?.completedBy ?? (defaultStatus === 'completed' ? parentEvent.completedBy : undefined)
           });
         }
       }
