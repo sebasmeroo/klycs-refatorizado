@@ -335,7 +335,11 @@ export const ProfessionalCalendar: React.FC = () => {
                   {nextDayEvents.map(event => (
                     <button
                       key={event.id}
-                      onClick={() => setSelectedEvent(event)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDate(event.startDate);
+                        setSelectedEvent(event);
+                      }}
                       className="w-full text-left bg-slate-50 hover:bg-slate-100 transition border border-slate-200 rounded-xl px-4 py-3"
                     >
                       <p className="font-semibold text-slate-900 line-clamp-1">{event.title}</p>
@@ -387,6 +391,12 @@ export const ProfessionalCalendar: React.FC = () => {
               </div>
 
               <div className="hidden md:grid grid-cols-7 gap-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+                {weekdayLabels.map(label => (
+                  <span key={label} className="text-center">{label}</span>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wide md:hidden">
                 {weekdayLabels.map(label => (
                   <span key={label} className="text-center">{label}</span>
                 ))}

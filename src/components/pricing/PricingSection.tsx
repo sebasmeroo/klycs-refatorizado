@@ -7,11 +7,17 @@ interface PlanFeature {
   included: boolean;
 }
 
+type BillingCycle = 'monthly' | 'annual';
+
+type PlanId = 'free' | 'pro' | 'business';
+
 interface Plan {
-  name: string;
+  id: PlanId;
+  tierLabel: string;
   description: string;
   price: number;
   priceLabel: string;
+  priceNote?: string;
   icon: React.ComponentType<{ className?: string }>;
   iconColor: string;
   gradientFrom: string;
@@ -21,72 +27,137 @@ interface Plan {
   popular?: boolean;
 }
 
-const plans: Plan[] = [
-  {
-    name: 'FREE',
-    description: 'Perfecto para empezar',
-    price: 0,
-    priceLabel: 'Gratis',
-    icon: Sparkles,
-    iconColor: 'text-gray-600',
-    gradientFrom: 'from-gray-500',
-    gradientTo: 'to-gray-600',
-    features: [
-      { text: '✅ 1 tarjeta digital', included: true },
-      { text: '✅ Perfil básico (nombre, bio, foto)', included: true },
-      { text: '✅ Enlaces y redes sociales', included: true },
-      { text: '✅ Portfolio básico (3 imágenes)', included: true },
-      { text: '❌ Sin calendario', included: false },
-      { text: '❌ Sin reservas', included: false },
-      { text: '❌ Sin profesionales', included: false },
-      { text: '⚠️ Marca "Powered by Klycs"', included: false }
-    ],
-    cta: 'Comenzar Gratis'
-  },
-  {
-    name: 'PRO',
-    description: 'Para profesionales independientes',
-    price: 9.99,
-    priceLabel: '€9.99',
-    icon: Zap,
-    iconColor: 'text-blue-600',
-    gradientFrom: 'from-blue-500',
-    gradientTo: 'to-purple-600',
-    popular: true,
-    features: [
-      { text: '✅ 1 tarjeta con gestión completa', included: true },
-      { text: '📅 1 calendario colaborativo', included: true },
-      { text: '👥 Profesionales ilimitados', included: true },
-      { text: '💰 Reservas ilimitadas', included: true },
-      { text: '📊 Analytics completo', included: true },
-      { text: '🎨 Edición avanzada de diseño', included: true },
-      { text: '🎯 SEO personalizable', included: true },
-      { text: '❌ Sin marca Klycs', included: true }
-    ],
-    cta: 'Comenzar Ahora'
-  },
-  {
-    name: 'BUSINESS',
-    description: 'Para equipos y empresas',
-    price: 40.00,
-    priceLabel: '€40',
-    icon: Rocket,
-    iconColor: 'text-purple-600',
-    gradientFrom: 'from-purple-500',
-    gradientTo: 'to-pink-600',
-    features: [
-      { text: '🎴 Tarjetas ilimitadas', included: true },
-      { text: '📅 Calendarios ilimitados', included: true },
-      { text: '👥 Profesionales ilimitados', included: true },
-      { text: '💬 Colaboración avanzada', included: true },
-      { text: '📊 Analytics con IA + Heatmaps', included: true },
-      { text: '🔗 API REST + Webhooks', included: true },
-      { text: '🎨 Custom HTML/CSS/JS', included: true },
-      { text: '🏷️ White-label + Onboarding', included: true }
-    ],
-    cta: 'Comenzar Ahora'
-  }
-];
+const BASE_FEATURES: Record<PlanId, PlanFeature[]> = {
+  free: [
+    { text: '✅ 1 tarjeta digital', included: true },
+    { text: '✅ Perfil básico (nombre, bio, foto)', included: true },
+    { text: '✅ Enlaces y redes sociales', included: true },
+    { text: '✅ Portfolio básico (3 imágenes)', included: true },
+    { text: '❌ Sin calendario', included: false },
+    { text: '❌ Sin reservas', included: false },
+    { text: '❌ Sin profesionales', included: false },
+    { text: '⚠️ Marca "Powered by Klycs"', included: false }
+  ],
+  pro: [
+    { text: '✅ Todo lo de FREE +', included: true },
+    { text: '📅 1 calendario colaborativo', included: true },
+    { text: '👥 Profesionales ilimitados en tu calendario', included: true },
+    { text: '💰 Reservas ilimitadas', included: true },
+    { text: '📊 Analytics completo', included: true },
+    { text: '🎨 Edición avanzada de diseño', included: true },
+    { text: '🎯 SEO personalizable', included: true },
+    { text: '🌐 Dominio personalizado', included: true },
+    { text: '❌ Sin marca Klycs', included: true }
+  ],
+  business: [
+    { text: '✅ Todo lo de PRO +', included: true },
+    { text: '🎴 Tarjetas ilimitadas', included: true },
+    { text: '📅 Calendarios ilimitados', included: true },
+    { text: '👥 Profesionales ilimitados por calendario', included: true },
+    { text: '💬 Comentarios y colaboración avanzada', included: true },
+    { text: '📊 Analytics avanzado con IA + Heatmaps', included: true },
+    { text: '🔗 API REST + Webhooks', included: true },
+    { text: '🎨 Custom HTML/CSS/JS', included: true },
+    { text: '🏷️ White-label + Onboarding', included: true }
+  ]
+};
+
+const PLAN_MATRIX: Record<BillingCycle, Plan[]> = {
+  monthly: [
+    {
+      id: 'free',
+      tierLabel: 'FREE',
+      description: 'Perfecto para empezar',
+      price: 0,
+      priceLabel: 'Gratis',
+      icon: Sparkles,
+      iconColor: 'text-gray-600',
+      gradientFrom: 'from-gray-500',
+      gradientTo: 'to-gray-600',
+      features: BASE_FEATURES.free,
+      cta: 'Comenzar Gratis'
+    },
+    {
+      id: 'pro',
+      tierLabel: 'PRO',
+      description: 'Para profesionales independientes',
+      price: 9.99,
+      priceLabel: '€9.99',
+      icon: Zap,
+      iconColor: 'text-blue-600',
+      gradientFrom: 'from-blue-500',
+      gradientTo: 'to-purple-600',
+      popular: true,
+      features: BASE_FEATURES.pro,
+      cta: 'Elegir plan PRO'
+    },
+    {
+      id: 'business',
+      tierLabel: 'BUSINESS',
+      description: 'Para equipos y empresas',
+      price: 40,
+      priceLabel: '€40',
+      icon: Rocket,
+      iconColor: 'text-purple-600',
+      gradientFrom: 'from-purple-500',
+      gradientTo: 'to-pink-600',
+      features: BASE_FEATURES.business,
+      cta: 'Elegir plan BUSINESS'
+    }
+  ],
+  annual: [
+    {
+      id: 'free',
+      tierLabel: 'FREE',
+      description: 'Perfecto para empezar',
+      price: 0,
+      priceLabel: 'Gratis',
+      icon: Sparkles,
+      iconColor: 'text-gray-600',
+      gradientFrom: 'from-gray-500',
+      gradientTo: 'to-gray-600',
+      features: BASE_FEATURES.free,
+      cta: 'Comenzar Gratis'
+    },
+    {
+      id: 'pro',
+      tierLabel: 'PRO',
+      description: 'Plan PRO con 20% de descuento',
+      price: 99.99,
+      priceLabel: '€99.99',
+      priceNote: 'Pagas una vez al año',
+      icon: Zap,
+      iconColor: 'text-blue-600',
+      gradientFrom: 'from-blue-500',
+      gradientTo: 'to-purple-600',
+      popular: true,
+      features: [
+        ...BASE_FEATURES.pro,
+        { text: '🎁 2 meses gratis (+20% descuento)', included: true },
+        { text: '🚀 Migración gratuita', included: true }
+      ],
+      cta: 'Elegir plan anual PRO'
+    },
+    {
+      id: 'business',
+      tierLabel: 'BUSINESS',
+      description: 'Plan BUSINESS con 17% de descuento',
+      price: 299.99,
+      priceLabel: '€299.99',
+      priceNote: 'Pagas una vez al año',
+      icon: Rocket,
+      iconColor: 'text-purple-600',
+      gradientFrom: 'from-purple-500',
+      gradientTo: 'to-pink-600',
+      features: [
+        ...BASE_FEATURES.business,
+        { text: '🎁 Casi 2 meses gratis', included: true },
+        { text: '👩‍💼 Onboarding premium dedicado', included: true }
+      ],
+      cta: 'Elegir plan anual BUSINESS'
+    }
+  ]
+};
 
 interface PricingSectionProps {
   isDark?: boolean;
@@ -94,15 +165,19 @@ interface PricingSectionProps {
 
 export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }) => {
   const navigate = useNavigate();
+  const [billingCycle, setBillingCycle] = React.useState<BillingCycle>('monthly');
 
-  const handlePlanClick = (planName: string) => {
-    if (planName === 'FREE') {
+  const handlePlanClick = (plan: Plan) => {
+    if (plan.id === 'free') {
       navigate('/register');
-    } else if (planName === 'BUSINESS') {
-      navigate('/register?plan=business');
-    } else if (planName === 'PRO') {
-      navigate('/register?plan=pro');
+      return;
     }
+
+    const params = new URLSearchParams({
+      plan: plan.id,
+      billing: billingCycle
+    });
+    navigate(`/register?${params.toString()}`);
   };
 
   const bgPrimary = isDark ? 'bg-[#05070f]' : 'bg-white';
@@ -115,8 +190,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
   return (
     <section className={`py-24 px-4 sm:px-6 lg:px-8 ${bgPrimary}`}>
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-12 sm:mb-16">
           <p className={`text-xs font-semibold uppercase tracking-[0.35em] ${textMuted} mb-4`}>
             PRECIOS SIMPLES Y TRANSPARENTES
           </p>
@@ -129,24 +203,45 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
           <p className={`text-sm ${textMuted} mt-2`}>
             Todos los precios + IVA según tu país
           </p>
+
+          <div className="mt-8 inline-flex items-center rounded-full border border-white/10 bg-white/10 backdrop-blur px-1 py-1">
+            <button
+              onClick={() => setBillingCycle('monthly')}
+              className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+                billingCycle === 'monthly'
+                  ? 'bg-gray-900 text-white shadow-lg'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Mensual
+            </button>
+            <button
+              onClick={() => setBillingCycle('annual')}
+              className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+                billingCycle === 'annual'
+                  ? 'bg-gray-900 text-white shadow-lg'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Anual <span className="ml-1 text-xs text-emerald-400">ahorra hasta 20%</span>
+            </button>
+          </div>
         </div>
 
-        {/* Plans Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          {plans.map((plan) => {
+          {PLAN_MATRIX[billingCycle].map((plan) => {
             const Icon = plan.icon;
             const isPopular = plan.popular;
 
             return (
               <div
-                key={plan.name}
+                key={`${plan.id}-${billingCycle}`}
                 className={`relative rounded-3xl border-2 ${
                   isPopular
                     ? 'border-blue-500 shadow-2xl shadow-blue-500/20'
                     : `${cardBorder}`
                 } ${cardBg} p-8 transition-all duration-300 hover:scale-105 hover:shadow-xl`}
               >
-                {/* Popular Badge */}
                 {isPopular && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2">
                     <span className="inline-flex items-center gap-1 px-4 py-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-xs font-semibold rounded-full shadow-lg">
@@ -156,20 +251,17 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
                   </div>
                 )}
 
-                {/* Icon */}
                 <div className={`inline-flex p-3 rounded-2xl bg-gradient-to-br ${plan.gradientFrom} ${plan.gradientTo} mb-6`}>
                   <Icon className="w-6 h-6 text-white" />
                 </div>
 
-                {/* Plan Name */}
                 <h3 className={`text-2xl font-bold ${textPrimary} mb-2`}>
-                  {plan.name}
+                  {plan.tierLabel}
                 </h3>
                 <p className={`text-sm ${textSecondary} mb-6`}>
                   {plan.description}
                 </p>
 
-                {/* Price */}
                 <div className="mb-8">
                   {plan.price === 0 ? (
                     <div className={`text-4xl font-bold ${textPrimary}`}>
@@ -181,15 +273,19 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
                         {plan.priceLabel}
                       </span>
                       <span className={`text-sm ${textSecondary}`}>
-                        /mes
+                        {billingCycle === 'monthly' ? '/mes' : '/año'}
                       </span>
                     </div>
                   )}
+                  {plan.priceNote && (
+                    <p className={`text-xs mt-1 ${textSecondary}`}>
+                      {plan.priceNote}
+                    </p>
+                  )}
                 </div>
 
-                {/* CTA Button */}
                 <button
-                  onClick={() => handlePlanClick(plan.name)}
+                  onClick={() => handlePlanClick(plan)}
                   className={`w-full py-3 px-6 rounded-full font-semibold transition-all duration-200 ${
                     isPopular
                       ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-lg hover:shadow-blue-500/50 hover:-translate-y-1'
@@ -201,7 +297,6 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
                   {plan.cta}
                 </button>
 
-                {/* Features List */}
                 <ul className="mt-8 space-y-4">
                   {plan.features.map((feature, index) => (
                     <li key={index} className="flex items-start gap-3">
@@ -229,9 +324,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
           })}
         </div>
 
-        {/* FAQ / Additional Info */}
         <div className="mt-16 text-center space-y-4">
-          {/* Nota de fase de lanzamiento */}
           <div className={`max-w-3xl mx-auto p-4 rounded-lg border ${
             isDark
               ? 'bg-blue-900/20 border-blue-500/30'
