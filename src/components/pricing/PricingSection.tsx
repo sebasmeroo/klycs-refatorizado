@@ -206,7 +206,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
       const createCheckout = httpsCallable(functions, 'stripeCreateCheckoutSession');
       const { data } = await createCheckout({
         priceId,
-        successUrl: `${window.location.origin}/settings?success=true`,
+        successUrl: `${window.location.origin}/dashboard/settings?success=true`,
         cancelUrl: `${window.location.origin}/?canceled=true`,
       }) as { data: { url: string } };
 

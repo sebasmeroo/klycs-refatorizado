@@ -3,7 +3,6 @@ import Stripe from 'stripe';
 import {getStripeClient} from './stripeClient';
 import {
   saveSubscriptionRecord,
-  deleteSubscriptionRecord,
   queryCustomerByStripeId,
 } from './firestore';
 import {StripeSubscriptionRecord} from './types';
@@ -67,7 +66,25 @@ export const syncSubscription = async (
 
   const auth = getAuth();
   const existingClaims = await auth.getUser(userId).then((user) => user.customClaims || {});
-  const isActive = ['active', 'trialing', 'past_due'].includes(currentSubscription.status);
+
+  // ✅ MEJORADO: Manejo inteligente de estados
+  // - 'active': Suscripción activa y pagada
+  // - 'trialing': En período de prueba
+  // - 'past_due': Pago falló, dar 7 días de gracia antes de bloquear
+  const status = currentSubscription.status;
+  let isActive = false;
+  let isPastDue = false;
+
+  if (status === 'active' || status === 'trialing') {
+    isActive = true;
+  } else if (status === 'past_due') {
+    // ✅ GRACE PERIOD: Dar 7 días de gracia para que actualicen su tarjeta
+    // Stripe reintenta automáticamente el cobro durante ~2 semanas
+    isPastDue = true;
+    isActive = true; // Mantener acceso durante grace period
+  } else if (status === 'canceled' || status === 'unpaid') {
+    isActive = false;
+  }
 
   // Mapear priceId a plan name (FREE, PRO, ENTERPRISE)
   let planName = 'FREE';
@@ -80,6 +97,7 @@ export const syncSubscription = async (
   const newClaims = {
     ...existingClaims,
     stripeActive: isActive,
+    stripePastDue: isPastDue, // ✅ NUEVO: Flag para mostrar advertencia en UI
     plan: data.priceId,
   };
 
@@ -90,6 +108,8 @@ export const syncSubscription = async (
   await db.collection('users').doc(userId).update({
     plan: planName,
     stripeActive: isActive,
+    stripePastDue: isPastDue, // ✅ NUEVO: Permite mostrar banner de advertencia
+    subscriptionStatus: status, // ✅ NUEVO: Guardar estado completo
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 };
@@ -104,29 +124,45 @@ export const removeSubscription = async (
   }
 
   const userId = (customerDoc.data() as {userId?: string}).userId || customerDoc.id;
-  await deleteSubscriptionRecord(userId, subscriptionId);
 
-  // Opcional: resetear claim si no quedan suscripciones activas
-  const remainingSubs = await customerDoc.ref.collection('subscriptions')
-      .where('status', 'in', ['active', 'trialing', 'past_due'])
-      .limit(1)
-      .get();
+  // ✅ MEJORADO: NO borrar inmediatamente, solo marcar como cancelada
+  // El usuario mantiene acceso hasta el final del período de facturación
+  const stripe = getStripeClient();
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
-  if (remainingSubs.empty) {
-    const auth = getAuth();
-    await auth.setCustomUserClaims(userId, {
-      ...(await auth.getUser(userId).then((user) => user.customClaims || {})),
-      stripeActive: false,
-      plan: 'free',
-    });
+  // Actualizar el registro pero NO borrarlo
+  await saveSubscriptionRecord(userId, subscriptionId, {
+    ...mapSubscription(userId, customerId, subscription),
+  });
 
-    // También actualizar el documento del usuario
-    const db = admin.firestore();
-    await db.collection('users').doc(userId).update({
-      plan: 'FREE',
-      stripeActive: false,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+  // ✅ Solo quitar acceso si la suscripción está completamente cancelada
+  // (no si tiene cancel_at_period_end=true, porque aún tiene acceso)
+  if (subscription.status === 'canceled' && !subscription.cancel_at_period_end) {
+    // Verificar si quedan otras suscripciones activas
+    const remainingSubs = await customerDoc.ref.collection('subscriptions')
+        .where('status', 'in', ['active', 'trialing', 'past_due'])
+        .limit(1)
+        .get();
+
+    if (remainingSubs.empty) {
+      const auth = getAuth();
+      await auth.setCustomUserClaims(userId, {
+        ...(await auth.getUser(userId).then((user) => user.customClaims || {})),
+        stripeActive: false,
+        stripePastDue: false,
+        plan: 'free',
+      });
+
+      // También actualizar el documento del usuario
+      const db = admin.firestore();
+      await db.collection('users').doc(userId).update({
+        plan: 'FREE',
+        stripeActive: false,
+        stripePastDue: false,
+        subscriptionStatus: 'canceled',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
   }
 };
 

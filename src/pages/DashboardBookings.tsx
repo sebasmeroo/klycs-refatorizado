@@ -1334,7 +1334,11 @@ const DashboardBookings: React.FC = () => {
       }
 
 
-      await CalendarEventService.updateEvent(editingEvent.id, updates);
+      const targetEventId = editingEvent.isRecurringInstance && editingEvent.parentEventId
+        ? editingEvent.parentEventId
+        : editingEvent.id;
+
+      await CalendarEventService.updateEvent(targetEventId, updates);
 
 
       const now = new Date();
@@ -1360,7 +1364,7 @@ const DashboardBookings: React.FC = () => {
 
       updateEventInCaches(updatedEvent, editingEvent.calendarId);
 
-      if (recurrenceChanged) {
+      if (recurrenceChanged || editingEvent.isRecurringInstance) {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
           queryClient.invalidateQueries({ queryKey: ['calendarEvents', targetCalendarId] })
