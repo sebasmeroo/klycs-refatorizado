@@ -31,6 +31,8 @@ export interface TeamProfessional {
   color: string; // Color del calendario
   isActive: boolean;
   linkedCalendarId?: string;
+  hourlyRate?: number;
+  hourlyRateCurrency?: string;
   
   // Datos de acceso
   hasAccount: boolean; // Si ya se registró

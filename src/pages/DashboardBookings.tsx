@@ -61,12 +61,13 @@ import { createDemoCalendarData, getDemoStats } from '@/utils/calendarDemoData';
 import { authService } from '@/services/auth';
 import { ProfessionalService } from '@/services/professionalService';
 import { RecurrencePattern, CustomEventField } from '@/types/calendar';
-import { doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { doc, updateDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db, storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { ImageCompressionService } from '@/services/imageCompression';
 import { useUserCalendars, useMultipleCalendarEvents, useCreateEvent, useUpdateEvent, useDeleteEvent } from '@/hooks/useCalendar';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuthStore } from '@/store/authStore';
 
 const GENERAL_CALENDAR_ID = 'general-calendar';
 const PROFESSIONAL_COLOR_PALETTE = [
@@ -139,6 +140,7 @@ interface CalendarDay {
 
 const DashboardBookings: React.FC = () => {
   const { user } = useAuth();
+  const setAuthUser = useAuthStore(state => state.setUser);
   const queryClient = useQueryClient();
 
   const addEventToCaches = useCallback((event: CalendarEvent) => {
@@ -235,6 +237,8 @@ const DashboardBookings: React.FC = () => {
   const [newProfessionalName, setNewProfessionalName] = useState('');
   const [newProfessionalEmail, setNewProfessionalEmail] = useState('');
   const [newProfessionalColor, setNewProfessionalColor] = useState(PROFESSIONAL_COLOR_PALETTE[0]);
+  const [newProfessionalHourlyRate, setNewProfessionalHourlyRate] = useState('');
+  const [newProfessionalCurrency, setNewProfessionalCurrency] = useState('EUR');
   const [nextColorIndex, setNextColorIndex] = useState(0);
   const [isCreatingProfessional, setIsCreatingProfessional] = useState(false);
   const professionalNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -365,7 +369,9 @@ const DashboardBookings: React.FC = () => {
   const [editProfessionalForm, setEditProfessionalForm] = useState({
     name: '',
     role: '',
-    color: ''
+    color: '',
+    hourlyRate: '',
+    hourlyRateCurrency: 'EUR'
   });
   const [professionalAvatar, setProfessionalAvatar] = useState<string | null>(null);
   const [professionalAvatarFile, setProfessionalAvatarFile] = useState<File | null>(null);
@@ -584,6 +590,8 @@ const DashboardBookings: React.FC = () => {
     setNewProfessionalColor(
       PROFESSIONAL_COLOR_PALETTE[nextColorIndex % PROFESSIONAL_COLOR_PALETTE.length]
     );
+    setNewProfessionalHourlyRate('');
+    setNewProfessionalCurrency('EUR');
     setShowAddProfessional(true);
   };
 
@@ -591,6 +599,8 @@ const DashboardBookings: React.FC = () => {
     setShowAddProfessional(false);
     setNewProfessionalName('');
     setNewProfessionalEmail('');
+    setNewProfessionalHourlyRate('');
+    setNewProfessionalCurrency('EUR');
     setIsCreatingProfessional(false);
   };
 
@@ -618,6 +628,18 @@ const DashboardBookings: React.FC = () => {
       alert(`❌ Email inválido: "${newProfessionalEmail}"\n\n✅ Ejemplo válido: profesional@clinica.com\n\n• Debe contener @ y un dominio completo (.com, .es, etc.)`);
       return;
     }
+
+    let hourlyRateValue = 0;
+    if (newProfessionalHourlyRate.trim() !== '') {
+      const parsedRate = parseFloat(newProfessionalHourlyRate);
+      if (Number.isNaN(parsedRate) || parsedRate < 0) {
+        alert('❌ La tarifa por hora debe ser un número válido y mayor o igual a 0');
+        return;
+      }
+      hourlyRateValue = Math.round(parsedRate * 100) / 100;
+    }
+
+    const hourlyRateCurrency = newProfessionalCurrency?.trim().toUpperCase() || 'EUR';
 
       // ✅ SIMPLIFICADO: Cualquier usuario puede agregar profesionales a su equipo
 
@@ -653,7 +675,9 @@ const DashboardBookings: React.FC = () => {
           canEditEvents: true,
           canDeleteEvents: false,
           canViewAllEvents: true
-        }
+        },
+        hourlyRate: hourlyRateValue,
+        hourlyRateCurrency
       });
       
 
@@ -1454,17 +1478,28 @@ const DashboardBookings: React.FC = () => {
   const handleEditProfessional = (calendar: SharedCalendar) => {
     const professional = getProfessionalFromCalendar(calendar);
     if (professional) {
-      setEditingProfessional({ ...professional, calendarId: calendar.id });
+      const hourlyRateValue = professional.hourlyRate ?? calendar.hourlyRate ?? 0;
+      const hourlyRateCurrency = professional.hourlyRateCurrency ?? calendar.hourlyRateCurrency ?? 'EUR';
+
+      setEditingProfessional({
+        ...professional,
+        calendarId: calendar.id,
+        ownerId: calendar.ownerId,
+        hourlyRate: hourlyRateValue,
+        hourlyRateCurrency
+      });
       setEditProfessionalForm({
         name: professional.name || calendar.name,
         role: professional.role || '',
-        color: calendar.color
+        color: calendar.color,
+        hourlyRate: hourlyRateValue > 0 ? hourlyRateValue.toString() : '',
+        hourlyRateCurrency
       });
       
       // Buscar el avatar en los members del calendario
       const member = calendar.members.find(m => m.email === calendar.linkedEmail);
       setProfessionalAvatar(member?.avatar || null);
-      
+
       setShowEditProfessionalModal(true);
     }
     setOpenMenuId(null);
@@ -1549,6 +1584,27 @@ const DashboardBookings: React.FC = () => {
         throw new Error('Calendario no encontrado');
       }
 
+      const isCalendarOwner = calendar.ownerId === user?.uid;
+      let hourlyRateCurrency = editingProfessional.hourlyRateCurrency ?? calendar.hourlyRateCurrency ?? 'EUR';
+      let hourlyRateValue = editingProfessional.hourlyRate ?? calendar.hourlyRate ?? 0;
+
+      if (isCalendarOwner) {
+        const parsedRate = parseFloat(editProfessionalForm.hourlyRate || '0');
+        if (Number.isNaN(parsedRate) || parsedRate < 0) {
+          alert('❌ La tarifa por hora debe ser un número válido.');
+          setUploadingAvatar(false);
+          return;
+        }
+        hourlyRateValue = parsedRate;
+
+        if (editProfessionalForm.hourlyRateCurrency) {
+          const normalizedCurrency = editProfessionalForm.hourlyRateCurrency.trim().toUpperCase();
+          if (normalizedCurrency) {
+            hourlyRateCurrency = normalizedCurrency;
+          }
+        }
+      }
+
 
       // 🔧 FIX DEFINITIVO: Si hay solo 1 member, actualizarlo directamente
       // Si hay más, buscar por email coincidente
@@ -1578,12 +1634,43 @@ const DashboardBookings: React.FC = () => {
           });
       
       // Actualizar en Firestore
-      await updateDoc(calendarRef, {
+      const calendarUpdate: Record<string, any> = {
         name: `Calendario de ${editProfessionalForm.name.trim()}`,
         color: editProfessionalForm.color,
         members: updatedMembers,
         updatedAt: Timestamp.now()
-      });
+      };
+
+      if (isCalendarOwner) {
+        calendarUpdate.hourlyRate = hourlyRateValue;
+        calendarUpdate.hourlyRateCurrency = hourlyRateCurrency;
+      }
+
+      await updateDoc(calendarRef, calendarUpdate);
+
+      if (user?.uid && user.professionals) {
+        const updatedProfessionalsList = user.professionals.map(pro => {
+          if (pro.id !== editingProfessional.id) {
+            return pro;
+          }
+
+          return {
+            ...pro,
+            name: editProfessionalForm.name.trim(),
+            role: editProfessionalForm.role,
+            color: editProfessionalForm.color,
+            hourlyRate: isCalendarOwner ? hourlyRateValue : pro.hourlyRate,
+            hourlyRateCurrency: isCalendarOwner ? hourlyRateCurrency : pro.hourlyRateCurrency
+          };
+        });
+
+        await updateDoc(doc(db, 'users', user.uid), {
+          professionals: updatedProfessionalsList,
+          updatedAt: serverTimestamp()
+        });
+
+        setAuthUser({ ...user, professionals: updatedProfessionalsList });
+      }
 
 
       // ✅ Invalidar cache de React Query para recargar
@@ -1822,11 +1909,41 @@ const DashboardBookings: React.FC = () => {
                 ))}
               </div>
             </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Tarifa por hora (opcional)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={newProfessionalHourlyRate}
+                      onChange={(e) => setNewProfessionalHourlyRate(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 border border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                      disabled={isCreatingProfessional}
+                    />
+                    <select
+                      value={newProfessionalCurrency}
+                      onChange={(e) => setNewProfessionalCurrency(e.target.value.toUpperCase())}
+                      className="px-2 py-2 border border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                      disabled={isCreatingProfessional}
+                    >
+                      {['EUR', 'USD', 'MXN', 'COP'].map(currency => (
+                        <option key={currency} value={currency}>{currency}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Se usará para calcular pagos en el dashboard de horas trabajadas
+                  </p>
+                </div>
                 <div className="flex items-center justify-end space-x-2">
               <button 
-                    type="button"
-                    onClick={cancelAddProfessional}
-                    className="px-3 py-2 text-xs font-medium text-gray-600 hover:text-gray-800"
+                      type="button"
+                      onClick={cancelAddProfessional}
+                      className="px-3 py-2 text-xs font-medium text-gray-600 hover:text-gray-800"
               >
                     Cancelar
                   </button>
@@ -3403,6 +3520,37 @@ const DashboardBookings: React.FC = () => {
                   ))}
                 </div>
               </div>
+
+              {editingProfessional?.ownerId === user?.uid && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tarifa por hora
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editProfessionalForm.hourlyRate}
+                      onChange={(e) => setEditProfessionalForm(prev => ({ ...prev, hourlyRate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Ej: 40"
+                    />
+                    <select
+                      value={editProfessionalForm.hourlyRateCurrency}
+                      onChange={(e) => setEditProfessionalForm(prev => ({ ...prev, hourlyRateCurrency: e.target.value.toUpperCase() }))}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {['EUR', 'USD', 'MXN', 'COP'].map(currency => (
+                        <option key={currency} value={currency}>{currency}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Se utilizará para calcular el pago total en base a las horas completadas cada mes.
+                  </p>
+                </div>
+              )}
             </div>
             
             <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">

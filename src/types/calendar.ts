@@ -27,6 +27,8 @@ export interface SharedCalendar {
   linkedEmail?: string; // Email del profesional vinculado a este calendario
   inviteCode?: string;
   inviteExpiresAt?: Date;
+  hourlyRate?: number;
+  hourlyRateCurrency?: string;
 }
 
 export interface CustomEventField {
@@ -73,10 +75,14 @@ export interface WorkHoursStats {
   professionalId: string;
   professionalName: string;
   totalHours: number;
+  totalAmount: number;
+  currency: string;
+  hourlyRate: number;
   monthlyBreakdown: {
     month: string; // "2025-10"
     hours: number;
     events: number;
+    amount: number;
   }[];
   yearlyTotal: number;
   averagePerMonth: number;

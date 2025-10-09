@@ -413,6 +413,71 @@ class SubscriptionsService {
         return { success: true, data: cached.data };
       }
 
+      // Primero buscar en la subcollection de Stripe (nueva estructura)
+      const stripeSubsRef = collection(db, `stripeCustomers/${userId}/subscriptions`);
+      const stripeQuery = query(
+        stripeSubsRef,
+        where('status', 'in', ['active', 'trialing', 'past_due'])
+      );
+
+      const stripeSnapshot = await getDocs(stripeQuery);
+
+      if (!stripeSnapshot.empty) {
+        const subscriptionDoc = stripeSnapshot.docs[0];
+        const stripeSubData = subscriptionDoc.data();
+
+        // Mapear datos de Stripe a UserSubscription
+        const subscription: UserSubscription = {
+          id: subscriptionDoc.id,
+          userId: userId,
+          planId: stripeSubData.priceId || 'free',
+          stripeSubscriptionId: stripeSubData.stripeSubscriptionId || '',
+          stripeCustomerId: stripeSubData.stripeCustomerId || '',
+          status: stripeSubData.status,
+          currentPeriodStart: stripeSubData.currentPeriodStart?.toDate?.() || new Date(),
+          currentPeriodEnd: stripeSubData.currentPeriodEnd?.toDate?.() || new Date(),
+          cancelAtPeriodEnd: stripeSubData.cancelAtPeriodEnd || false,
+          canceledAt: stripeSubData.canceledAt?.toDate?.(),
+          trialStart: stripeSubData.trialStart?.toDate?.(),
+          trialEnd: stripeSubData.trialEnd?.toDate?.(),
+          metadata: stripeSubData.metadata || {},
+          createdAt: stripeSubData.createdAt?.toDate?.() || new Date(),
+          updatedAt: stripeSubData.updatedAt?.toDate?.() || new Date()
+        };
+
+        // Obtener nombre del plan basado en priceId
+        let planName = 'FREE';
+        if (stripeSubData.priceId === 'price_1SG4nOLI966WBNFGSHBfj4GB') {
+          planName = 'PRO';
+        } else if (stripeSubData.priceId === 'price_1SG4o7LI966WBNFG67tvhEM6') {
+          planName = 'ENTERPRISE';
+        }
+
+        const plan: SubscriptionPlan = {
+          id: stripeSubData.priceId || 'free',
+          name: planName,
+          description: `Plan ${planName}`,
+          price: stripeSubData.amountDue ? stripeSubData.amountDue / 100 : 0,
+          currency: stripeSubData.currency || 'eur',
+          interval: 'month',
+          intervalCount: 1,
+          features: [],
+          isActive: true,
+          sortOrder: 1,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        const payload = { ...subscription, plan } as UserSubscription & { plan: SubscriptionPlan };
+        this.subscriptionCache.set(userId, {
+          data: payload,
+          expiresAt: Date.now() + this.subscriptionCacheTTL
+        });
+
+        return { success: true, data: payload };
+      }
+
+      // Fallback: buscar en la colección antigua user_subscriptions
       const q = query(
         collection(db, 'user_subscriptions'),
         where('userId', '==', userId),

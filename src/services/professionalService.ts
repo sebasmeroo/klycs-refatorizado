@@ -29,6 +29,8 @@ export class ProfessionalService {
       role: string;
       color: string;
       permissions: TeamProfessional['permissions'];
+      hourlyRate?: number;
+      hourlyRateCurrency?: string;
     }
   ): Promise<string> {
     try {
@@ -75,6 +77,13 @@ export class ProfessionalService {
         throw new Error(`Ya existe un calendario para el email ${professionalData.email}. Por favor elimina el calendario duplicado primero.`);
       }
 
+      const normalizedHourlyRate = typeof professionalData.hourlyRate === 'number'
+        && !Number.isNaN(professionalData.hourlyRate)
+        && professionalData.hourlyRate >= 0
+        ? Math.round(professionalData.hourlyRate * 100) / 100
+        : 0;
+      const normalizedCurrency = professionalData.hourlyRateCurrency?.trim().toUpperCase() || 'EUR';
+
       // Crear el profesional (sin valores undefined para Firebase)
       const newProfessional: TeamProfessional = {
         id: `prof_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -86,6 +95,8 @@ export class ProfessionalService {
         hasAccount: false,
         inviteStatus: 'pending',
         invitedAt: new Date(),
+        hourlyRate: normalizedHourlyRate,
+        hourlyRateCurrency: normalizedCurrency,
         // joinedAt es opcional - se agregará cuando se registre
         permissions: professionalData.permissions,
         // avatar y linkedCalendarId se agregarán después si son necesarios
@@ -139,6 +150,8 @@ export class ProfessionalService {
           },
           timezone: 'Europe/Madrid'
         },
+        hourlyRate: normalizedHourlyRate,
+        hourlyRateCurrency: normalizedCurrency,
         isPublic: false
       });
 

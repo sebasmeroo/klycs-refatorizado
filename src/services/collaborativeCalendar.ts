@@ -161,6 +161,8 @@ export class CollaborativeCalendarService {
           },
           timezone: calendarData.settings.timezone
         },
+        hourlyRate: typeof calendarData.hourlyRate === 'number' ? calendarData.hourlyRate : 0,
+        hourlyRateCurrency: calendarData.hourlyRateCurrency ?? 'EUR',
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
         isPublic: calendarData.isPublic || false

@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUserCalendars } from '@/hooks/useCalendar';
 import { WorkHoursAnalyticsService } from '@/services/workHoursAnalytics';
 import { WorkHoursStats } from '@/types/calendar';
-import { Clock, TrendingUp, Calendar, Users, Download, Filter, CheckCircle2 } from 'lucide-react';
+import { Clock, TrendingUp, Calendar, Users, Download, Filter, CheckCircle2, DollarSign } from 'lucide-react';
 import { toast } from '@/utils/toast';
 
 export const DashboardWorkHours: React.FC = () => {
@@ -26,7 +26,9 @@ export const DashboardWorkHours: React.FC = () => {
 
       const calendarsWithNames = calendars.map(cal => ({
         id: cal.id,
-        name: cal.name
+        name: cal.name,
+        hourlyRate: typeof cal.hourlyRate === 'number' ? cal.hourlyRate : 0,
+        currency: cal.hourlyRateCurrency ?? 'EUR'
       }));
 
       const professionalStats = await WorkHoursAnalyticsService.getAllProfessionalsStats(
@@ -58,6 +60,8 @@ export const DashboardWorkHours: React.FC = () => {
     sum + s.monthlyBreakdown.reduce((eventSum, month) => eventSum + month.events, 0),
     0
   );
+  const totalAmount = stats.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
+  const aggregateCurrency = stats[0]?.currency ?? 'EUR';
 
   // Profesional con más horas
   const topProfessional = stats.length > 0
@@ -71,13 +75,25 @@ export const DashboardWorkHours: React.FC = () => {
   // Exportar a CSV
   const exportToCSV = () => {
     try {
-      let csv = 'Profesional,Mes,Horas,Eventos\n';
+      let csv = 'Profesional,Mes,Horas,Eventos,Importe,Moneda\n';
 
       stats.forEach(stat => {
+        const totalEventsForProfessional = stat.monthlyBreakdown.reduce((sum, month) => sum + month.events, 0);
+
         stat.monthlyBreakdown.forEach(month => {
-          csv += `${stat.professionalName},${month.month},${month.hours},${month.events}\n`;
+          csv += `${stat.professionalName},${month.month},${month.hours},${month.events},${month.amount},${stat.currency}\n`;
         });
+
+        csv += `${stat.professionalName},Total ${selectedYear},${stat.totalHours},${totalEventsForProfessional},${stat.totalAmount},${stat.currency}\n`;
       });
+
+      if (stats.length > 1) {
+        const aggregateHours = Math.round(totalHours * 100) / 100;
+        const aggregateEvents = totalEvents;
+        const aggregateAmount = Math.round(totalAmount * 100) / 100;
+
+        csv += `Global,Total ${selectedYear},${aggregateHours},${aggregateEvents},${aggregateAmount},${aggregateCurrency}\n`;
+      }
 
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
@@ -175,7 +191,7 @@ export const DashboardWorkHours: React.FC = () => {
         </div>
 
         {/* Resumen general */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
@@ -195,6 +211,18 @@ export const DashboardWorkHours: React.FC = () => {
                 <p className="text-3xl font-bold mt-2">{totalEvents}</p>
               </div>
               <CheckCircle2 className="w-12 h-12 text-green-200" />
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl shadow-lg p-6 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-emerald-100 text-sm font-medium">Total a pagar (año)</p>
+                <p className="text-3xl font-bold mt-2">
+                  {WorkHoursAnalyticsService.formatCurrency(totalAmount, aggregateCurrency)}
+                </p>
+              </div>
+              <DollarSign className="w-12 h-12 text-emerald-200" />
             </div>
           </div>
 
@@ -249,12 +277,15 @@ export const DashboardWorkHours: React.FC = () => {
                       Promedio: {WorkHoursAnalyticsService.formatHours(stat.averagePerMonth)}/mes
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                      {WorkHoursAnalyticsService.formatHours(stat.totalHours)}
+                  <div className="text-right space-y-1">
+                    <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                      {WorkHoursAnalyticsService.formatCurrency(stat.totalAmount, stat.currency)}
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                       Total {selectedYear}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {WorkHoursAnalyticsService.formatHours(stat.totalHours)} • Tarifa {WorkHoursAnalyticsService.formatCurrency(stat.hourlyRate ?? 0, stat.currency)}/h
                     </p>
                   </div>
                 </div>
@@ -286,11 +317,19 @@ export const DashboardWorkHours: React.FC = () => {
                             <p className="text-xs text-gray-500 dark:text-gray-400">
                               {month.events} servicios
                             </p>
+                            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-1">
+                              {WorkHoursAnalyticsService.formatCurrency(month.amount, stat.currency)}
+                            </p>
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
+                </div>
+                <div className="flex justify-end mt-4">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Total anual: <span className="text-emerald-600 dark:text-emerald-400">{WorkHoursAnalyticsService.formatCurrency(stat.totalAmount, stat.currency)}</span>
+                  </span>
                 </div>
               </div>
             ))

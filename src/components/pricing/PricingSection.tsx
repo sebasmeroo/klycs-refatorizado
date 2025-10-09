@@ -1,6 +1,10 @@
 import React from 'react';
 import { Check, X, Sparkles, Zap, Rocket } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { STRIPE_PRICE_IDS } from '@/config/stripe';
+import { toast } from '@/utils/toast';
+import { useAuth } from '@/hooks/useAuth';
 
 interface PlanFeature {
   text: string;
@@ -165,19 +169,58 @@ interface PricingSectionProps {
 
 export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [billingCycle, setBillingCycle] = React.useState<BillingCycle>('monthly');
+  const [isProcessing, setIsProcessing] = React.useState(false);
 
-  const handlePlanClick = (plan: Plan) => {
+  const handlePlanClick = async (plan: Plan) => {
+    // Plan gratuito: redirigir a registro
     if (plan.id === 'free') {
       navigate('/register');
       return;
     }
 
-    const params = new URLSearchParams({
-      plan: plan.id,
-      billing: billingCycle
-    });
-    navigate(`/register?${params.toString()}`);
+    // Si no está autenticado, redirigir a registro con el plan seleccionado
+    if (!user?.uid) {
+      const params = new URLSearchParams({
+        plan: plan.id,
+        billing: billingCycle
+      });
+      navigate(`/register?${params.toString()}`);
+      return;
+    }
+
+    // Usuario autenticado: iniciar proceso de pago con Stripe
+    setIsProcessing(true);
+    try {
+      const functions = getFunctions();
+
+      // 1. Asegurar que existe el customer en Stripe
+      const ensureCustomer = httpsCallable(functions, 'stripeEnsureCustomer');
+      await ensureCustomer();
+
+      // 2. Obtener el Price ID correcto
+      const priceId = plan.id === 'pro' ? STRIPE_PRICE_IDS.PRO : STRIPE_PRICE_IDS.ENTERPRISE;
+
+      // 3. Crear sesión de checkout
+      const createCheckout = httpsCallable(functions, 'stripeCreateCheckoutSession');
+      const { data } = await createCheckout({
+        priceId,
+        successUrl: `${window.location.origin}/settings?success=true`,
+        cancelUrl: `${window.location.origin}/?canceled=true`,
+      }) as { data: { url: string } };
+
+      // 4. Redirigir a Stripe Checkout usando la URL
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error('No se pudo obtener la URL de pago');
+      }
+    } catch (error: any) {
+      console.error('Error al crear checkout:', error);
+      toast.error(error.message || 'Error al procesar el pago. Intenta de nuevo.');
+      setIsProcessing(false);
+    }
   };
 
   const bgPrimary = isDark ? 'bg-[#05070f]' : 'bg-white';
@@ -286,7 +329,8 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
 
                 <button
                   onClick={() => handlePlanClick(plan)}
-                  className={`w-full py-3 px-6 rounded-full font-semibold transition-all duration-200 ${
+                  disabled={isProcessing}
+                  className={`w-full py-3 px-6 rounded-full font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
                     isPopular
                       ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-lg hover:shadow-blue-500/50 hover:-translate-y-1'
                       : isDark
@@ -294,7 +338,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
                       : 'bg-gray-900 text-white hover:bg-gray-800'
                   }`}
                 >
-                  {plan.cta}
+                  {isProcessing ? 'Procesando...' : plan.cta}
                 </button>
 
                 <ul className="mt-8 space-y-4">
@@ -327,14 +371,14 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
         <div className="mt-16 text-center space-y-4">
           <div className={`max-w-3xl mx-auto p-4 rounded-lg border ${
             isDark
-              ? 'bg-blue-900/20 border-blue-500/30'
-              : 'bg-blue-50 border-blue-200'
+              ? 'bg-emerald-900/20 border-emerald-500/30'
+              : 'bg-emerald-50 border-emerald-200'
           }`}>
-            <p className={`text-sm font-semibold ${isDark ? 'text-blue-400' : 'text-blue-700'} mb-2`}>
-              🚀 Fase de Lanzamiento
+            <p className={`text-sm font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-700'} mb-2`}>
+              💳 Pagos seguros con Stripe
             </p>
-            <p className={`text-sm ${isDark ? 'text-blue-200' : 'text-blue-600'}`}>
-              Los planes de pago estarán disponibles próximamente. Por ahora, puedes registrarte y empezar a usar todas las funcionalidades de forma gratuita.
+            <p className={`text-sm ${isDark ? 'text-emerald-200' : 'text-emerald-600'}`}>
+              Todos los pagos se procesan de forma segura a través de Stripe. Puedes cancelar en cualquier momento.
             </p>
           </div>
 

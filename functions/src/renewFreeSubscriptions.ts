@@ -8,28 +8,31 @@
  * - Comando: firebase deploy --only functions:renewFreeSubscriptions
  */
 
-import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import {onSchedule} from 'firebase-functions/v2/scheduler';
+import {onRequest} from 'firebase-functions/v2/https';
 
 // Inicializar Firebase Admin si no está inicializado
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 
-const db = admin.firestore();
+// Lazy initialization
+const getDb = () => admin.firestore();
 
 /**
  * Renovar suscripciones FREE expiradas
  * Ejecuta diariamente a las 00:00 UTC
  */
-export const renewFreeSubscriptions = functions.pubsub
-  .schedule('0 0 * * *') // Cron: Cada día a medianoche UTC
-  .timeZone('Europe/Madrid')
-  .onRun(async (context) => {
+export const renewFreeSubscriptions = onSchedule({
+  schedule: '0 0 * * *',
+  timeZone: 'Europe/Madrid'
+}, async (_context: any): Promise<void> => {
     try {
       console.log('🔄 Iniciando renovación de suscripciones FREE...');
 
       const now = admin.firestore.Timestamp.now();
+      const db = getDb();
 
       // Buscar todas las suscripciones FREE activas que hayan expirado
       const expiredSubscriptionsQuery = await db.collection('user_subscriptions')
@@ -76,13 +79,6 @@ export const renewFreeSubscriptions = functions.pubsub
 
       console.log(`✅ Proceso completado: ${renewedCount} renovadas, ${errorCount} errores`);
 
-      return {
-        success: true,
-        renewed: renewedCount,
-        errors: errorCount,
-        timestamp: new Date().toISOString()
-      };
-
     } catch (error) {
       console.error('❌ Error en renovación automática:', error);
       throw error;
@@ -92,11 +88,11 @@ export const renewFreeSubscriptions = functions.pubsub
 /**
  * También crear función manual para testing
  */
-export const renewFreeSubscriptionsManual = functions.https.onRequest(async (req, res) => {
+export const renewFreeSubscriptionsManual = onRequest(async (req, res): Promise<void> => {
   try {
     // Verificar autenticación (opcional, agregar si es necesario)
     const authHeader = req.headers.authorization;
-    const expectedToken = functions.config().admin?.manual_token || 'test-token-change-in-production';
+    const expectedToken = process.env.ADMIN_MANUAL_TOKEN || 'test-token-change-in-production';
 
     if (authHeader !== `Bearer ${expectedToken}`) {
       res.status(403).send('Unauthorized');
@@ -106,6 +102,7 @@ export const renewFreeSubscriptionsManual = functions.https.onRequest(async (req
     console.log('🔄 Ejecutando renovación manual de suscripciones FREE...');
 
     const now = admin.firestore.Timestamp.now();
+    const db = getDb();
 
     const expiredSubscriptionsQuery = await db.collection('user_subscriptions')
       .where('status', '==', 'active')

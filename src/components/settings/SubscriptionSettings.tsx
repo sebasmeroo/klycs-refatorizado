@@ -4,6 +4,8 @@ import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { subscriptionsService } from '@/services/subscriptions';
 import { toast } from '@/utils/toast';
 import { useAuth } from '@/hooks/useAuth';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { STRIPE_PRICE_IDS } from '@/config/stripe';
 
 export const SubscriptionSettings: React.FC = () => {
   const { user } = useAuth();
@@ -12,8 +14,28 @@ export const SubscriptionSettings: React.FC = () => {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'PRO' | 'BUSINESS' | null>(null);
   const [isCanceling, setIsCanceling] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   const currentPlan = planName || 'FREE';
+
+  // Detectar si venimos de un pago exitoso
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('success') === 'true') {
+      toast.success('¡Pago procesado con éxito! Tu suscripción se activará en unos segundos.', { duration: 5000 });
+      // Limpiar el parámetro de la URL
+      window.history.replaceState({}, '', '/settings');
+
+      // Recargar la página después de 3 segundos para mostrar la nueva suscripción
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
+    }
+    if (urlParams.get('canceled') === 'true') {
+      toast.info('Pago cancelado. Puedes intentarlo de nuevo cuando quieras.');
+      window.history.replaceState({}, '', '/settings');
+    }
+  }, []);
 
   const plans = [
     {
@@ -87,18 +109,77 @@ export const SubscriptionSettings: React.FC = () => {
     toast.error('Para cambiar a un plan inferior, contáctanos en sales@klycs.com');
   };
 
-  const confirmUpgrade = () => {
-    // TODO: Cuando Stripe esté implementado, redirigir a checkout
-    toast.info(`Upgrade a ${selectedPlan} - Próximamente disponible con Stripe`);
-    setShowUpgradeModal(false);
+  const confirmUpgrade = async () => {
+    console.log('🔵 confirmUpgrade iniciado');
+    console.log('🔵 selectedPlan:', selectedPlan);
+    console.log('🔵 user?.uid:', user?.uid);
+
+    if (!selectedPlan || !user?.uid) {
+      console.log('❌ Falta selectedPlan o user.uid');
+      toast.error('Error: No se pudo identificar el plan o el usuario');
+      return;
+    }
+
+    setIsUpgrading(true);
+    console.log('🔵 isUpgrading = true');
+
+    try {
+      const functions = getFunctions();
+      console.log('🔵 getFunctions() OK');
+
+      // 1. Asegurar que existe el customer en Stripe
+      console.log('🔵 Llamando a ensureCustomer...');
+      const ensureCustomer = httpsCallable(functions, 'stripeEnsureCustomer');
+      const customerResult = await ensureCustomer();
+      console.log('✅ ensureCustomer result:', customerResult);
+
+      // 2. Crear sesión de checkout
+      console.log('🔵 Llamando a createCheckoutSession con priceId:', STRIPE_PRICE_IDS[selectedPlan]);
+      const createCheckout = httpsCallable(functions, 'stripeCreateCheckoutSession');
+      const result = await createCheckout({
+        priceId: STRIPE_PRICE_IDS[selectedPlan],
+        successUrl: `${window.location.origin}/settings?success=true`,
+        cancelUrl: `${window.location.origin}/settings?canceled=true`,
+      });
+      console.log('✅ createCheckoutSession result:', result);
+
+      const data = result.data as { url: string };
+      console.log('🔵 data.url:', data.url);
+
+      // 3. Redirigir directamente a Stripe Checkout usando la URL
+      if (data.url) {
+        console.log('✅ Redirigiendo a Stripe:', data.url);
+        window.location.href = data.url;
+      } else {
+        console.log('❌ No se obtuvo URL de Stripe');
+        toast.error('No se pudo obtener la URL de pago');
+        setIsUpgrading(false);
+      }
+    } catch (error: any) {
+      console.error('❌ Error completo:', error);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error code:', error.code);
+      console.error('❌ Error details:', error.details);
+
+      let errorMessage = 'Error al procesar el pago. Intenta de nuevo.';
+      if (error.message) {
+        errorMessage = error.message;
+      }
+      if (error.code === 'unauthenticated') {
+        errorMessage = 'Debes iniciar sesión para actualizar tu plan';
+      }
+
+      toast.error(errorMessage);
+      setIsUpgrading(false);
+    }
   };
 
   const handleCancelSubscription = async () => {
-    if (!user?.id) return;
+    if (!user?.uid) return;
 
     setIsCanceling(true);
     try {
-      const result = await subscriptionsService.cancelSubscription(user.id);
+      const result = await subscriptionsService.cancelSubscription(user.uid);
 
       if (result.success) {
         toast.success('Suscripción cancelada. Mantendrás el acceso hasta el final del período de facturación.');
@@ -351,22 +432,24 @@ export const SubscriptionSettings: React.FC = () => {
 
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 mb-6">
               <p className="text-sm text-blue-800 dark:text-blue-200">
-                🚀 <strong>Fase de lanzamiento:</strong> Los pagos estarán disponibles próximamente con Stripe.
+                💳 Serás redirigido a Stripe para completar el pago de forma segura.
               </p>
             </div>
 
             <div className="flex gap-3">
               <button
                 onClick={() => setShowUpgradeModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                disabled={isUpgrading}
+                className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={confirmUpgrade}
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all"
+                disabled={isUpgrading}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all disabled:opacity-50"
               >
-                Continuar
+                {isUpgrading ? 'Procesando...' : 'Continuar'}
               </button>
             </div>
           </div>

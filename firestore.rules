@@ -326,6 +326,25 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // === REGLAS PARA STRIPE CUSTOMERS ===
+    match /stripeCustomers/{userId} {
+      // Permitir leer tu propia información de Stripe
+      allow read: if isAuthenticated() && isOwner(userId);
+
+      // Solo Cloud Functions pueden escribir
+      allow create, update: if false;
+      allow delete: if false;
+
+      // Subcollection de suscripciones de Stripe
+      match /subscriptions/{subscriptionId} {
+        // Permitir leer tus propias suscripciones
+        allow read: if isAuthenticated() && isOwner(userId);
+
+        // Solo Cloud Functions pueden escribir
+        allow create, update, delete: if false;
+      }
+    }
+
     // === BLOQUEAR TODO LO DEMÁS ===
     match /{document=**} {
       allow read, write: if false;

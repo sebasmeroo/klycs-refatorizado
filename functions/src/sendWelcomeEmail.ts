@@ -1,12 +1,13 @@
-import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import {onDocumentCreated} from 'firebase-functions/v2/firestore';
 
 // Inicializar solo si no está inicializado
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-const db = admin.firestore();
+// Lazy initialization
+const getDb = () => admin.firestore();
 
 /**
  * Cloud Function que se dispara cuando se crea una nueva suscripción
@@ -18,13 +19,16 @@ const db = admin.firestore();
  * - Mailgun
  * - O usar Firebase Extensions > Trigger Email
  */
-export const sendWelcomeEmail = functions.firestore
-  .document('user_subscriptions/{subscriptionId}')
-  .onCreate(async (snapshot, context) => {
+export const sendWelcomeEmail = onDocumentCreated(
+  'user_subscriptions/{subscriptionId}',
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
     const subscription = snapshot.data();
-    const subscriptionId = context.params.subscriptionId;
 
     try {
+      const db = getDb();
       // Obtener datos del usuario
       const userDoc = await db.collection('users').doc(subscription.userId).get();
 

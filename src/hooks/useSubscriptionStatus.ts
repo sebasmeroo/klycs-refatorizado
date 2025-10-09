@@ -18,7 +18,7 @@ export interface SubscriptionStatus {
  */
 export const useSubscriptionStatus = () => {
   const { user, firebaseUser } = useAuth();
-  const userId = user?.id || firebaseUser?.uid;
+  const userId = user?.uid || firebaseUser?.uid;
 
   const { data: subscriptionStatus, isLoading, error } = useQuery({
     queryKey: ['subscriptionStatus', userId],
@@ -57,6 +57,7 @@ export const useSubscriptionStatus = () => {
         }
 
         const subscription = result.data;
+
         const now = new Date();
         const periodEnd = subscription.currentPeriodEnd;
 
