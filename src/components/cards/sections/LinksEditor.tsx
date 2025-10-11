@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { IOSSection } from '@/components/ui/IOSControls';
 import { Card, CardLink } from '@/types';
 import { Button } from '@/components/ui/Button';
@@ -13,18 +13,23 @@ import {
   Trash2, 
   ExternalLink,
   MoreVertical,
-  Copy
+  Copy,
+  AlertCircle
 } from 'lucide-react';
+import { toast } from '@/utils/toast';
 
 interface LinksEditorProps {
   card: Card;
   onUpdate: (updates: Partial<Card>) => void;
+  maxLinks?: number;
+  onLimitReached?: () => void;
 }
 
 // ✅ React.memo para optimizar performance
-export const LinksEditor: React.FC<LinksEditorProps> = React.memo(({ card, onUpdate }) => {
+export const LinksEditor: React.FC<LinksEditorProps> = React.memo(({ card, onUpdate, maxLinks, onLimitReached }) => {
   const [editingLink, setEditingLink] = useState<string | null>(null);
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const reachedLimit = useMemo(() => typeof maxLinks === 'number' && card.links.length >= maxLinks, [card.links.length, maxLinks]);
 
   const handleLinksUpdate = (newLinks: CardLink[]) => {
     onUpdate({ links: newLinks });
@@ -39,7 +44,21 @@ export const LinksEditor: React.FC<LinksEditorProps> = React.memo(({ card, onUpd
     return fallback;
   };
 
+  const notifyLimit = () => {
+    if (onLimitReached) {
+      onLimitReached();
+    }
+    if (typeof maxLinks === 'number') {
+      toast.error(`Plan FREE: máximo ${maxLinks} enlaces activos.`);
+    }
+  };
+
   const addNewLink = async () => {
+    if (reachedLimit) {
+      notifyLimit();
+      return;
+    }
+
     const newLink: CardLink = {
       id: `link-${Date.now()}`,
       title: 'Nuevo Enlace',
@@ -108,6 +127,10 @@ export const LinksEditor: React.FC<LinksEditorProps> = React.memo(({ card, onUpd
   };
 
   const duplicateLink = (linkId: string) => {
+    if (reachedLimit) {
+      notifyLimit();
+      return;
+    }
     const originalLink = card.links.find(l => l.id === linkId);
     if (!originalLink) return;
 
@@ -167,12 +190,19 @@ export const LinksEditor: React.FC<LinksEditorProps> = React.memo(({ card, onUpd
       {/* Enlaces Principales */}
       <IOSSection title="Enlaces Principales" icon={<Link size={14} />} variant="dark" sectionKey="links-main">
         <div className="flex justify-end">
-          <Button onClick={addNewLink}>
+          <Button onClick={addNewLink} className={reachedLimit ? 'opacity-70 cursor-not-allowed' : ''}>
             <Plus className="w-4 h-4 mr-2" />
             Agregar Enlace
           </Button>
         </div>
       </IOSSection>
+
+      {reachedLimit && (
+        <div className="flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
+          <AlertCircle className="w-4 h-4" />
+          <span>Plan FREE: límite de {maxLinks} enlaces. Actualiza tu plan para agregar más.</span>
+        </div>
+      )}
 
       {/* Links List */}
       <div className="space-y-4">

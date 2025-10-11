@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { IOSSection } from '@/components/ui/IOSControls';
 import { Card, CardSocialLinks } from '@/types';
 import { Button } from '@/components/ui/Button';
@@ -16,17 +16,26 @@ import {
   Facebook,
   Youtube,
   Github,
-  ExternalLink
+  ExternalLink,
+  AlertCircle
 } from 'lucide-react';
+import { toast } from '@/utils/toast';
 
 interface SocialLinksEditorProps {
   card: Card;
   onUpdate: (updates: Partial<Card>) => void;
+  maxSocialLinks?: number;
+  onLimitReached?: () => void;
 }
 
-export const SocialLinksEditor: React.FC<SocialLinksEditorProps> = ({ card, onUpdate }) => {
+export const SocialLinksEditor: React.FC<SocialLinksEditorProps> = ({ card, onUpdate, maxSocialLinks, onLimitReached }) => {
   const [selectedPlatform, setSelectedPlatform] = useState<string>('');
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const socialCount = card.socialLinks?.length || 0;
+  const reachedLimit = useMemo(
+    () => typeof maxSocialLinks === 'number' && socialCount >= maxSocialLinks,
+    [maxSocialLinks, socialCount]
+  );
 
   const socialPlatforms = [
     { id: 'instagram', name: 'Instagram', icon: Instagram, color: '#E4405F', placeholder: 'tu_usuario' },
@@ -58,7 +67,20 @@ export const SocialLinksEditor: React.FC<SocialLinksEditorProps> = ({ card, onUp
     return fallback;
   };
 
+  const notifyLimit = () => {
+    if (onLimitReached) {
+      onLimitReached();
+    }
+    if (typeof maxSocialLinks === 'number') {
+      toast.error(`Plan FREE: máximo ${maxSocialLinks} redes sociales.`);
+    }
+  };
+
   const addSocialLink = () => {
+    if (reachedLimit) {
+      notifyLimit();
+      return;
+    }
     if (!selectedPlatform) return;
 
     const platform = socialPlatforms.find(p => p.id === selectedPlatform);
@@ -184,7 +206,14 @@ export const SocialLinksEditor: React.FC<SocialLinksEditorProps> = ({ card, onUp
       <IOSSection title="Redes Sociales" icon={<Share size={14} />} variant="dark" sectionKey="social-main" />
 
       {/* Add Social Platform */}
-      {availablePlatforms.length > 0 && (
+      {reachedLimit && (
+        <div className="flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
+          <AlertCircle className="w-4 h-4" />
+          <span>Plan FREE: límite de {maxSocialLinks} perfiles sociales. Mejora tu plan para añadir más.</span>
+        </div>
+      )}
+
+      {availablePlatforms.length > 0 && !reachedLimit && (
         <div className="bg-[#121218] rounded-xl border border-black/20 p-6">
           <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
             Agregar Red Social
@@ -204,7 +233,7 @@ export const SocialLinksEditor: React.FC<SocialLinksEditorProps> = ({ card, onUp
               ))}
             </select>
             
-            <Button 
+            <Button
               onClick={addSocialLink}
               disabled={!selectedPlatform}
             >

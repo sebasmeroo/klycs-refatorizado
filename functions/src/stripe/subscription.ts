@@ -1,4 +1,5 @@
 import * as admin from 'firebase-admin';
+import {logger} from 'firebase-functions';
 import Stripe from 'stripe';
 import {getStripeClient} from './stripeClient';
 import {
@@ -9,6 +10,62 @@ import {StripeSubscriptionRecord} from './types';
 
 // Lazy initialization to avoid calling admin.auth() before admin.initializeApp()
 const getAuth = () => admin.auth();
+
+type PlanLabel = 'FREE' | 'PRO' | 'BUSINESS';
+
+const BUSINESS_PRICE_IDS = new Set([
+  'price_1SG4o7LI966WBNFG67tvhEM6', // Business mensual
+]);
+
+const PRO_PRICE_IDS = new Set([
+  'price_1SG4nOLI966WBNFGSHBfj4GB', // Pro mensual
+]);
+
+const BUSINESS_AMOUNT_HINTS = new Set([4000, 30000, 29999]);
+const PRO_AMOUNT_HINTS = new Set([999, 1000, 9999, 10000]);
+
+const ACTIVE_STATUSES = new Set(['active', 'trialing', 'past_due']);
+
+const resolvePlanLabel = (record: Partial<StripeSubscriptionRecord>): PlanLabel => {
+  const priceId = record.priceId ?? undefined;
+
+  if (priceId && BUSINESS_PRICE_IDS.has(priceId)) {
+    return 'BUSINESS';
+  }
+
+  if (priceId && PRO_PRICE_IDS.has(priceId)) {
+    return 'PRO';
+  }
+
+  const amount = typeof record.amountDue === 'number'
+    ? record.amountDue
+    : Number(record.amountDue);
+
+  if (Number.isFinite(amount)) {
+    const rounded = Math.round(amount as number);
+
+    if (BUSINESS_AMOUNT_HINTS.has(rounded) || rounded >= 25000) {
+      return 'BUSINESS';
+    }
+
+    if (PRO_AMOUNT_HINTS.has(rounded) || (rounded >= 900 && rounded < 4000)) {
+      return 'PRO';
+    }
+  }
+
+  return 'FREE';
+};
+
+const getPlanPriority = (plan: PlanLabel): number => {
+  switch (plan) {
+    case 'BUSINESS':
+      return 3;
+    case 'PRO':
+      return 2;
+    default:
+      return 1;
+  }
+};
 
 const mapSubscription = (
     userId: string,
@@ -39,6 +96,115 @@ const mapSubscription = (
   };
 };
 
+interface SubscriptionAnalysis {
+  doc: FirebaseFirestore.QueryDocumentSnapshot;
+  data: StripeSubscriptionRecord;
+  planName: PlanLabel;
+  priority: number;
+  periodEndMs: number;
+  status: string;
+  cancelAtPeriodEnd: boolean;
+}
+
+interface ReconcileResult {
+  winner: SubscriptionAnalysis | null;
+  superseded: string[];
+}
+
+const reconcileUserSubscriptions = async (
+    customerDoc: FirebaseFirestore.QueryDocumentSnapshot,
+    stripe: Stripe,
+): Promise<ReconcileResult> => {
+  const snapshot = await customerDoc.ref.collection('subscriptions').get();
+
+  if (snapshot.empty) {
+    return {winner: null, superseded: []};
+  }
+
+  const analyses: SubscriptionAnalysis[] = snapshot.docs.map((doc) => {
+    const data = doc.data() as StripeSubscriptionRecord;
+    const planName = resolvePlanLabel(data);
+    const priority = getPlanPriority(planName);
+    const periodEndMs = typeof data.currentPeriodEnd?.toMillis === 'function'
+      ? data.currentPeriodEnd.toMillis()
+      : 0;
+
+    return {
+      doc,
+      data,
+      planName,
+      priority,
+      periodEndMs,
+      status: data.status || 'unknown',
+      cancelAtPeriodEnd: Boolean(data.cancelAtPeriodEnd),
+    };
+  });
+
+  const activeAnalyses = analyses.filter((analysis) => ACTIVE_STATUSES.has(analysis.status));
+
+  const sorted = (activeAnalyses.length > 0 ? activeAnalyses : analyses)
+      .sort((a, b) => {
+        if (b.priority !== a.priority) {
+          return b.priority - a.priority;
+        }
+        return b.periodEndMs - a.periodEndMs;
+      });
+
+  const winner = sorted[0] ?? null;
+
+  const superseded: string[] = [];
+
+  for (const analysis of analyses) {
+    const isWinner = winner ? analysis.doc.id === winner.doc.id : false;
+    const updatePayload: FirebaseFirestore.UpdateData = {
+      resolvedPlan: analysis.planName,
+      resolvedPlanPriority: analysis.priority,
+      lastReconciledAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (isWinner) {
+      updatePayload.superseded = admin.firestore.FieldValue.delete();
+      updatePayload.supersededBy = admin.firestore.FieldValue.delete();
+      updatePayload.supersededAt = admin.firestore.FieldValue.delete();
+    } else {
+      updatePayload.superseded = true;
+      updatePayload.supersededBy = winner?.doc.id ?? null;
+      updatePayload.supersededAt = admin.firestore.FieldValue.serverTimestamp();
+      superseded.push(analysis.doc.id);
+    }
+
+    await analysis.doc.ref.set(updatePayload, {merge: true});
+
+    if (!isWinner && ACTIVE_STATUSES.has(analysis.status) && !analysis.cancelAtPeriodEnd) {
+      try {
+        await stripe.subscriptions.update(analysis.doc.id, {
+          cancel_at_period_end: true,
+        });
+        logger.info('Scheduled cancellation for superseded subscription', {
+          subscriptionId: analysis.doc.id,
+          supersededBy: winner?.doc.id,
+        });
+      } catch (error) {
+        logger.warn('Failed to schedule cancellation for superseded subscription', {
+          subscriptionId: analysis.doc.id,
+          supersededBy: winner?.doc.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  if (superseded.length > 0 && winner) {
+    logger.info('Superseded duplicate subscriptions detected', {
+      customerId: customerDoc.id,
+      winner: winner.doc.id,
+      superseded,
+    });
+  }
+
+  return {winner, superseded};
+};
+
 export const syncSubscription = async (
     subscriptionId: string,
     subscription?: Stripe.Subscription,
@@ -67,49 +233,33 @@ export const syncSubscription = async (
   const auth = getAuth();
   const existingClaims = await auth.getUser(userId).then((user) => user.customClaims || {});
 
-  // ✅ MEJORADO: Manejo inteligente de estados
-  // - 'active': Suscripción activa y pagada
-  // - 'trialing': En período de prueba
-  // - 'past_due': Pago falló, dar 7 días de gracia antes de bloquear
-  const status = currentSubscription.status;
-  let isActive = false;
-  let isPastDue = false;
+  const reconcileResult = await reconcileUserSubscriptions(customerDoc, stripe);
+  const winner = reconcileResult.winner;
 
-  if (status === 'active' || status === 'trialing') {
-    isActive = true;
-  } else if (status === 'past_due') {
-    // ✅ GRACE PERIOD: Dar 7 días de gracia para que actualicen su tarjeta
-    // Stripe reintenta automáticamente el cobro durante ~2 semanas
-    isPastDue = true;
-    isActive = true; // Mantener acceso durante grace period
-  } else if (status === 'canceled' || status === 'unpaid') {
-    isActive = false;
-  }
+  const effectiveRecord = winner?.data ?? data;
+  const planName = winner?.planName ?? resolvePlanLabel(data);
+  const status = winner?.status ?? currentSubscription.status;
+  const priceIdForClaim = effectiveRecord.priceId ?? data.priceId ?? 'free';
 
-  // Mapear priceId a plan name (FREE, PRO, BUSINESS)
-  let planName = 'FREE';
-  if (data.priceId === 'price_1SG4nOLI966WBNFGSHBfj4GB') {
-    planName = 'PRO';
-  } else if (data.priceId === 'price_1SG4o7LI966WBNFG67tvhEM6') {
-    planName = 'BUSINESS';
-  }
+  const isActive = status === 'active' || status === 'trialing' || status === 'past_due';
+  const isPastDue = status === 'past_due';
 
   const newClaims = {
     ...existingClaims,
     stripeActive: isActive,
-    stripePastDue: isPastDue, // ✅ NUEVO: Flag para mostrar advertencia en UI
-    plan: data.priceId,
+    stripePastDue: isPastDue,
+    plan: priceIdForClaim,
   };
 
   await auth.setCustomUserClaims(userId, newClaims);
 
-  // También actualizar el documento del usuario en Firestore
   const db = admin.firestore();
   await db.collection('users').doc(userId).update({
     plan: planName,
     stripeActive: isActive,
-    stripePastDue: isPastDue, // ✅ NUEVO: Permite mostrar banner de advertencia
-    subscriptionStatus: status, // ✅ NUEVO: Guardar estado completo
+    stripePastDue: isPastDue,
+    subscriptionStatus: status,
+    activeSubscriptionId: winner?.doc.id ?? currentSubscription.id,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 };

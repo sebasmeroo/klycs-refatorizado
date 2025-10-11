@@ -11,7 +11,7 @@ import {
 import { FirebaseError } from 'firebase/app';
 import { db } from '@/lib/firebase';
 import { logger } from '@/utils/logger';
-import { STRIPE_PRICE_IDS, getPlanKeyFromPriceId } from '@/config/stripe';
+import { STRIPE_PRICE_IDS, getPlanKeyFromPriceId, StripePlanKey } from '@/config/stripe';
 
 export interface SubscriptionPlan {
   id: string;
@@ -328,10 +328,35 @@ class SubscriptionsService {
       const stripeSnapshot = await getDocs(stripeQuery);
 
       if (!stripeSnapshot.empty) {
-        const subscriptionDoc = stripeSnapshot.docs[0];
-        const stripeSubData = subscriptionDoc.data();
+        const prioritized = stripeSnapshot.docs
+          .map(doc => {
+            const data = doc.data();
+            const planKey = this.resolveStripePlanKey(data);
+            const periodEnd = data.currentPeriodEnd?.toDate?.()?.getTime?.() ?? 0;
+            return {
+              doc,
+              data,
+              planKey,
+              priority: this.getPlanPriority(planKey),
+              periodEnd
+            };
+          })
+          .sort((a, b) => {
+            if (b.priority !== a.priority) {
+              return b.priority - a.priority;
+            }
+            return b.periodEnd - a.periodEnd;
+          });
 
-        const planKey = getPlanKeyFromPriceId(stripeSubData.priceId);
+        const selected = prioritized[0];
+
+        if (!selected) {
+          throw new Error('No active Stripe subscriptions found');
+        }
+
+        const subscriptionDoc = selected.doc;
+        const stripeSubData = selected.data;
+        const planKey = selected.planKey;
 
         // Mapear datos de Stripe a UserSubscription
         const subscription: UserSubscription = {
@@ -665,6 +690,97 @@ class SubscriptionsService {
 
     // Default: FREE
     return this.getFreePlanLimits();
+  }
+
+  private resolveStripePlanKey(stripeSubData: any): StripePlanKey {
+    let planKey = getPlanKeyFromPriceId(stripeSubData?.priceId);
+
+    if (planKey !== 'FREE') {
+      return planKey;
+    }
+
+    const metadataPlan = this.normalizePlanString(
+      stripeSubData?.metadata?.plan ||
+      stripeSubData?.metadata?.planName ||
+      stripeSubData?.metadata?.tier
+    );
+
+    if (metadataPlan) {
+      return metadataPlan;
+    }
+
+    const planIdHint = this.normalizePlanString(stripeSubData?.planId);
+    if (planIdHint) {
+      return planIdHint;
+    }
+
+    const amountHint = this.inferPlanFromAmount(
+      stripeSubData?.amountDue ??
+      stripeSubData?.amount_due ??
+      stripeSubData?.price?.unit_amount
+    );
+
+    if (amountHint) {
+      return amountHint;
+    }
+
+    return planKey;
+  }
+
+  private getPlanPriority(planKey: StripePlanKey): number {
+    switch (planKey) {
+      case 'BUSINESS':
+        return 3;
+      case 'PRO':
+        return 2;
+      default:
+        return 1;
+    }
+  }
+
+  private normalizePlanString(value: unknown): StripePlanKey | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    if (normalized.includes('business') || normalized.includes('enterprise')) {
+      return 'BUSINESS';
+    }
+
+    if (normalized.includes('pro') || normalized.includes('profesional')) {
+      return 'PRO';
+    }
+
+    if (normalized.includes('free') || normalized.includes('gratuito')) {
+      return 'FREE';
+    }
+
+    return null;
+  }
+
+  private inferPlanFromAmount(amount: unknown): StripePlanKey | null {
+    const numericAmount = typeof amount === 'number' ? amount : Number(amount);
+
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return null;
+    }
+
+    const rounded = Math.round(numericAmount);
+
+    const businessAmounts = new Set([4000, 29999, 30000]);
+    const proAmounts = new Set([999, 1000, 9999, 10000]);
+
+    if (businessAmounts.has(rounded) || rounded >= 25000) {
+      return 'BUSINESS';
+    }
+
+    if (proAmounts.has(rounded) || (rounded >= 900 && rounded < 4000)) {
+      return 'PRO';
+    }
+
+    return null;
   }
 
   private buildFreeSubscription(userId: string): UserSubscription & { plan: SubscriptionPlan } {

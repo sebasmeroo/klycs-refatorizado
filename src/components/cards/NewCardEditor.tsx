@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Card } from '@/types';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { SaveIndicator } from '@/components/ui/SaveIndicator';
+import type { LucideIcon } from 'lucide-react';
 import {
   Eye,
   User,
@@ -14,7 +15,8 @@ import {
   Settings,
   ArrowLeft,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  Lock
 } from 'lucide-react';
 
 // Componentes de cada sección
@@ -31,6 +33,9 @@ import { AdvancedSettingsEditor } from './sections/AdvancedSettingsEditor';
 
 // Preview components
 import { MobilePreview } from './preview/MobilePreview';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { toast } from '@/utils/toast';
+import { Button } from '@/components/ui/Button';
 
 
 interface NewCardEditorProps {
@@ -50,8 +55,16 @@ type EditorSection =
   | 'section-order'
   | 'advanced-settings';
 
+type SidebarSection = {
+  id: EditorSection;
+  label: string;
+  icon: LucideIcon;
+  description: string;
+  color: string;
+  requiresPaid?: boolean;
+};
 
-const sidebarSections = [
+const sidebarSections: SidebarSection[] = [
   {
     id: 'profile' as EditorSection,
     label: 'Perfil',
@@ -78,7 +91,8 @@ const sidebarSections = [
     label: 'Servicios',
     icon: Briefcase,
     description: 'Servicios profesionales',
-    color: 'from-purple-500 to-purple-600'
+    color: 'from-purple-500 to-purple-600',
+    requiresPaid: true
   },
   {
     id: 'portfolio' as EditorSection,
@@ -92,21 +106,24 @@ const sidebarSections = [
     label: 'Reservas',
     icon: Calendar,
     description: 'Sistema de citas',
-    color: 'from-orange-500 to-orange-600'
+    color: 'from-orange-500 to-orange-600',
+    requiresPaid: true
   },
   {
     id: 'calendar' as EditorSection,
     label: 'Calendario',
     icon: Calendar,
     description: 'Profesionales y reservas',
-    color: 'from-blue-500 to-blue-600'
+    color: 'from-blue-500 to-blue-600',
+    requiresPaid: true
   },
   {
     id: 'section-order' as EditorSection,
     label: 'Orden de Secciones',
     icon: Settings,
     description: 'Reordenar secciones',
-    color: 'from-purple-500 to-purple-600'
+    color: 'from-purple-500 to-purple-600',
+    requiresPaid: true
   },
   {
     id: 'advanced-settings' as EditorSection,
@@ -116,6 +133,31 @@ const sidebarSections = [
     color: 'from-indigo-500 to-indigo-600'
   }
 ];
+
+const paidOnlySectionIds = new Set<EditorSection>(
+  sidebarSections
+    .filter(section => section.requiresPaid)
+    .map(section => section.id)
+);
+
+const lockedMessages: Partial<Record<EditorSection, { title: string; description: string }>> = {
+  services: {
+    title: 'Servicios profesionales',
+    description: 'Crea y promociona tu catálogo de servicios a partir de los planes PRO y BUSINESS.'
+  },
+  booking: {
+    title: 'Reservas y sistema de citas',
+    description: 'Activa agendas inteligentes y cobros automatizados actualizando tu plan.'
+  },
+  calendar: {
+    title: 'Calendario colaborativo',
+    description: 'Gestiona calendarios y profesionales en tiempo real con los planes PRO y BUSINESS.'
+  },
+  'section-order': {
+    title: 'Orden de secciones',
+    description: 'Reordena la estructura de tu tarjeta al desbloquear las funciones avanzadas.'
+  }
+};
 
 export const NewCardEditor: React.FC<NewCardEditorProps> = ({
   card,
@@ -129,6 +171,15 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
   const [sidebarQuery, setSidebarQuery] = useState('');
   const [activeSubsection, setActiveSubsection] = useState<string | null>(null);
   const [openSubmenus, setOpenSubmenus] = useState<Partial<Record<EditorSection, boolean>>>({});
+  const { planName } = useSubscriptionStatus();
+  const normalizedPlan = useMemo(() => (planName || 'FREE').toLowerCase(), [planName]);
+  const isFreePlan = normalizedPlan.includes('free') || normalizedPlan.includes('básico');
+  const isSectionLocked = useCallback((sectionId: EditorSection) => {
+    return isFreePlan && paidOnlySectionIds.has(sectionId);
+  }, [isFreePlan]);
+  const handleUpgradePrompt = useCallback(() => {
+    toast.info('Disponible en planes PRO y BUSINESS. Actualiza tu plan para desbloquear esta sección.');
+  }, []);
 
   // ✅ Auto-save profesional con debounce de 2 segundos (patrón Notion)
   const { save: autoSave, isSaving, lastSaved, forceSave } = useAutoSave(currentCard, {
@@ -160,14 +211,32 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
       card: currentCard,
       onUpdate: handleCardUpdate
     };
+    const linksLimit = isFreePlan ? 5 : undefined;
+    const socialLimit = isFreePlan ? 3 : undefined;
+
+    if (isSectionLocked(activeSection)) {
+      return renderLockedSection(activeSection);
+    }
 
     switch (activeSection) {
       case 'profile':
         return <ProfileEditor {...commonProps} />;
       case 'links':
-        return <LinksEditor {...commonProps} />;
+        return (
+          <LinksEditor
+            {...commonProps}
+            maxLinks={linksLimit}
+            onLimitReached={handleUpgradePrompt}
+          />
+        );
       case 'social':
-        return <SocialLinksEditor {...commonProps} />;
+        return (
+          <SocialLinksEditor
+            {...commonProps}
+            maxSocialLinks={socialLimit}
+            onLimitReached={handleUpgradePrompt}
+          />
+        );
       case 'services':
         return <ServicesEditor {...commonProps} />;
       case 'portfolio':
@@ -183,6 +252,33 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
       default:
         return <ProfileEditor {...commonProps} />;
     }
+  };
+
+  const renderLockedSection = (sectionId: EditorSection) => {
+    const sectionMeta = sidebarSections.find(section => section.id === sectionId);
+    const copy = lockedMessages[sectionId];
+
+    return (
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-8 text-center">
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
+          <Lock className="h-8 w-8 text-blue-600 dark:text-blue-300" />
+        </div>
+        <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+          {copy?.title || sectionMeta?.label || 'Función premium'}
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-300 max-w-xl mx-auto">
+          {copy?.description || 'Actualiza tu plan a PRO o BUSINESS para desbloquear esta funcionalidad.'}
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Button onClick={() => window.open('/dashboard/settings', '_blank')} size="sm">
+            Ver planes
+          </Button>
+          <Button onClick={() => window.open('/pricing', '_blank')} variant="outline" size="sm">
+            Comparar planes
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   const currentSection = sidebarSections.find(s => s.id === activeSection);
@@ -278,6 +374,7 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
               const Icon = section.icon;
               const isActive = activeSection === section.id;
               const badge = getSectionBadge(section.id);
+              const isLocked = isSectionLocked(section.id);
               
               const submenuItems = sectionSubmenus[section.id] || [];
               const hasSubmenu = submenuItems.length > 0;
@@ -286,6 +383,10 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
                 <div key={section.id}>
                   <button
                     onClick={() => {
+                      if (isLocked) {
+                        handleUpgradePrompt();
+                        return;
+                      }
                       if (activeSection !== section.id) {
                         setActiveSection(section.id);
                         if (hasSubmenu) setOpenSubmenus((s)=>({ ...s, [section.id]: true }));
@@ -297,7 +398,7 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
                       isActive
                         ? 'bg-white/5 text-white shadow-[inset_0_0_0_1px_rgba(59,130,246,0.35)]'
                         : 'text-white/70 hover:bg-white/5'
-                    }`}
+                    } ${isLocked ? 'cursor-not-allowed opacity-60 hover:bg-transparent' : ''}`}
                     title={sidebarCollapsed ? section.label : undefined}
                   >
                     <div className={`w-7 h-7 rounded-md flex items-center justify-center mr-2 bg-gradient-to-br ${section.color} ${isActive ? 'shadow-lg' : 'opacity-80'}`}>
@@ -316,6 +417,7 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
                         {typeof badge === 'number' && (
                           <span className={`text-[10px] px-1 py-0.5 rounded ${isActive ? 'bg-blue-500/20 text-blue-300' : 'bg-white/10 text-white/70'}`}>{badge}</span>
                         )}
+                        {isLocked && <Lock className="w-3.5 h-3.5 text-white/50" />}
                         {hasSubmenu && (
                           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpenSub ? 'rotate-180 text-blue-400' : 'text-white/50'}`} />
                         )}

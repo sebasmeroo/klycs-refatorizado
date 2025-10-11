@@ -18,6 +18,50 @@ export const DashboardWorkHours: React.FC = () => {
   const normalizedPlan = (planName || 'FREE').toUpperCase();
   const analyticsEnabled = normalizedPlan !== 'FREE';
 
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [onlyCompleted, setOnlyCompleted] = useState(true);
+  const [stats, setStats] = useState<WorkHoursStats[]>([]);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  // Cargar estadísticas SOLO cuando el usuario hace clic en "Actualizar"
+  const loadStats = useCallback(async () => {
+    if (!analyticsEnabled) return;
+    if (calendars.length === 0) return;
+
+    try {
+      setLoading(true);
+
+      const calendarsWithNames = calendars.map(cal => ({
+        id: cal.id,
+        name: cal.name,
+        hourlyRate: typeof cal.hourlyRate === 'number' ? cal.hourlyRate : 0,
+        currency: cal.hourlyRateCurrency ?? 'EUR'
+      }));
+
+      const professionalStats = await WorkHoursAnalyticsService.getAllProfessionalsStats(
+        calendarsWithNames,
+        selectedYear,
+        onlyCompleted
+      );
+
+      setStats(professionalStats);
+      setHasLoadedOnce(true);
+    } catch (error) {
+      console.error('Error al cargar estadísticas:', error);
+      toast.error('Error al cargar las estadísticas');
+    } finally {
+      setLoading(false);
+    }
+  }, [analyticsEnabled, calendars, selectedYear, onlyCompleted]);
+
+  useEffect(() => {
+    if (!analyticsEnabled) return;
+    if (calendars.length > 0 && !hasLoadedOnce) {
+      loadStats();
+    }
+  }, [analyticsEnabled, calendars.length, hasLoadedOnce, loadStats]);
+
   if (planLoading || loadingCalendars) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -51,49 +95,6 @@ export const DashboardWorkHours: React.FC = () => {
       </div>
     );
   }
-
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [onlyCompleted, setOnlyCompleted] = useState(true);
-  const [stats, setStats] = useState<WorkHoursStats[]>([]);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  // Cargar estadísticas SOLO cuando el usuario hace clic en "Actualizar"
-  const loadStats = useCallback(async () => {
-    if (calendars.length === 0) return;
-
-    try {
-      setLoading(true);
-
-      const calendarsWithNames = calendars.map(cal => ({
-        id: cal.id,
-        name: cal.name,
-        hourlyRate: typeof cal.hourlyRate === 'number' ? cal.hourlyRate : 0,
-        currency: cal.hourlyRateCurrency ?? 'EUR'
-      }));
-
-      const professionalStats = await WorkHoursAnalyticsService.getAllProfessionalsStats(
-        calendarsWithNames,
-        selectedYear,
-        onlyCompleted
-      );
-
-      setStats(professionalStats);
-      setHasLoadedOnce(true);
-    } catch (error) {
-      console.error('Error al cargar estadísticas:', error);
-      toast.error('Error al cargar las estadísticas');
-    } finally {
-      setLoading(false);
-    }
-  }, [calendars, selectedYear, onlyCompleted]);
-
-  // Solo cargar UNA VEZ cuando se monta el componente
-  useEffect(() => {
-    if (calendars.length > 0 && !hasLoadedOnce) {
-      loadStats();
-    }
-  }, [calendars.length, hasLoadedOnce, loadStats]);
 
   // Calcular totales generales
   const totalHours = stats.reduce((sum, s) => sum + s.totalHours, 0);

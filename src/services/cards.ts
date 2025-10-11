@@ -16,6 +16,7 @@ import {
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 import { Card, CardTemplate, CardAnalytics } from '@/types';
+import { cardTemplates, createCardFromTemplate } from '@/data/cardTemplates';
 import { error as logError, info } from '@/utils/logger';
 
 const COLLECTION_NAME = 'cards';
@@ -51,6 +52,105 @@ export class CardsService {
       });
       throw new Error('Error al crear la tarjeta');
     }
+  }
+
+  static async createDefaultCard(userId: string): Promise<Card> {
+    const template = cardTemplates[0];
+    const title = template?.name || 'Mi Tarjeta';
+    const baseCard = template
+      ? createCardFromTemplate(template, userId, title)
+      : {
+          userId,
+          title,
+          description: 'Tarjeta generada automáticamente',
+          slug: `${title.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+          isPublic: true,
+          profile: {
+            name: 'Tu Nombre',
+            bio: '',
+            avatar: '',
+            backgroundImage: '',
+            backgroundType: 'color' as const,
+            backgroundColor: '#6366f1',
+            backgroundGradient: '',
+            design: {
+              fontFamily: 'Inter, system-ui, sans-serif',
+              theme: 'light',
+              layout: 'modern'
+            }
+          },
+          links: [],
+          elements: [],
+          socialLinks: [],
+          services: [],
+          portfolio: {
+            items: [],
+            style: {
+              layout: 'grid',
+              columns: 2,
+              spacing: 'normal',
+              aspectRatio: 'auto',
+              rounded: true,
+              showTitles: true
+            },
+            isVisible: true,
+            showTitle: true,
+            title: 'Portfolio',
+            order: 0
+          },
+          booking: {
+            enabled: false,
+            title: '',
+            description: '',
+            requireApproval: false,
+            requirePayment: false,
+            price: 0,
+            duration: 60,
+            timezone: 'Europe/Madrid'
+          },
+          calendar: {
+            enabled: false,
+            isVisible: false,
+            allowDirectBooking: false,
+            calendarId: null,
+            timezone: 'Europe/Madrid'
+          },
+          settings: {
+            seo: {},
+            analytics: {
+              enabled: false,
+              trackClicks: true,
+              trackViews: true
+            },
+            sharing: {
+              enabled: true,
+              allowEmbed: false
+            },
+            branding: {
+              showWatermark: true,
+              customFooter: '',
+              faviconUrl: ''
+            },
+            sectionsOrder: []
+          },
+          analytics: {
+            totalViews: 0,
+            totalClicks: 0,
+            viewHistory: [],
+            clickHistory: []
+          }
+        };
+
+    const cardId = await CardsService.createCard(userId, baseCard);
+
+    return {
+      id: cardId,
+      ...baseCard,
+      viewCount: 0,
+      clickCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    } as Card;
   }
 
   static async updateCard(cardId: string, userId: string, updates: Partial<Card>): Promise<void> {

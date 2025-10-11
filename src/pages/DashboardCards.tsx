@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -21,6 +21,9 @@ import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CardCreator } from '@/components/cards/CardCreator';
 import { toast } from '@/utils/toast';
+import { subscriptionsService } from '@/services/subscriptions';
+import { CardsService } from '@/services/cards';
+import { useQueryClient } from '@tanstack/react-query';
 
 type ViewMode = 'list' | 'create';
 
@@ -33,8 +36,10 @@ export const DashboardCards: React.FC = () => {
   const userId = user?.id || firebaseUser?.uid;
   const { planName } = useSubscriptionStatus();
   const normalizedPlan = (planName || 'FREE').toUpperCase();
+  const queryClient = useQueryClient();
+  const autoCreateAttempted = useRef(false);
 
-  const cardLimit = React.useMemo(() => {
+  const cardLimit = useMemo(() => {
     switch (normalizedPlan) {
       case 'BUSINESS':
         return 10;
@@ -107,6 +112,43 @@ export const DashboardCards: React.FC = () => {
     card.profile.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  useEffect(() => {
+    if (!userId || loading || cards.length > 0 || autoCreateAttempted.current || cardLimit <= 0) {
+      return;
+    }
+
+    autoCreateAttempted.current = true;
+
+    (async () => {
+      try {
+        const limitsCheck = await subscriptionsService.checkPlanLimits(userId, 'cards_created');
+
+        if (!limitsCheck.success || !limitsCheck.data?.canProceed) {
+          return;
+        }
+
+        const newCard = await CardsService.createDefaultCard(userId);
+
+        await subscriptionsService.recordUsage(userId, 'cards_created', 1, {
+          cardId: newCard.id,
+          cardTitle: newCard.title,
+          autoCreated: true,
+        });
+
+        queryClient.invalidateQueries({ queryKey: ['cards', userId] });
+        toast.success('Creamos una tarjeta base para que empieces a personalizarla.');
+      } catch (creationError) {
+        console.error('Error auto-creating default card:', creationError);
+      }
+    })();
+  }, [userId, loading, cards.length, cardLimit, queryClient]);
+
+  useEffect(() => {
+    if (!loading && cards.length > 0 && normalizedPlan !== 'BUSINESS') {
+      navigate(`/tarjeta/edit/${cards[0].slug}`, { replace: true });
+    }
+  }, [loading, cards, normalizedPlan, navigate]);
+
   // Si ya tiene una tarjeta, no mostrar nada (se redirigirá automáticamente)
   if (loading) {
     return (
@@ -114,6 +156,10 @@ export const DashboardCards: React.FC = () => {
         <LoadingSpinner />
       </div>
     );
+  }
+
+  if (cards.length > 0 && normalizedPlan !== 'BUSINESS') {
+    return null;
   }
 
   if (viewMode === 'create') {
@@ -154,7 +200,7 @@ export const DashboardCards: React.FC = () => {
       </div>
 
       {/* Stats - Solo si hay tarjeta */}
-      {cards.length > 0 && (
+      {cards.length > 0 && normalizedPlan === 'BUSINESS' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 text-center">
             <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">
