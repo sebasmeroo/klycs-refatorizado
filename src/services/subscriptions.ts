@@ -1,17 +1,17 @@
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc, 
-  query, 
-  where, 
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  updateDoc,
+  query,
+  where,
   getDocs,
-
 } from 'firebase/firestore';
 import { FirebaseError } from 'firebase/app';
 import { db } from '@/lib/firebase';
 import { logger } from '@/utils/logger';
+import { STRIPE_PRICE_IDS, getPlanKeyFromPriceId } from '@/config/stripe';
 
 export interface SubscriptionPlan {
   id: string;
@@ -55,15 +55,23 @@ export interface UsageRecord {
   id: string;
   userId: string;
   subscriptionId: string;
-  metric: 'cards_created' | 'views' | 'bookings' | 'storage_mb';
+  metric:
+    | 'cards_created'
+    | 'views'
+    | 'bookings'
+    | 'storage_mb'
+    | 'calendars'
+    | 'professionals'
+    | 'portfolio_images'
+    | 'portfolio_videos'
+    | 'link_designs'
+    | 'analytics_export';
   quantity: number;
   timestamp: Date;
   metadata?: Record<string, any>;
 }
 
 class SubscriptionsService {
-  private readonly STRIPE_API_URL = 'https://api.stripe.com/v1';
-  private readonly stripeSecretKey = process.env.VITE_STRIPE_SECRET_KEY;
   private readonly subscriptionCache = new Map<string, { data: UserSubscription & { plan: SubscriptionPlan }; expiresAt: number }>();
   private readonly subscriptionCacheTTL = 5 * 60 * 1000; // 5 minutes
   private readonly planCache = new Map<string, { data: SubscriptionPlan; expiresAt: number }>();
@@ -116,7 +124,7 @@ class SubscriptionsService {
         '20+ templates prediseñados',
         'Soporte prioritario 24h'
       ],
-      stripePriceId: 'price_professional_monthly',
+      stripePriceId: STRIPE_PRICE_IDS.PRO,
       isActive: true,
       sortOrder: 2
     },
@@ -143,7 +151,7 @@ class SubscriptionsService {
         '100+ templates premium',
         'Soporte 24/7 + Onboarding dedicado'
       ],
-      stripePriceId: 'price_business_monthly',
+      stripePriceId: STRIPE_PRICE_IDS.BUSINESS,
       isActive: true,
       sortOrder: 3
     },
@@ -161,7 +169,7 @@ class SubscriptionsService {
         '🚀 Migración gratuita',
         '⚡ Configuración prioritaria'
       ],
-      stripePriceId: 'price_professional_yearly',
+      stripePriceId: undefined,
       isActive: true,
       sortOrder: 4
     },
@@ -180,7 +188,7 @@ class SubscriptionsService {
         '⚡ Migración de datos incluida',
         '🎯 Consultoría estratégica inicial'
       ],
-      stripePriceId: 'price_business_yearly',
+      stripePriceId: undefined,
       isActive: true,
       sortOrder: 5
     }
@@ -246,109 +254,6 @@ class SubscriptionsService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to get plans'
-      };
-    }
-  }
-
-  /**
-   * Crear suscripción para usuario
-   */
-  async createSubscription(
-    userId: string,
-    planId: string,
-    stripeCustomerId: string,
-    paymentMethodId?: string,
-    trialDays?: number
-  ): Promise<{ success: boolean; data?: UserSubscription; error?: string }> {
-    try {
-      if (!this.stripeSecretKey) {
-        throw new Error('Stripe secret key not configured');
-      }
-
-      // Obtener plan
-      const planDoc = await getDoc(doc(db, 'subscription_plans', planId));
-      if (!planDoc.exists()) {
-        throw new Error('Plan not found');
-      }
-
-      const plan = { id: planDoc.id, ...planDoc.data() } as SubscriptionPlan;
-
-      // Si es plan gratuito, crear suscripción local sin Stripe
-      if (plan.price === 0) {
-        return await this.createFreeSubscription(userId, planId);
-      }
-
-      if (!plan.stripePriceId) {
-        throw new Error('Plan does not have Stripe price ID');
-      }
-
-      // Crear suscripción en Stripe
-      const subscriptionParams = new URLSearchParams({
-        customer: stripeCustomerId,
-        'items[0][price]': plan.stripePriceId,
-        'payment_behavior': 'default_incomplete',
-        'expand[]': 'latest_invoice.payment_intent',
-        ...(paymentMethodId && { default_payment_method: paymentMethodId }),
-        ...(trialDays && { trial_period_days: trialDays.toString() })
-      });
-
-      const response = await fetch(`${this.STRIPE_API_URL}/subscriptions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.stripeSecretKey}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: subscriptionParams
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || 'Failed to create subscription');
-      }
-
-      const stripeSubscription = await response.json();
-
-      // Guardar en Firestore
-      const subscriptionData: Omit<UserSubscription, 'id'> = {
-        userId: userId,
-        planId,
-        stripeSubscriptionId: stripeSubscription.id,
-        stripeCustomerId,
-        status: stripeSubscription.status,
-        currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
-        cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
-        trialStart: stripeSubscription.trial_start ? new Date(stripeSubscription.trial_start * 1000) : undefined,
-        trialEnd: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : undefined,
-        metadata: {},
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      const docRef = doc(collection(db, 'user_subscriptions'));
-      await setDoc(docRef, subscriptionData);
-
-      logger.info('Subscription created', { 
-        userId: userId, 
-        planId, 
-        stripeSubscriptionId: stripeSubscription.id 
-      });
-
-      return {
-        success: true,
-        data: { id: docRef.id, ...subscriptionData }
-      };
-
-    } catch (error) {
-      logger.error('Error creating subscription', { 
-        userId: userId, 
-        planId,
-        details: error instanceof Error ? error.message : 'Unknown error' 
-      });
-      
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to create subscription'
       };
     }
   }
@@ -426,11 +331,13 @@ class SubscriptionsService {
         const subscriptionDoc = stripeSnapshot.docs[0];
         const stripeSubData = subscriptionDoc.data();
 
+        const planKey = getPlanKeyFromPriceId(stripeSubData.priceId);
+
         // Mapear datos de Stripe a UserSubscription
         const subscription: UserSubscription = {
           id: subscriptionDoc.id,
           userId: userId,
-          planId: stripeSubData.priceId || 'free',
+          planId: planKey.toLowerCase(),
           stripeSubscriptionId: stripeSubData.stripeSubscriptionId || '',
           stripeCustomerId: stripeSubData.stripeCustomerId || '',
           status: stripeSubData.status,
@@ -445,18 +352,10 @@ class SubscriptionsService {
           updatedAt: stripeSubData.updatedAt?.toDate?.() || new Date()
         };
 
-        // Obtener nombre del plan basado en priceId
-        let planName = 'FREE';
-        if (stripeSubData.priceId === 'price_1SG4nOLI966WBNFGSHBfj4GB') {
-          planName = 'PRO';
-        } else if (stripeSubData.priceId === 'price_1SG4o7LI966WBNFG67tvhEM6') {
-          planName = 'ENTERPRISE';
-        }
-
         const plan: SubscriptionPlan = {
-          id: stripeSubData.priceId || 'free',
-          name: planName,
-          description: `Plan ${planName}`,
+          id: planKey.toLowerCase(),
+          name: planKey,
+          description: `Plan ${planKey}`,
           price: stripeSubData.amountDue ? stripeSubData.amountDue / 100 : 0,
           currency: stripeSubData.currency || 'eur',
           interval: 'month',
@@ -531,195 +430,6 @@ class SubscriptionsService {
   }
 
   /**
-   * Cancelar suscripción
-   */
-  async cancelSubscription(
-    subscriptionId: string,
-    cancelAtPeriodEnd: boolean = true,
-    reason?: string
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const subscriptionDoc = await getDoc(doc(db, 'user_subscriptions', subscriptionId));
-      if (!subscriptionDoc.exists()) {
-        throw new Error('Subscription not found');
-      }
-
-      const subscription = subscriptionDoc.data() as UserSubscription;
-
-      // Si tiene Stripe subscription, cancelar en Stripe
-      if (subscription.stripeSubscriptionId && this.stripeSecretKey) {
-        const response = await fetch(`${this.STRIPE_API_URL}/subscriptions/${subscription.stripeSubscriptionId}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${this.stripeSecretKey}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            prorate: 'false',
-            ...(cancelAtPeriodEnd && { at_period_end: 'true' })
-          })
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error?.message || 'Failed to cancel subscription');
-        }
-      }
-
-      // Actualizar en Firestore
-      await updateDoc(doc(db, 'user_subscriptions', subscriptionId), {
-        cancelAtPeriodEnd,
-        canceledAt: new Date(),
-        'metadata.cancelReason': reason || 'User requested',
-        updatedAt: new Date()
-      });
-
-      logger.info('Subscription canceled', { 
-        subscriptionId: subscriptionId, 
-        cancelAtPeriodEnd, 
-        reason 
-      });
-
-      return { success: true };
-
-    } catch (error) {
-      logger.error('Error canceling subscription', { 
-        subscriptionId: subscriptionId,
-        details: error instanceof Error ? error.message : 'Unknown error' 
-      });
-      
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to cancel subscription'
-      };
-    }
-  }
-
-  /**
-   * Cambiar plan de suscripción
-   */
-  async changePlan(
-    subscriptionId: string,
-    newPlanId: string
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const subscriptionDoc = await getDoc(doc(db, 'user_subscriptions', subscriptionId));
-      if (!subscriptionDoc.exists()) {
-        throw new Error('Subscription not found');
-      }
-
-      const subscription = subscriptionDoc.data() as UserSubscription;
-
-      // Obtener plan actual
-      const currentPlanDoc = await getDoc(doc(db, 'subscription_plans', subscription.planId));
-      if (!currentPlanDoc.exists()) {
-        throw new Error('Current plan not found');
-      }
-      const currentPlan = currentPlanDoc.data() as SubscriptionPlan;
-
-      // Obtener nuevo plan
-      const newPlanDoc = await getDoc(doc(db, 'subscription_plans', newPlanId));
-      if (!newPlanDoc.exists()) {
-        throw new Error('New plan not found');
-      }
-
-      const newPlan = newPlanDoc.data() as SubscriptionPlan;
-
-      // ✅ VALIDAR DOWNGRADE - Verificar que no exceda límites del nuevo plan
-      const isDowngrade = newPlan.price < currentPlan.price;
-
-      if (isDowngrade) {
-        const validationResult = await this.validateDowngrade(subscription.userId, newPlan);
-        if (!validationResult.success) {
-          return {
-            success: false,
-            error: validationResult.error
-          };
-        }
-      }
-
-      // Si el nuevo plan es gratuito, cancelar suscripción de Stripe
-      if (newPlan.price === 0) {
-        if (subscription.stripeSubscriptionId) {
-          await this.cancelSubscription(subscriptionId, false, 'Downgrade to free plan');
-        }
-        
-        // Actualizar a plan gratuito
-        await updateDoc(doc(db, 'user_subscriptions', subscriptionId), {
-          planId: newPlanId,
-          'metadata.downgradeTo': 'free',
-          updatedAt: new Date()
-        });
-
-        return { success: true };
-      }
-
-      // Cambiar en Stripe si es una suscripción de pago
-      if (subscription.stripeSubscriptionId && newPlan.stripePriceId && this.stripeSecretKey) {
-        // Obtener suscripción actual de Stripe
-        const stripeResponse = await fetch(`${this.STRIPE_API_URL}/subscriptions/${subscription.stripeSubscriptionId}`, {
-          headers: {
-            'Authorization': `Bearer ${this.stripeSecretKey}`,
-          }
-        });
-
-        if (!stripeResponse.ok) {
-          throw new Error('Failed to fetch current subscription from Stripe');
-        }
-
-        const stripeSubscription = await stripeResponse.json();
-        const currentItemId = stripeSubscription.items.data[0].id;
-
-        // Actualizar suscripción en Stripe
-        const updateResponse = await fetch(`${this.STRIPE_API_URL}/subscriptions/${subscription.stripeSubscriptionId}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${this.stripeSecretKey}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            'items[0][id]': currentItemId,
-            'items[0][price]': newPlan.stripePriceId,
-            proration_behavior: 'create_prorations'
-          })
-        });
-
-        if (!updateResponse.ok) {
-          const error = await updateResponse.json();
-          throw new Error(error.error?.message || 'Failed to update subscription');
-        }
-      }
-
-      // Actualizar en Firestore
-      await updateDoc(doc(db, 'user_subscriptions', subscriptionId), {
-        planId: newPlanId,
-        'metadata.upgradeFrom': subscription.planId,
-        updatedAt: new Date()
-      });
-
-      logger.info('Subscription plan changed', { 
-        subscriptionId: subscriptionId, 
-        oldPlanId: subscription.planId, 
-        newPlanId 
-      });
-
-      return { success: true };
-
-    } catch (error) {
-      logger.error('Error changing subscription plan', { 
-        subscriptionId: subscriptionId, 
-        newPlanId,
-        details: error instanceof Error ? error.message : 'Unknown error' 
-      });
-      
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to change plan'
-      };
-    }
-  }
-
-  /**
    * Registrar uso de una métrica
    */
   async recordUsage(
@@ -742,14 +452,14 @@ class SubscriptionsService {
           metadata
         };
 
-      const docRef = doc(collection(db, 'usage_records'));
-      await setDoc(docRef, usageData);
+        const docRef = doc(collection(db, 'usage_records'));
+        await setDoc(docRef, usageData);
 
-      this.bumpUsageCache(userId, metric, quantity);
-      return { success: true };
-    }
+        this.bumpUsageCache(userId, metric, quantity);
+        return { success: true };
+      }
 
-    const subscription = subscriptionResult.data;
+      const subscription = subscriptionResult.data;
 
       const usageData: Omit<UsageRecord, 'id'> = {
         userId: userId,
@@ -932,7 +642,13 @@ class SubscriptionsService {
     }
 
     // Plan BUSINESS (mensual o anual)
-    if (planName === 'business' || planName === 'business anual' || planName === 'empresa') {
+    if (
+      planName === 'business' ||
+      planName === 'business anual' ||
+      planName === 'empresa' ||
+      planName === 'enterprise' ||
+      planName === 'enterprise anual'
+    ) {
       return {
         cards_created: Infinity, // Tarjetas ilimitadas
         calendars: Infinity, // Calendarios ilimitados
@@ -1143,58 +859,6 @@ class SubscriptionsService {
           updatedAt: new Date()
         });
       }
-    }
-  }
-
-  /**
-   * Validar que el usuario pueda hacer downgrade sin exceder límites
-   */
-  private async validateDowngrade(
-    userId: string,
-    newPlan: SubscriptionPlan
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const planLimits = this.getPlanLimits(newPlan);
-      const errors: string[] = [];
-
-      // Verificar tarjetas
-      const cardsUsage = await this.getCurrentUsage(userId, 'cards_created');
-      if (cardsUsage > planLimits.cards_created) {
-        errors.push(`Tienes ${cardsUsage} tarjetas. El plan ${newPlan.name} permite máximo ${planLimits.cards_created}.`);
-      }
-
-      // Verificar calendarios
-      const calendarsUsage = await this.getCurrentUsage(userId, 'calendars');
-      if (calendarsUsage > (planLimits.calendars || 0)) {
-        errors.push(`Tienes ${calendarsUsage} calendarios. El plan ${newPlan.name} permite máximo ${planLimits.calendars || 0}.`);
-      }
-
-      // Verificar profesionales
-      const professionalsUsage = await this.getCurrentUsage(userId, 'professionals');
-      if (professionalsUsage > (planLimits.professionals || 0)) {
-        errors.push(`Tienes ${professionalsUsage} profesionales. El plan ${newPlan.name} permite máximo ${planLimits.professionals || 0}.`);
-      }
-
-      if (errors.length > 0) {
-        return {
-          success: false,
-          error: `No puedes cambiar a ${newPlan.name}:\n${errors.join('\n')}\n\nElimina recursos antes de hacer el downgrade.`
-        };
-      }
-
-      return { success: true };
-
-    } catch (error) {
-      logger.error('Error validating downgrade', {
-        userId,
-        newPlan: newPlan.name,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-
-      return {
-        success: false,
-        error: 'Error al validar el cambio de plan'
-      };
     }
   }
 

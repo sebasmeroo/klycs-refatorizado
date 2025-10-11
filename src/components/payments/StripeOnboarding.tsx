@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { stripeConnectService } from '@/services/stripeConnect';
+import { stripeConnectService, StripeConnectAccount } from '@/services/stripeConnect';
 import { error as logError } from '@/utils/logger';
 import { 
   CreditCard, 
@@ -25,7 +25,7 @@ interface StripeOnboardingProps {
 const StripeOnboarding: React.FC<StripeOnboardingProps> = ({ onComplete }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [stripeAccount, setStripeAccount] = useState<any>(null);
+  const [stripeAccount, setStripeAccount] = useState<StripeConnectAccount | null>(null);
   const [onboardingUrl, setOnboardingUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<'info' | 'create' | 'onboarding' | 'complete'>('info');
@@ -39,17 +39,19 @@ const StripeOnboarding: React.FC<StripeOnboardingProps> = ({ onComplete }) => {
 
     setLoading(true);
     try {
-      const result = await stripeConnectService.getUserStripeAccount(user.id);
-      if (result.success && result.data) {
-        setStripeAccount(result.data);
-        if (result.data.detailsSubmitted) {
-          setStep('complete');
-        } else {
-          setStep('onboarding');
-        }
+      const account = await stripeConnectService.getAccount();
+      if (account) {
+        setStripeAccount(account);
+        setStep(account.detailsSubmitted ? 'complete' : 'onboarding');
+      } else {
+        setStripeAccount(null);
+        setStep('info');
       }
     } catch (error) {
       logError('Error checking existing account', error as Error, { component: 'StripeOnboarding' });
+      setError('No se pudo verificar tu cuenta de Stripe. Intenta nuevamente.');
+      setStripeAccount(null);
+      setStep('info');
     } finally {
       setLoading(false);
     }
@@ -69,14 +71,9 @@ const StripeOnboarding: React.FC<StripeOnboardingProps> = ({ onComplete }) => {
     setError(null);
 
     try {
-      const result = await stripeConnectService.createConnectAccount(user.id, businessInfo);
-      
-      if (result.success && result.data) {
-        setStripeAccount(result.data);
-        await createOnboardingSession(result.data.stripeAccountId);
-      } else {
-        setError(result.error || 'Error creating account');
-      }
+      const account = await stripeConnectService.createAccount(businessInfo);
+      setStripeAccount(account);
+      await createOnboardingSession(account.stripeAccountId);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Unknown error');
     } finally {
@@ -91,19 +88,14 @@ const StripeOnboarding: React.FC<StripeOnboardingProps> = ({ onComplete }) => {
       const returnUrl = `${window.location.origin}/dashboard/payments/success`;
       const refreshUrl = `${window.location.origin}/dashboard/payments/onboarding`;
 
-      const result = await stripeConnectService.createOnboardingSession(
-        user.id,
+      const session = await stripeConnectService.createOnboardingSession({
         stripeAccountId,
         returnUrl,
-        refreshUrl
-      );
+        refreshUrl,
+      });
 
-      if (result.success && result.data) {
-        setOnboardingUrl(result.data.url);
-        setStep('onboarding');
-      } else {
-        setError(result.error || 'Error creating onboarding session');
-      }
+      setOnboardingUrl(session.url);
+      setStep('onboarding');
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Unknown error');
     }
@@ -114,8 +106,9 @@ const StripeOnboarding: React.FC<StripeOnboardingProps> = ({ onComplete }) => {
 
     setLoading(true);
     try {
-      await stripeConnectService.syncAccountStatus(stripeAccount.stripeAccountId);
-      await checkExistingAccount();
+      const updated = await stripeConnectService.syncAccountStatus(stripeAccount.stripeAccountId);
+      setStripeAccount(updated);
+      setStep(updated.detailsSubmitted ? 'complete' : 'onboarding');
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Error refreshing status');
     } finally {
@@ -507,7 +500,7 @@ const CreateAccountStep: React.FC<{
 
 const OnboardingStep: React.FC<{
   onboardingUrl: string | null;
-  stripeAccount: any;
+  stripeAccount: StripeConnectAccount | null;
   onRefresh: () => void;
   loading: boolean;
 }> = ({ onboardingUrl, stripeAccount, onRefresh, loading }) => (
@@ -579,7 +572,7 @@ const OnboardingStep: React.FC<{
 );
 
 const CompleteStep: React.FC<{
-  stripeAccount: any;
+  stripeAccount: StripeConnectAccount | null;
   onComplete?: () => void;
 }> = ({ stripeAccount, onComplete }) => (
   <div className="glass-card-ios p-8">

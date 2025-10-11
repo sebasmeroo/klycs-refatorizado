@@ -12,6 +12,15 @@ import * as admin from "firebase-admin";
 import {onCall} from "firebase-functions/v2/https";
 import {ensureStripeCustomer, createCheckoutSession, createBillingPortalSession} from "./stripe/customer";
 import {handleStripeWebhook} from "./stripe/webhook";
+import {
+  createConnectAccount,
+  createConnectOnboardingSession,
+  getConnectAccount,
+  syncConnectAccountStatus,
+  getConnectAccountBalance,
+  createConnectPaymentIntent,
+  createConnectDashboardLoginLink,
+} from "./stripe/connect";
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -434,3 +443,10 @@ export const stripeEnsureCustomer = onCall(ensureStripeCustomer);
 export const stripeCreateCheckoutSession = onCall(createCheckoutSession);
 export const stripeCreateBillingPortalSession = onCall(createBillingPortalSession);
 export const stripeWebhook = handleStripeWebhook;
+export const stripeConnectCreateAccount = onCall(createConnectAccount);
+export const stripeConnectCreateOnboardingSession = onCall(createConnectOnboardingSession);
+export const stripeConnectGetAccount = onCall(getConnectAccount);
+export const stripeConnectSyncAccountStatus = onCall(syncConnectAccountStatus);
+export const stripeConnectGetBalance = onCall(getConnectAccountBalance);
+export const stripeConnectCreatePaymentIntent = onCall(createConnectPaymentIntent);
+export const stripeConnectCreateDashboardLoginLink = onCall(createConnectDashboardLoginLink);

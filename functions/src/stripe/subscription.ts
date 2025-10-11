@@ -86,12 +86,12 @@ export const syncSubscription = async (
     isActive = false;
   }
 
-  // Mapear priceId a plan name (FREE, PRO, ENTERPRISE)
+  // Mapear priceId a plan name (FREE, PRO, BUSINESS)
   let planName = 'FREE';
   if (data.priceId === 'price_1SG4nOLI966WBNFGSHBfj4GB') {
     planName = 'PRO';
   } else if (data.priceId === 'price_1SG4o7LI966WBNFG67tvhEM6') {
-    planName = 'ENTERPRISE';
+    planName = 'BUSINESS';
   }
 
   const newClaims = {

@@ -13,7 +13,7 @@
 ### 2. Stripe Dashboard Configurado
 - ✅ Plan FREE: `price_1SG4luLI966WBNFGY9HUIdhP`
 - ✅ Plan PRO: `price_1SG4nOLI966WBNFGSHBfj4GB`
-- ✅ Plan ENTERPRISE: `price_1SG4o7LI966WBNFG67tvhEM6`
+- ✅ Plan BUSINESS: `price_1SG4o7LI966WBNFG67tvhEM6`
 - ✅ Webhook configurado con eventos: checkout.session.completed, customer.subscription.*, invoice.*
 
 ### 3. Variables de Entorno
@@ -50,7 +50,7 @@ import { STRIPE_PRICE_IDS } from '@/config/stripe';
 const createCheckout = httpsCallable(functions, 'stripeCreateCheckoutSession');
 
 const { data } = await createCheckout({
-  priceId: STRIPE_PRICE_IDS.PRO, // o FREE o ENTERPRISE
+  priceId: STRIPE_PRICE_IDS.PRO, // o FREE o BUSINESS
   successUrl: `${window.location.origin}/subscription/success`,
   cancelUrl: `${window.location.origin}/subscription/cancel`,
   trialDays: 14, // Opcional: prueba gratuita de 14 días
@@ -90,7 +90,7 @@ export function PricingPage() {
   const [loading, setLoading] = useState(false);
   const functions = getFunctions();
 
-  const handleSubscribe = async (plan: 'FREE' | 'PRO' | 'ENTERPRISE') => {
+const handleSubscribe = async (plan: 'FREE' | 'PRO' | 'BUSINESS') => {
     try {
       setLoading(true);
 
@@ -137,7 +137,7 @@ export function PricingPage() {
       <div className="plan">
         <h3>Enterprise</h3>
         <p>$29.99/mes</p>
-        <button onClick={() => handleSubscribe('ENTERPRISE')} disabled={loading}>
+        <button onClick={() => handleSubscribe('BUSINESS')} disabled={loading}>
           Suscribirse
         </button>
       </div>

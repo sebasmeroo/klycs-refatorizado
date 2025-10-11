@@ -200,7 +200,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ isDark = false }
       await ensureCustomer();
 
       // 2. Obtener el Price ID correcto
-      const priceId = plan.id === 'pro' ? STRIPE_PRICE_IDS.PRO : STRIPE_PRICE_IDS.ENTERPRISE;
+      const priceId = plan.id === 'pro' ? STRIPE_PRICE_IDS.PRO : STRIPE_PRICE_IDS.BUSINESS;
 
       // 3. Crear sesión de checkout
       const createCheckout = httpsCallable(functions, 'stripeCreateCheckoutSession');

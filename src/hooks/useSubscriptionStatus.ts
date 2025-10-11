@@ -75,7 +75,8 @@ export const useSubscriptionStatus = () => {
           isExpiringSoon = daysUntilExpiration <= 7 && daysUntilExpiration > 0;
         }
 
-        const planName = subscription.plan.name;
+        const rawPlanName = subscription.plan.name;
+        const planName = rawPlanName === 'ENTERPRISE' ? 'BUSINESS' : rawPlanName;
 
         return {
           isActive,
@@ -106,7 +107,12 @@ export const useSubscriptionStatus = () => {
             }
 
             // BUSINESS
-            if (planLower === 'business' || planLower === 'business anual') {
+            if (
+              planLower === 'business' ||
+              planLower === 'business anual' ||
+              planLower === 'enterprise' ||
+              planLower === 'enterprise anual'
+            ) {
               return true; // Todo ilimitado
             }
 
