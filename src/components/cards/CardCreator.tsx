@@ -310,7 +310,7 @@ export const CardCreator: React.FC<CardCreatorProps> = ({ onCardCreated, onCance
                 <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                   <li>✓ 1 tarjeta con gestión completa</li>
                   <li>✓ 1 calendario colaborativo</li>
-                  <li>✓ Profesionales ilimitados</li>
+                  <li>✓ Hasta 15 profesionales por calendario</li>
                   <li>✓ Reservas ilimitadas</li>
                 </ul>
               </div>
@@ -318,9 +318,9 @@ export const CardCreator: React.FC<CardCreatorProps> = ({ onCardCreated, onCance
               <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
                 <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Plan BUSINESS - €40/mes</h4>
                 <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                  <li>✓ Tarjetas ilimitadas</li>
+                  <li>✓ Hasta 10 tarjetas digitales</li>
                   <li>✓ Calendarios ilimitados</li>
-                  <li>✓ Profesionales ilimitados</li>
+                  <li>✓ Hasta 15 profesionales por calendario</li>
                   <li>✓ Analytics avanzado</li>
                 </ul>
               </div>

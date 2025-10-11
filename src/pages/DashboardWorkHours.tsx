@@ -5,11 +5,52 @@ import { WorkHoursAnalyticsService } from '@/services/workHoursAnalytics';
 import { WorkHoursStats } from '@/types/calendar';
 import { Clock, TrendingUp, Calendar, Users, Download, Filter, CheckCircle2, DollarSign } from 'lucide-react';
 import { toast } from '@/utils/toast';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { Link } from 'react-router-dom';
 
 export const DashboardWorkHours: React.FC = () => {
   const { user } = useAuth();
+  const { planName, isLoading: planLoading } = useSubscriptionStatus();
   const { data: calendarsData, isLoading: loadingCalendars } = useUserCalendars(user?.uid);
   const calendars = calendarsData || [];
+
+  const normalizedPlan = (planName || 'FREE').toUpperCase();
+  const analyticsEnabled = normalizedPlan !== 'FREE';
+
+  if (planLoading || loadingCalendars) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!analyticsEnabled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="glass-card-ios max-w-xl w-full space-y-4 p-8 text-center">
+          <div className="mx-auto h-16 w-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white">
+            <Clock className="h-8 w-8" />
+          </div>
+          <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
+            Estadísticas de horas sólo para planes PRO y BUSINESS
+          </h2>
+          <p className="text-slate-600 dark:text-slate-300">
+            Al actualizar podrás generar reportes detallados de horas trabajadas, ingresos y rendimiento de tu equipo.
+          </p>
+          <div className="flex justify-center gap-3">
+            <Link
+              to="/dashboard/settings"
+              className="px-6 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium hover:shadow-lg transition"
+            >
+              Ver planes disponibles
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [onlyCompleted, setOnlyCompleted] = useState(true);
@@ -108,17 +149,6 @@ export const DashboardWorkHours: React.FC = () => {
       toast.error('Error al exportar las estadísticas');
     }
   };
-
-  if (loadingCalendars) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Cargando calendarios...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">

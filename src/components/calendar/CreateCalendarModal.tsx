@@ -311,7 +311,7 @@ export const CreateCalendarModal: React.FC<CreateCalendarModalProps> = ({
                     <ul className="text-sm text-gray-600 space-y-1">
                       <li>✓ 1 tarjeta con gestión completa</li>
                       <li>✓ 1 calendario colaborativo</li>
-                      <li>✓ Profesionales ilimitados</li>
+                      <li>✓ Hasta 15 profesionales por calendario</li>
                       <li>✓ Reservas ilimitadas</li>
                     </ul>
                   </div>
@@ -320,8 +320,8 @@ export const CreateCalendarModal: React.FC<CreateCalendarModalProps> = ({
                     <h4 className="font-semibold text-gray-900 mb-2">Plan BUSINESS - €40/mes</h4>
                     <ul className="text-sm text-gray-600 space-y-1">
                       <li>✓ Calendarios ilimitados</li>
-                      <li>✓ Tarjetas ilimitadas</li>
-                      <li>✓ Profesionales ilimitados</li>
+                      <li>✓ Hasta 10 tarjetas digitales</li>
+                      <li>✓ Hasta 15 profesionales por calendario</li>
                       <li>✓ Analytics avanzado</li>
                     </ul>
                   </div>

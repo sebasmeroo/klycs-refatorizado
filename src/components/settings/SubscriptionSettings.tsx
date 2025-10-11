@@ -67,12 +67,12 @@ export const SubscriptionSettings: React.FC = () => {
       features: [
         '1 tarjeta con gestión completa',
         '1 calendario colaborativo',
-        'Profesionales ilimitados',
+        'Hasta 15 profesionales por calendario',
         'Reservas ilimitadas',
         'Analytics completo',
         'Edición avanzada',
         'SEO personalizable',
-        'Sin marca Klycs'
+        'Marca "Powered by Klycs" incluida'
       ],
       limitations: []
     },
@@ -84,13 +84,13 @@ export const SubscriptionSettings: React.FC = () => {
       bgColor: 'bg-purple-100',
       borderColor: 'border-purple-500',
       features: [
-        'Tarjetas ilimitadas',
+        'Hasta 10 tarjetas digitales',
         'Calendarios ilimitados',
         'Profesionales ilimitados',
         'Analytics con IA',
         'API + Webhooks',
         'Custom HTML/CSS/JS',
-        'White-label completo',
+        'White-label completo (puedes ocultar "Powered by Klycs")',
         'Onboarding dedicado'
       ],
       limitations: []

@@ -32,6 +32,7 @@ export const PublicMobilePreview: React.FC<PublicMobilePreviewProps> = ({
   className = ''
 }) => {
   const [showBookingFlow, setShowBookingFlow] = React.useState(false);
+  const showWatermark = card.settings?.branding?.showWatermark !== false;
   
   const getSocialIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
@@ -580,6 +581,11 @@ export const PublicMobilePreview: React.FC<PublicMobilePreviewProps> = ({
         {CalendarSection()}
         {showBookingFlow && <BookingFlow card={card} onClose={() => setShowBookingFlow(false)} />}
       </div>
+      {showWatermark && (
+        <div className="mt-6 text-center text-[11px] font-medium uppercase tracking-[0.25em] text-white/70 drop-shadow-sm">
+          Powered by Klycs
+        </div>
+      )}
       {customCSS && <style dangerouslySetInnerHTML={{ __html: customCSS }} />}
     </div>
   );

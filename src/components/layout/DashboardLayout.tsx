@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -21,6 +21,8 @@ import {
   Clock
 } from 'lucide-react';
 import { PaymentFailedBanner } from '@/components/subscription/PaymentFailedBanner';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -31,8 +33,12 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { planName, isLoading: planLoading } = useSubscriptionStatus();
 
-  const menuItems = [
+  const normalizedPlan = (planName || 'FREE').toUpperCase();
+  const isFreePlan = normalizedPlan === 'FREE';
+
+  const baseMenuItems = [
     {
       icon: Home,
       label: 'Inicio',
@@ -84,6 +90,21 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     }
   ];
 
+  const menuItems = useMemo(() => {
+    if (planLoading) {
+      return baseMenuItems;
+    }
+
+    if (isFreePlan) {
+      return baseMenuItems.filter(item => {
+        const restrictedPaths = ['/dashboard/bookings', '/dashboard/horas', '/dashboard/stripe'];
+        return !restrictedPaths.includes(item.path);
+      });
+    }
+
+    return baseMenuItems;
+  }, [baseMenuItems, isFreePlan, planLoading]);
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -96,6 +117,14 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
+
+  if (planLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ background: '#ffffff' }}>

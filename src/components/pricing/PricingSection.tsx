@@ -40,29 +40,29 @@ const BASE_FEATURES: Record<PlanId, PlanFeature[]> = {
     { text: '❌ Sin calendario', included: false },
     { text: '❌ Sin reservas', included: false },
     { text: '❌ Sin profesionales', included: false },
-    { text: '⚠️ Marca "Powered by Klycs"', included: false }
+    { text: '⚠️ Marca "Powered by Klycs" siempre visible', included: true }
   ],
   pro: [
     { text: '✅ Todo lo de FREE +', included: true },
     { text: '📅 1 calendario colaborativo', included: true },
-    { text: '👥 Profesionales ilimitados en tu calendario', included: true },
+    { text: '👥 Hasta 15 profesionales por calendario', included: true },
     { text: '💰 Reservas ilimitadas', included: true },
     { text: '📊 Analytics completo', included: true },
     { text: '🎨 Edición avanzada de diseño', included: true },
     { text: '🎯 SEO personalizable', included: true },
     { text: '🌐 Dominio personalizado', included: true },
-    { text: '❌ Sin marca Klycs', included: true }
+    { text: '⚠️ Marca "Powered by Klycs" incluida', included: true }
   ],
   business: [
     { text: '✅ Todo lo de PRO +', included: true },
-    { text: '🎴 Tarjetas ilimitadas', included: true },
+    { text: '🎴 Hasta 10 tarjetas digitales', included: true },
     { text: '📅 Calendarios ilimitados', included: true },
     { text: '👥 Profesionales ilimitados por calendario', included: true },
     { text: '💬 Comentarios y colaboración avanzada', included: true },
     { text: '📊 Analytics avanzado con IA + Heatmaps', included: true },
     { text: '🔗 API REST + Webhooks', included: true },
     { text: '🎨 Custom HTML/CSS/JS', included: true },
-    { text: '🏷️ White-label + Onboarding', included: true }
+    { text: '🏷️ White-label (puedes ocultar "Powered by Klycs")', included: true }
   ]
 };
 

@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useRealTimeStats } from '@/hooks/useRealTimeStats';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { useUserCards } from '@/hooks/useCards';
 import StatsCard from '@/components/dashboard/StatsCard';
 import RecentActivity from '@/components/dashboard/RecentActivity';
 import TopCards from '@/components/dashboard/TopCards';
@@ -39,6 +41,23 @@ import {
 const DashboardHome: React.FC = () => {
   const { user } = useAuth();
   const { stats, loading, error, refresh } = useRealTimeStats();
+  const { planName } = useSubscriptionStatus();
+  const { data: userCards = [] } = useUserCards(user?.uid);
+
+  const normalizedPlan = (planName || 'FREE').toUpperCase();
+
+  const cardLimit = useMemo(() => {
+    switch (normalizedPlan) {
+      case 'BUSINESS':
+        return 10;
+      case 'PRO':
+      case 'FREE':
+      default:
+        return 1;
+    }
+  }, [normalizedPlan]);
+
+  const canCreateCard = userCards.length < cardLimit;
 
   // Configuración de las métricas principales
   const statsConfig = [
@@ -90,10 +109,17 @@ const DashboardHome: React.FC = () => {
                 <p className="ios-welcome-subtitle">Aquí tienes un resumen de tu actividad</p>
               </div>
             </div>
-            <Link to="/dashboard/cards" className="ios-cta-button">
-              <Plus size={18} className="mr-2" />
-              Nueva Tarjeta
-            </Link>
+            {canCreateCard ? (
+              <Link to="/dashboard/cards" className="ios-cta-button">
+                <Plus size={18} className="mr-2" />
+                Nueva Tarjeta
+              </Link>
+            ) : (
+              <div className="ios-cta-button pointer-events-none bg-slate-200/60 text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
+                <Plus size={18} className="mr-2" />
+                Límite de tarjetas alcanzado
+              </div>
+            )}
           </div>
         </div>
       </div>

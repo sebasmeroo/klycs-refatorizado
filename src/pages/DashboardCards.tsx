@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserCards, useDeleteCard, useUpdateCard } from '@/hooks/useCards';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { Card } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -30,6 +31,19 @@ export const DashboardCards: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const userId = user?.id || firebaseUser?.uid;
+  const { planName } = useSubscriptionStatus();
+  const normalizedPlan = (planName || 'FREE').toUpperCase();
+
+  const cardLimit = React.useMemo(() => {
+    switch (normalizedPlan) {
+      case 'BUSINESS':
+        return 10;
+      case 'PRO':
+      case 'FREE':
+      default:
+        return 1;
+    }
+  }, [normalizedPlan]);
 
   // ✅ Usar React Query con cache de 5 minutos
   const { data: cards = [], isLoading: loading } = useUserCards(userId);
@@ -127,10 +141,14 @@ export const DashboardCards: React.FC = () => {
           </p>
         </div>
         
-        {cards.length === 0 && (
+        {cards.length < cardLimit ? (
           <Button onClick={() => setViewMode('create')}>
             <Plus className="w-4 h-4 mr-2" />
             Crear Tarjeta
+          </Button>
+        ) : (
+          <Button disabled className="cursor-not-allowed opacity-70">
+            Límite de tarjetas alcanzado
           </Button>
         )}
       </div>

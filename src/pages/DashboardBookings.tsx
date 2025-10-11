@@ -68,6 +68,9 @@ import { ImageCompressionService } from '@/services/imageCompression';
 import { useUserCalendars, useMultipleCalendarEvents, useCreateEvent, useUpdateEvent, useDeleteEvent } from '@/hooks/useCalendar';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/authStore';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { Link } from 'react-router-dom';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 const GENERAL_CALENDAR_ID = 'general-calendar';
 const PROFESSIONAL_COLOR_PALETTE = [
@@ -140,8 +143,46 @@ interface CalendarDay {
 
 const DashboardBookings: React.FC = () => {
   const { user } = useAuth();
+  const { planName, isLoading: planLoading } = useSubscriptionStatus();
   const setAuthUser = useAuthStore(state => state.setUser);
   const queryClient = useQueryClient();
+
+  const normalizedPlan = (planName || 'FREE').toUpperCase();
+  const calendarEnabled = normalizedPlan !== 'FREE';
+
+  if (planLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!calendarEnabled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="glass-card-ios max-w-xl w-full space-y-4 p-8 text-center">
+          <div className="mx-auto h-16 w-16 rounded-full bg-gradient-to-br from-green-500 to-blue-500 flex items-center justify-center text-white">
+            <CalendarIcon className="h-8 w-8" />
+          </div>
+          <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
+            Calendarios disponibles en planes PRO y BUSINESS
+          </h2>
+          <p className="text-slate-600 dark:text-slate-300">
+            Actualiza tu plan para gestionar reservaciones, profesionales y la agenda colaborativa.
+          </p>
+          <div className="flex justify-center gap-3">
+            <Link
+              to="/dashboard/settings"
+              className="px-6 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium hover:shadow-lg transition"
+            >
+              Ver planes disponibles
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const addEventToCaches = useCallback((event: CalendarEvent) => {
     if (event.recurring && event.recurring.type !== 'none') {

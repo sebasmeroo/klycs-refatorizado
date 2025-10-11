@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import '@/styles/ios-dashboard.css';
-// import { useAuth } from '@/hooks/useAuth';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import {
   CreditCard,
   DollarSign,
@@ -19,7 +21,45 @@ import {
 } from 'lucide-react';
 
 const DashboardStripe: React.FC = () => {
-  // const { firebaseUser } = useAuth();
+  const { planName, isLoading: planLoading } = useSubscriptionStatus();
+  const normalizedPlan = planName?.toUpperCase() ?? 'FREE';
+  const paymentsEnabled = normalizedPlan === 'PRO' || normalizedPlan === 'BUSINESS';
+
+  if (planLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!paymentsEnabled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="glass-card-ios max-w-md text-center space-y-4 p-8">
+          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto">
+            <CreditCard className="w-8 h-8 text-white" />
+          </div>
+          <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
+            Función disponible en planes PRO y BUSINESS
+          </h2>
+          <p className="text-slate-600 dark:text-slate-300">
+            Conecta con Stripe para aceptar pagos, sincronizar balances y acceder a métricas de transacciones. 
+            Actualiza tu plan para activar esta funcionalidad.
+          </p>
+          <div className="flex justify-center gap-3">
+            <Link
+              to="/dashboard/settings"
+              className="px-6 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium hover:shadow-lg transition"
+            >
+              Ver planes disponibles
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions' | 'products' | 'settings'>('overview');
   
   // Mock data - replace with actual Stripe data

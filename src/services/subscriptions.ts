@@ -114,7 +114,7 @@ class SubscriptionsService {
         '✅ Todo lo de FREE +',
         '1 tarjeta con gestión completa',
         '📅 1 calendario colaborativo',
-        '👥 Profesionales ilimitados en tu calendario',
+        '👥 Hasta 15 profesionales por calendario',
         '📊 Analytics completo',
         '🎨 Edición avanzada de diseño',
         '💰 Sistema de reservas ilimitadas',
@@ -137,7 +137,7 @@ class SubscriptionsService {
       intervalCount: 1,
       features: [
         '✅ Todo lo de PRO +',
-        '🎴 Tarjetas ilimitadas',
+        '🎴 Hasta 10 tarjetas digitales',
         '📅 Calendarios ilimitados',
         '👥 Profesionales ilimitados por calendario',
         '💬 Comentarios y colaboración avanzada',
@@ -636,7 +636,7 @@ class SubscriptionsService {
         portfolio_images: 30,
         portfolio_videos: 10,
         link_designs: 5, // Todos los diseños
-        professionals: Infinity, // Profesionales ilimitados en SU calendario
+        professionals: 15, // Hasta 15 profesionales por calendario
         analytics_export: 10 // 10 exportaciones/mes
       };
     }
@@ -650,7 +650,7 @@ class SubscriptionsService {
       planName === 'enterprise anual'
     ) {
       return {
-        cards_created: Infinity, // Tarjetas ilimitadas
+        cards_created: 10, // Hasta 10 tarjetas digitales
         calendars: Infinity, // Calendarios ilimitados
         views: Infinity, // Ilimitado
         bookings: Infinity, // Ilimitado

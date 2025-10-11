@@ -68,8 +68,29 @@ export class CardsService {
         throw new Error('No tienes permisos para editar esta tarjeta');
       }
 
+      let sanitizedUpdates = { ...updates };
+
+      if (updates.settings?.branding?.showWatermark === false) {
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        const userPlan = userDoc.exists() ? (userDoc.data().plan || '').toString().toUpperCase() : 'FREE';
+        if (userPlan !== 'BUSINESS') {
+          sanitizedUpdates = {
+            ...sanitizedUpdates,
+            settings: {
+              ...cardData.settings,
+              ...sanitizedUpdates.settings,
+              branding: {
+                ...cardData.settings?.branding,
+                ...sanitizedUpdates.settings?.branding,
+                showWatermark: true,
+              },
+            },
+          };
+        }
+      }
+
       await updateDoc(cardRef, {
-        ...updates,
+        ...sanitizedUpdates,
         updatedAt: serverTimestamp(),
       });
 

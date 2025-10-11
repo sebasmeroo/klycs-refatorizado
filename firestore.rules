@@ -345,6 +345,22 @@ service cloud.firestore {
       }
     }
 
+    // === STRIPE CONNECT ACCOUNTS ===
+    match /stripe_accounts/{accountId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /stripe_onboarding_sessions/{sessionId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /payment_intents/{intentId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
     // === BLOQUEAR TODO LO DEMÁS ===
     match /{document=**} {
       allow read, write: if false;
