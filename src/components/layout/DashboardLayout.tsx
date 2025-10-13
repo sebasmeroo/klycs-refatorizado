@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -18,21 +18,32 @@ import {
   Wallet,
   Link as LinkIcon,
   Users,
-  Clock
+  Clock,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { PaymentFailedBanner } from '@/components/subscription/PaymentFailedBanner';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+
+const shouldExpandForPath = (pathname: string): boolean => (
+  pathname === '/dashboard' ||
+  pathname.startsWith('/dashboard/settings') ||
+  pathname.startsWith('/dashboard/profile') ||
+  pathname.startsWith('/dashboard/tarjetas') ||
+  pathname.startsWith('/dashboard/horas')
+);
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
 const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
+  const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => !shouldExpandForPath(location.pathname));
   const { user } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const { planName, isLoading: planLoading } = useSubscriptionStatus();
 
   const normalizedPlan = (planName || 'FREE').toUpperCase();
@@ -118,6 +129,27 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  const toggleSidebarCollapsed = () => {
+    setIsSidebarCollapsed(prev => !prev);
+  };
+
+  const sidebarClasses = [
+    'fixed top-0 left-0 h-full ios-sidebar z-50 transform transition-[transform,width] duration-400 ease-out',
+    isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
+    'lg:translate-x-0',
+    isSidebarCollapsed ? 'ios-sidebar--collapsed' : ''
+  ].join(' ');
+
+  const contentOffsetClass = isSidebarCollapsed ? 'lg:ml-24' : 'lg:ml-64';
+
+  useEffect(() => {
+    const shouldExpand = shouldExpandForPath(location.pathname);
+    setIsSidebarCollapsed(prev => {
+      const next = !shouldExpand;
+      return prev === next ? prev : next;
+    });
+  }, [location.pathname]);
+
   if (planLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -127,7 +159,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   }
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ background: '#ffffff' }}>
+    <div className="min-h-screen relative overflow-hidden flex" style={{ background: '#ffffff' }}>
 
       {/* iOS Mobile Overlay */}
       {isSidebarOpen && (
@@ -138,11 +170,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       )}
 
       {/* iOS Native Sidebar - Compact */}
-      <div className={`
-        fixed top-0 left-0 h-full w-64 ios-sidebar z-50 transform transition-transform duration-400 ease-out
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        lg:translate-x-0
-      `}>
+      <div className={sidebarClasses}>
         {/* Sidebar Header - Compact */}
         <div className="ios-sidebar-header">
           <div className="flex items-center justify-between">
@@ -155,14 +183,55 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 <p className="ios-app-subtitle text-xs">Business Cards</p>
               </div>
             </div>
-            <button
-              onClick={toggleSidebar}
-              className="lg:hidden ios-close-sidebar"
-            >
-              <X size={18} className="text-gray-500" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleSidebarCollapsed}
+                className="hidden lg:flex ios-collapse-toggle"
+                aria-label={isSidebarCollapsed ? 'Expandir menú' : 'Contraer menú'}
+              >
+                {isSidebarCollapsed ? (
+                  <ChevronRight size={18} className="text-gray-500" />
+                ) : (
+                  <ChevronLeft size={18} className="text-gray-500" />
+                )}
+              </button>
+              <button
+                onClick={toggleSidebar}
+                className="lg:hidden ios-close-sidebar"
+              >
+                <X size={18} className="text-gray-500" />
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* iOS Navigation - Compact */}
+        <nav className="ios-navigation">
+          <div className="space-y-0.5">
+            {menuItems.map((item) => (
+              <div key={item.path}>
+                <button
+                  onClick={() => {
+                    navigate(item.path);
+                    if (window.innerWidth < 1024) {
+                      setIsSidebarOpen(false);
+                    }
+                  }}
+                  data-label={item.label}
+                  className={`ios-nav-item py-2.5 ${
+                    item.active ? 'ios-nav-active' : 'ios-nav-inactive'
+                  }`}
+                >
+                  <div className={`ios-nav-icon w-7 h-7 bg-gradient-to-br ${item.color}`}>
+                    <item.icon size={16} className="text-white" />
+                  </div>
+                  <span className="ios-nav-label text-sm">{item.label}</span>
+                  {item.active && <div className="ios-nav-indicator"></div>}
+                </button>
+              </div>
+            ))}
+          </div>
+        </nav>
 
         {/* iOS User Profile - Compact */}
         <div className="ios-user-profile py-3">
@@ -182,31 +251,6 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           </div>
         </div>
 
-        {/* iOS Navigation - Compact */}
-        <nav className="ios-navigation">
-          <div className="space-y-0.5">
-            {menuItems.map((item) => (
-              <div key={item.path}>
-                <button
-                  onClick={() => {
-                    navigate(item.path);
-                    setIsSidebarOpen(false);
-                  }}
-                  className={`ios-nav-item py-2.5 ${
-                    item.active ? 'ios-nav-active' : 'ios-nav-inactive'
-                  }`}
-                >
-                  <div className={`ios-nav-icon w-7 h-7 bg-gradient-to-br ${item.color}`}>
-                    <item.icon size={16} className="text-white" />
-                  </div>
-                  <span className="ios-nav-label text-sm">{item.label}</span>
-                  {item.active && <div className="ios-nav-indicator"></div>}
-                </button>
-              </div>
-            ))}
-          </div>
-        </nav>
-
         {/* iOS Logout Button */}
         <div className="ios-sidebar-footer">
           <button
@@ -222,7 +266,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       </div>
 
       {/* iOS Main Content */}
-      <div className="lg:ml-64 relative z-10">
+      <div className={`${contentOffsetClass} flex-1 relative z-10 transition-all duration-300 flex flex-col min-h-screen overflow-hidden`}>        
         {/* iOS Mobile Header */}
         <div className="lg:hidden ios-mobile-header">
           <button
@@ -239,9 +283,11 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           </div>
         </div>
 
-        <main className="ios-main-content">
-          <PaymentFailedBanner />
-          {children}
+        <main className="flex-1 overflow-y-auto">
+          <div>
+            <PaymentFailedBanner />
+            {children}
+          </div>
         </main>
       </div>
     </div>

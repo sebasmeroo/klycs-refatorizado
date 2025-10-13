@@ -417,9 +417,7 @@ function App() {
           path="/login" 
           element={
             <PublicRoute>
-              <Layout variant="auto">
-                <Login />
-              </Layout>
+              <Login />
             </PublicRoute>
           } 
         />

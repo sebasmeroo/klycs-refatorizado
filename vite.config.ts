@@ -35,15 +35,12 @@ export default defineConfig(({ mode, command }) => ({
   },
   build: {
     target: 'es2015',
-    minify: 'terser',
+    minify: 'esbuild',
     sourcemap: false, // Disable sourcemaps in production
     cssCodeSplit: true,
-    terserOptions: {
-      compress: {
-        drop_console: false, // Keep console for debugging in production
-        drop_debugger: mode === 'production',
-        pure_funcs: mode === 'production' ? ['console.log'] : [], // Only remove console.log, keep error/warn
-      },
+    esbuild: {
+      pure: mode === 'production' ? ['console.log'] : [],
+      drop: mode === 'production' ? ['debugger'] : [],
     },
     rollupOptions: {
       output: {

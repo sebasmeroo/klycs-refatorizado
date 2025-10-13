@@ -321,13 +321,13 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
   };
 
   return (
-      <div className="h-screen bg-[#0b0b0f] flex overflow-hidden">
+    <div className="flex h-screen min-h-0 bg-[#0b0b0f] overflow-hidden">
       {/* Sidebar */}
-      <div className={`bg-[#0f1116] text-white border-r border-black/30 flex flex-col transition-all duration-300 ${
+      <div className={`bg-[#0f1116] text-white border-r border-black/30 flex h-full flex-col transition-all duration-300 ${
         sidebarCollapsed ? 'w-16' : 'w-64'
       }`}>
         {/* Header */}
-        <div className="p-3 border-b border-white/10 bg-[#0b0d12]/80 backdrop-blur">
+        <div className="flex-shrink-0 p-3 border-b border-white/10 bg-[#0b0d12]/80 backdrop-blur">
           <div className="flex items-center justify-between mb-2">
             <button
               onClick={onClose}
@@ -368,7 +368,7 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
         </div>
 
         {/* Navigation */}
-        <div className="flex-1 overflow-y-auto py-4">
+        <div className="flex-1 min-h-0 overflow-y-auto py-4">
           <nav className={`space-y-1 ${sidebarCollapsed ? 'px-1' : 'px-2.5'}`}>
             {filteredSidebarSections.map((section) => {
               const Icon = section.icon;
@@ -454,7 +454,7 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
         </div>
 
         {/* Footer - Auto-save Indicator */}
-        <div className="p-4 border-t border-white/10 bg-[#0b0d12]/80 backdrop-blur">
+        <div className="flex-shrink-0 p-4 border-t border-white/10 bg-[#0b0d12]/80 backdrop-blur">
           {!sidebarCollapsed && (
             <div className="flex items-center justify-center">
               <SaveIndicator
@@ -479,11 +479,11 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex min-w-0">
+      <div className="flex flex-1 min-w-0 min-h-0">
         {/* Editor Content */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">
           {/* Content Header */}
-          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+          <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -508,7 +508,7 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
           </div>
 
           {/* Editor Content Area */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 min-h-0 overflow-y-auto p-6">
             <div className="max-w-4xl mx-auto">
               {renderActiveSection()}
               <div className="mt-8 xl:hidden">
@@ -521,13 +521,12 @@ export const NewCardEditor: React.FC<NewCardEditorProps> = ({
         </div>
 
         {/* Preview Column */}
-        <aside className="hidden xl:flex w-[420px] bg-[#0b0b0f] border-l border-black/20">
-          <div className="sticky top-0 flex flex-col items-center justify-center w-full h-screen px-6 py-10">
+        <aside className="hidden xl:flex h-full w-[420px] bg-[#0b0b0f] border-l border-black/20">
+          <div className="sticky top-0 box-border flex h-full w-full flex-col items-center justify-start px-5 py-6">
             <MobilePreview card={currentCard} customCSS={currentCard?.theme?.customCSS} />
           </div>
         </aside>
       </div>
-
     </div>
   );
 };

@@ -45,21 +45,39 @@ interface MobilePreviewProps {
 const BASE_WIDTH = 390;
 const BASE_HEIGHT = 844;
 const MIN_SCALE = 0.38;
+const MAX_SCALE = 1.12;
+const ASPECT_RATIO = BASE_WIDTH / BASE_HEIGHT;
 
 export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [frameSize, setFrameSize] = React.useState<{ width: number; height: number }>(() => {
-    const initialScale = 0.44;
-    return { width: BASE_WIDTH * initialScale, height: BASE_HEIGHT * initialScale };
+    return { width: BASE_WIDTH * 0.95, height: BASE_HEIGHT * 0.95 };
   });
   React.useEffect(() => {
     const updateSize = () => {
       const el = containerRef.current;
       if (!el) return;
       const availableHeight = el.clientHeight || BASE_HEIGHT;
-      const scale = Math.min(1, Math.max(MIN_SCALE, availableHeight / BASE_HEIGHT));
-      const height = BASE_HEIGHT * scale;
-      const width = BASE_WIDTH * scale;
+      const availableWidth = el.clientWidth || BASE_WIDTH;
+      const minHeight = BASE_HEIGHT * MIN_SCALE;
+      const maxHeight = BASE_HEIGHT * MAX_SCALE;
+
+      let preferredHeight = Math.min(availableHeight, maxHeight);
+      if (preferredHeight < minHeight && availableHeight >= minHeight) {
+        preferredHeight = minHeight;
+      }
+      let height = Math.min(preferredHeight, availableHeight);
+      if (height <= 0) {
+        height = minHeight;
+      }
+
+      let width = height * ASPECT_RATIO;
+      const maxWidth = Math.min(availableWidth, BASE_WIDTH * MAX_SCALE);
+      if (width > maxWidth) {
+        width = maxWidth;
+        height = width / ASPECT_RATIO;
+      }
+
       setFrameSize({ width, height });
     };
     updateSize();
@@ -1276,13 +1294,13 @@ export const MobilePreview: React.FC<MobilePreviewProps> = ({ card, customCSS })
 
   return (
     <>
-      <div ref={containerRef} className="h-full flex items-center justify-center overflow-auto bg-[#1f1f1f]">
+      <div ref={containerRef} className="flex h-full items-center justify-center">
         <div
-        className="relative bg-gradient-to-br from-gray-200 via-gray-300 to-gray-500 rounded-[36px] p-2 shadow-[0_20px_45px_rgba(0,0,0,0.45)]"
-        style={{ width: frameSize.width, height: frameSize.height }}
-      >
+          className="relative bg-gradient-to-br from-gray-200 via-gray-300 to-gray-500 rounded-[36px] p-2 shadow-[0_20px_45px_rgba(0,0,0,0.45)]"
+          style={{ width: frameSize.width, height: frameSize.height }}
+        >
         {/* Phone Frame */}
-        <div className="relative w-full h-full bg-orange-500 rounded-[30px] overflow-hidden border border-orange-100/40">
+        <div className="relative w-full h-full -500 rounded-[30px] overflow-hidden border border-orange-100/40">
           {/* Content */}
           <div
             className="relative z-10 h-full overflow-y-auto py-6"
