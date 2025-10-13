@@ -29,6 +29,18 @@ export interface SharedCalendar {
   inviteExpiresAt?: Date;
   hourlyRate?: number;
   hourlyRateCurrency?: string;
+  payoutDetails?: {
+    iban?: string;
+    bank?: string;
+    notes?: string;
+    paypalEmail?: string;
+  };
+  payoutRecords?: Record<string, {
+    status: 'pending' | 'paid';
+    lastPaymentDate?: string;
+    lastPaymentBy?: string;
+    note?: string;
+  }>;
 }
 
 export interface CustomEventField {

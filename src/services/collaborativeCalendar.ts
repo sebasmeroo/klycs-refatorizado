@@ -327,6 +327,50 @@ export class CollaborativeCalendarService {
     }
   }
 
+  static async updatePayoutDetails(
+    calendarId: string,
+    payoutDetails: {
+      iban?: string;
+      bank?: string;
+      notes?: string;
+      paypalEmail?: string;
+    }
+  ): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'shared_calendars', calendarId), {
+        payoutDetails,
+        updatedAt: Timestamp.now()
+      });
+      info('Detalles de pago del profesional actualizados', { calendarId });
+    } catch (error) {
+      logError('Error al actualizar detalles de pago', error as Error, { calendarId });
+      throw error;
+    }
+  }
+
+  static async updatePayoutRecord(
+    calendarId: string,
+    periodKey: string,
+    record: {
+      status: 'pending' | 'paid';
+      lastPaymentDate?: string;
+      lastPaymentBy?: string;
+      note?: string;
+    }
+  ): Promise<void> {
+    try {
+      const updatePayload: Record<string, unknown> = {
+        updatedAt: Timestamp.now()
+      };
+      updatePayload[`payoutRecords.${periodKey}`] = record;
+      await updateDoc(doc(db, 'shared_calendars', calendarId), updatePayload);
+      info('Registro de pago actualizado', { calendarId, periodKey });
+    } catch (error) {
+      logError('Error al actualizar registro de pago', error as Error, { calendarId, periodKey });
+      throw error;
+    }
+  }
+
   // Obtener calendarios del usuario
   static async getUserCalendars(userId: string): Promise<SharedCalendar[]> {
     try {
