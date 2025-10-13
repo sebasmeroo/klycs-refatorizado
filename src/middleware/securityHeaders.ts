@@ -146,30 +146,41 @@ class SecurityHeadersService {
             'data:',
             'blob:',
             'https:',
-            'https://images.unsplash.com',
+            'https://placehold.co',
             'https://via.placeholder.com',
             'https://firebasestorage.googleapis.com',
             'https://lh3.googleusercontent.com'
           ],
           connectSrc: [
             "'self'",
+            'https://unpkg.com',
+            'https://*.googleapis.com',
+            'https://apis.google.com',
+            'https://*.firebaseio.com',
+            'https://*.cloudfunctions.net',
+            'wss://*.firebaseio.com',
+            'https://*.google-analytics.com',
+            'https://www.google-analytics.com',
+            'https://analytics.google.com',
+            'https://stats.g.doubleclick.net',
+            'https://*.facebook.com',
+            'https://graph.facebook.com',
             'https://api.stripe.com',
             'https://firestore.googleapis.com',
             'https://identitytoolkit.googleapis.com',
             'https://securetoken.googleapis.com',
             'https://firebase.googleapis.com',
             'https://firebasestorage.googleapis.com',
-            'https://region1.google-analytics.com',
-            'https://www.google-analytics.com',
-            'https://analytics.google.com',
+            'https://firebaseinstallations.googleapis.com',
+            'https://fonts.googleapis.com',
+            'https://fonts.gstatic.com',
             'https://api.sendgrid.com',
             'https://api.twilio.com',
             'https://graph.microsoft.com',
             'https://login.microsoftonline.com',
             'https://accounts.google.com',
-            'https://unpkg.com',
             'https://cdn.jsdelivr.net',
-            ...(isProduction ? [] : ['ws://localhost:*', 'http://localhost:*'])
+            ...(isProduction ? [] : ['ws://localhost:*', 'wss://localhost:*', 'http://localhost:*', 'https://localhost:*'])
           ],
           fontSrc: [
             "'self'",
@@ -378,9 +389,13 @@ class SecurityHeadersService {
 
       Object.entries(permissions).forEach(([permission, allowlist]) => {
         if (allowlist.length > 0) {
-          // Formato correcto para Permissions Policy
-          const values = allowlist.map(value => value === "'self'" ? 'self' : value).join(' ');
-          permissionDirectives.push(`${permission}=${values}`);
+          // Formato correcto para Permissions Policy: remover comillas de 'self' y 'none'
+          const values = allowlist.map(value => {
+            if (value === "'self'") return 'self';
+            if (value === "'none'") return '()';
+            return value;
+          }).join(' ');
+          permissionDirectives.push(`${permission}=(${values})`);
         }
       });
 

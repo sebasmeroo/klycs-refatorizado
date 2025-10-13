@@ -1,4 +1,8 @@
 import './utils/reactSingleton'
+import { disableConsoleInProduction } from './utils/logger'
+
+// ✅ Deshabilitar console.* en producción (debe ser lo primero)
+disableConsoleInProduction()
 
 import React from 'react'
 import ReactDOM from 'react-dom/client'

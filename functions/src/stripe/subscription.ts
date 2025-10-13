@@ -156,7 +156,7 @@ const reconcileUserSubscriptions = async (
 
   for (const analysis of analyses) {
     const isWinner = winner ? analysis.doc.id === winner.doc.id : false;
-    const updatePayload: FirebaseFirestore.UpdateData = {
+    const updatePayload: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
       resolvedPlan: analysis.planName,
       resolvedPlanPriority: analysis.priority,
       lastReconciledAt: admin.firestore.FieldValue.serverTimestamp(),

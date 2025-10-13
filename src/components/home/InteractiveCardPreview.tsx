@@ -81,9 +81,9 @@ const defaultData: PreviewData = {
     { id: '3', title: 'Auditoría de producto', duration: '45', price: '€95', description: 'Revisión y optimización UX' },
   ],
   portfolio: [
-    { id: '1', title: 'App bancaria', image: 'https://images.unsplash.com/photo-1551650975-87deedd944c3?w=600&h=800&fit=crop', description: 'Rediseño completo de app móvil' },
-    { id: '2', title: 'E-commerce', image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&h=800&fit=crop', description: 'Plataforma de venta online' },
-    { id: '3', title: 'Dashboard analytics', image: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&h=800&fit=crop', description: 'Panel de análisis de datos' },
+    { id: '1', title: 'App bancaria', image: 'https://placehold.co/600x800/667eea/ffffff?text=App+Bancaria', description: 'Rediseño completo de app móvil' },
+    { id: '2', title: 'E-commerce', image: 'https://placehold.co/600x800/f56565/ffffff?text=E-commerce', description: 'Plataforma de venta online' },
+    { id: '3', title: 'Dashboard analytics', image: 'https://placehold.co/600x800/48bb78/ffffff?text=Dashboard', description: 'Panel de análisis de datos' },
   ],
   sectionOrder: ['portfolio', 'calendar', 'links', 'services'],
   selectedDate: null,

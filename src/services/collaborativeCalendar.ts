@@ -33,7 +33,7 @@ import {
   CalendarStats,
   RecurringInstanceStatus
 } from '@/types/calendar';
-import { info, error as logError } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import { subscriptionsService } from '@/services/subscriptions';
 import { generateRecurringInstances } from '@/utils/recurrence';
 
@@ -113,12 +113,12 @@ export class CollaborativeCalendarService {
       };
 
       const docRef = await addDoc(collection(db, 'shared_calendars'), calendarData);
-      
-      info('Calendario colaborativo creado', { calendarId: docRef.id, ownerId });
+
+      logger.info('Calendario colaborativo creado', { calendarId: docRef.id, ownerId });
       return docRef.id;
-      
+
     } catch (error) {
-      logError('Error al crear calendario', error as Error, { ownerId, name });
+      logger.error('Error al crear calendario', error as Error, { ownerId, name });
       throw error;
     }
   }
@@ -128,7 +128,7 @@ export class CollaborativeCalendarService {
     calendarData: Omit<SharedCalendar, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<string> {
     try {
-      console.log('🚀 Iniciando creación de calendario profesional:', calendarData);
+      logger.log('🚀 Iniciando creación de calendario profesional:', calendarData);
       
       // Convertir datos a formato Firestore
       const firestoreData: Omit<SharedCalendarFirestore, 'id'> = {
@@ -168,23 +168,23 @@ export class CollaborativeCalendarService {
         isPublic: calendarData.isPublic || false
       };
 
-      console.log('📊 Datos convertidos para Firestore:', firestoreData);
+      logger.log('📊 Datos convertidos para Firestore:', firestoreData);
 
       const docRef = await addDoc(collection(db, 'shared_calendars'), firestoreData);
-      
-      console.log('✅ Calendario creado exitosamente con ID:', docRef.id);
-      info('Calendario profesional creado', { 
-        calendarId: docRef.id, 
+
+      logger.log('✅ Calendario creado exitosamente con ID:', docRef.id);
+      logger.info('Calendario profesional creado', {
+        calendarId: docRef.id,
         ownerId: calendarData.ownerId,
         linkedEmail: calendarData.linkedEmail,
-        name: calendarData.name 
+        name: calendarData.name
       });
-      
+
       return docRef.id;
-      
+
     } catch (error) {
-      console.error('❌ Error al crear calendario profesional:', error);
-      logError('Error al crear calendario profesional', error as Error, { 
+      logger.error('❌ Error al crear calendario profesional:', error as Error);
+      logger.error('Error al crear calendario profesional', error as Error, { 
         ownerId: calendarData.ownerId,
         name: calendarData.name,
         linkedEmail: calendarData.linkedEmail 
@@ -196,7 +196,7 @@ export class CollaborativeCalendarService {
   // Obtener eventos de UN calendario específico (para vista de profesional)
   static async getCalendarEvents(calendarId: string): Promise<CalendarEvent[]> {
     try {
-      console.log(`🔍 Buscando eventos para calendario: ${calendarId}`);
+      logger.log(`🔍 Buscando eventos para calendario: ${calendarId}`);
 
       const q = query(
         collection(db, 'calendar_events'),
@@ -205,7 +205,7 @@ export class CollaborativeCalendarService {
       );
 
       const snapshot = await getDocs(q);
-      console.log(`📊 Eventos encontrados en Firestore: ${snapshot.size}`);
+      logger.log(`📊 Eventos encontrados en Firestore: ${snapshot.size}`);
 
       const events: CalendarEvent[] = [];
       const recurringEvents: CalendarEvent[] = [];
@@ -260,21 +260,22 @@ export class CollaborativeCalendarService {
       });
 
       // ✅ Generar instancias virtuales para eventos recurrentes
+      // ⚡ OPTIMIZADO: Solo generar 3 meses en lugar de 1 año (75% menos instancias)
       const today = new Date();
       const futureLimit = new Date(today);
-      futureLimit.setFullYear(futureLimit.getFullYear() + 1); // Próximo año
+      futureLimit.setMonth(futureLimit.getMonth() + 3); // Próximos 3 meses
 
       recurringEvents.forEach(parentEvent => {
         const instances = generateRecurringInstances(parentEvent, today, futureLimit);
         events.push(...instances);
       });
 
-      console.log(`✅ ${events.length} eventos totales (${snapshot.size} en Firestore, ${events.length - snapshot.size} instancias virtuales)`);
+      logger.log(`✅ ${events.length} eventos totales (${snapshot.size} en Firestore, ${events.length - snapshot.size} instancias virtuales)`);
       return events.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
     } catch (error) {
-      console.error('❌ Error al obtener eventos del calendario:', error);
-      logError('Error al obtener eventos del calendario', error as Error, { calendarId });
+      logger.error('❌ Error al obtener eventos del calendario:', error as Error);
+      logger.error('Error al obtener eventos del calendario', error as Error, { calendarId });
       throw error;
     }
   }
@@ -304,7 +305,7 @@ export class CollaborativeCalendarService {
       };
 
     } catch (error) {
-      logError('Error obteniendo calendario por ID', error as Error, { calendarId });
+      logger.error('Error obteniendo calendario por ID', error as Error, { calendarId });
       return null;
     }
   }
@@ -320,9 +321,9 @@ export class CollaborativeCalendarService {
         updatedAt: Timestamp.now()
       });
       
-      info('Configuración del calendario actualizada', { calendarId });
+      logger.info('Configuración del calendario actualizada', { calendarId });
     } catch (error) {
-      logError('Error al actualizar configuración del calendario', error as Error, { calendarId });
+      logger.error('Error al actualizar configuración del calendario', error as Error, { calendarId });
       throw error;
     }
   }
@@ -341,9 +342,9 @@ export class CollaborativeCalendarService {
         payoutDetails,
         updatedAt: Timestamp.now()
       });
-      info('Detalles de pago del profesional actualizados', { calendarId });
+      logger.info('Detalles de pago del profesional actualizados', { calendarId });
     } catch (error) {
-      logError('Error al actualizar detalles de pago', error as Error, { calendarId });
+      logger.error('Error al actualizar detalles de pago', error as Error, { calendarId });
       throw error;
     }
   }
@@ -364,9 +365,9 @@ export class CollaborativeCalendarService {
       };
       updatePayload[`payoutRecords.${periodKey}`] = record;
       await updateDoc(doc(db, 'shared_calendars', calendarId), updatePayload);
-      info('Registro de pago actualizado', { calendarId, periodKey });
+      logger.info('Registro de pago actualizado', { calendarId, periodKey });
     } catch (error) {
-      logError('Error al actualizar registro de pago', error as Error, { calendarId, periodKey });
+      logger.error('Error al actualizar registro de pago', error as Error, { calendarId, periodKey });
       throw error;
     }
   }
@@ -401,7 +402,7 @@ export class CollaborativeCalendarService {
       return calendars;
       
     } catch (error) {
-      logError('Error al obtener calendarios del usuario', error as Error, { userId });
+      logger.error('Error al obtener calendarios del usuario', error as Error, { userId });
       return [];
     }
   }
@@ -458,7 +459,7 @@ export class CollaborativeCalendarService {
       return inviteCode;
       
     } catch (error) {
-      logError('Error al generar código de invitación', error as Error, { calendarId });
+      logger.error('Error al generar código de invitación', error as Error, { calendarId });
       throw error;
     }
   }
@@ -506,7 +507,7 @@ export class CollaborativeCalendarService {
       return calendarDoc.id;
       
     } catch (error) {
-      logError('Error al unirse al calendario', error as Error, { inviteCode, userId: user.id });
+      logger.error('Error al unirse al calendario', error as Error, { inviteCode, userId: user.id });
       throw error;
     }
   }
@@ -515,34 +516,34 @@ export class CollaborativeCalendarService {
   
   static async findCalendarsByLinkedEmail(linkedEmail: string): Promise<SharedCalendar[]> {
     try {
-      console.log('🔍 INICIANDO BÚSQUEDA por linkedEmail:', linkedEmail);
+      logger.log('🔍 INICIANDO BÚSQUEDA por linkedEmail:', linkedEmail);
       
       // ✅ VERIFICAR AUTENTICACIÓN
       const user = auth.currentUser;
-      console.log('👤 Usuario autenticado:', user ? 'SÍ' : 'NO');
+      logger.log('👤 Usuario autenticado:', user ? 'SÍ' : 'NO');
       if (user) {
-        console.log('🆔 UID:', user.uid);
-        console.log('📧 Email:', user.email);
-        console.log('🎫 Usuario verificado:', !!user);
+        logger.log('🆔 UID:', user.uid);
+        logger.log('📧 Email:', user.email);
+        logger.log('🎫 Usuario verificado:', !!user);
       }
       
-      console.log('🏗️ Construyendo query para shared_calendars...');
+      logger.log('🏗️ Construyendo query para shared_calendars...');
       const q = query(
         collection(db, 'shared_calendars'),
         where('linkedEmail', '==', linkedEmail)
       );
-      console.log('✅ Query construida exitosamente');
+      logger.log('✅ Query construida exitosamente');
       
-      console.log('🚀 Ejecutando getDocs...');
+      logger.log('🚀 Ejecutando getDocs...');
       const snapshot = await getDocs(q);
-      console.log('📊 Respuesta recibida. Documentos encontrados:', snapshot.size);
+      logger.log('📊 Respuesta recibida. Documentos encontrados:', snapshot.size);
       
       const calendars: SharedCalendar[] = [];
       
       snapshot.forEach(doc => {
-        console.log('📄 Procesando documento:', doc.id);
+        logger.log('📄 Procesando documento:', doc.id);
         const data = doc.data() as SharedCalendarFirestore;
-        console.log('📋 Datos del documento:', {
+        logger.log('📋 Datos del documento:', {
           name: data.name,
           linkedEmail: data.linkedEmail,
           ownerId: data.ownerId,
@@ -561,7 +562,7 @@ export class CollaborativeCalendarService {
           }))
         };
         
-        console.log('📅 Calendario procesado:', { 
+        logger.log('📅 Calendario procesado:', { 
           id: calendar.id, 
           name: calendar.name, 
           linkedEmail: calendar.linkedEmail,
@@ -571,7 +572,7 @@ export class CollaborativeCalendarService {
         calendars.push(calendar);
       });
       
-      console.log('✅ BÚSQUEDA COMPLETADA. Total calendarios devueltos para', linkedEmail, ':', calendars.length);
+      logger.log('✅ BÚSQUEDA COMPLETADA. Total calendarios devueltos para', linkedEmail, ':', calendars.length);
       return calendars;
       
     } catch (error) {
@@ -582,17 +583,17 @@ export class CollaborativeCalendarService {
       console.error('🔥 Error stack:', (error as any)?.stack);
       
       // ✅ FALLBACK: Si falla la búsqueda específica, intentar buscar todos los calendarios
-      console.log('🔄 INTENTANDO FALLBACK: Buscar todos los calendarios...');
+      logger.log('🔄 INTENTANDO FALLBACK: Buscar todos los calendarios...');
       try {
         const allQuery = query(collection(db, 'shared_calendars'));
         const allSnapshot = await getDocs(allQuery);
-        console.log('📊 Total calendarios en la base de datos:', allSnapshot.size);
+        logger.log('📊 Total calendarios en la base de datos:', allSnapshot.size);
         
         const matchingCalendars: SharedCalendar[] = [];
         allSnapshot.forEach(doc => {
           const data = doc.data() as SharedCalendarFirestore;
           if (data.linkedEmail === linkedEmail) {
-            console.log('✅ ENCONTRADO MATCH en fallback:', {
+            logger.log('✅ ENCONTRADO MATCH en fallback:', {
               id: doc.id,
               name: data.name,
               linkedEmail: data.linkedEmail
@@ -613,12 +614,12 @@ export class CollaborativeCalendarService {
           }
         });
         
-        console.log('🎯 FALLBACK COMPLETADO. Calendarios encontrados:', matchingCalendars.length);
+        logger.log('🎯 FALLBACK COMPLETADO. Calendarios encontrados:', matchingCalendars.length);
         return matchingCalendars;
         
       } catch (fallbackError) {
         console.error('💥 FALLBACK TAMBIÉN FALLÓ:', fallbackError);
-        logError('Error al buscar calendarios por linkedEmail', error as Error, { linkedEmail });
+        logger.error('Error al buscar calendarios por linkedEmail', error as Error, { linkedEmail });
         return [];
       }
     }
@@ -628,11 +629,11 @@ export class CollaborativeCalendarService {
   
   static async getProfessionals(userId: string): Promise<import('@/types').TeamProfessional[]> {
     try {
-      console.log('👥 Obteniendo profesionales para usuario:', userId);
+      logger.log('👥 Obteniendo profesionales para usuario:', userId);
       
       // Obtener los calendarios del usuario
       const calendars = await this.getUserCalendars(userId);
-      console.log('📅 Calendarios encontrados:', calendars.length);
+      logger.log('📅 Calendarios encontrados:', calendars.length);
       
       const professionals: import('@/types').TeamProfessional[] = [];
       
@@ -671,7 +672,7 @@ export class CollaborativeCalendarService {
           };
           
           professionals.push(professional);
-          console.log('✅ Profesional agregado:', { 
+          logger.log('✅ Profesional agregado:', { 
             name: professional.name, 
             email: professional.email,
             calendarId: calendar.id 
@@ -679,12 +680,12 @@ export class CollaborativeCalendarService {
         }
       }
       
-      console.log('✅ Total profesionales encontrados:', professionals.length);
+      logger.log('✅ Total profesionales encontrados:', professionals.length);
       return professionals;
       
     } catch (error) {
       console.error('❌ Error obteniendo profesionales:', error);
-      logError('Error al obtener profesionales', error as Error, { userId });
+      logger.error('Error al obtener profesionales', error as Error, { userId });
       return [];
     }
   }
@@ -697,7 +698,7 @@ export class CollaborativeCalendarService {
     updates: { avatar?: string; name?: string; role?: string; color?: string }
   ): Promise<void> {
     try {
-      console.log('✏️ Actualizando profesional:', { calendarId, professionalId, updates });
+      logger.log('✏️ Actualizando profesional:', { calendarId, professionalId, updates });
       
       const calendarDoc = await getDoc(doc(db, 'shared_calendars', calendarId));
       if (!calendarDoc.exists()) {
@@ -725,12 +726,12 @@ export class CollaborativeCalendarService {
         updatedAt: Timestamp.now()
       });
 
-      console.log('✅ Profesional actualizado exitosamente');
-      info('Profesional actualizado', { calendarId, professionalId });
+      logger.log('✅ Profesional actualizado exitosamente');
+      logger.info('Profesional actualizado', { calendarId, professionalId });
       
     } catch (error) {
       console.error('❌ Error actualizando profesional:', error);
-      logError('Error al actualizar profesional', error as Error, { calendarId, professionalId });
+      logger.error('Error al actualizar profesional', error as Error, { calendarId, professionalId });
       throw error;
     }
   }
@@ -739,7 +740,7 @@ export class CollaborativeCalendarService {
   
   static async deleteCalendar(calendarId: string): Promise<void> {
     try {
-      console.log('🗑️ Eliminando calendario:', calendarId);
+      logger.log('🗑️ Eliminando calendario:', calendarId);
       
       // Eliminar todos los eventos del calendario primero
       const eventsQuery = query(
@@ -759,12 +760,12 @@ export class CollaborativeCalendarService {
       
       await batch.commit();
       
-      console.log('✅ Calendario eliminado exitosamente:', calendarId);
-      info('Calendario eliminado', { calendarId, eventsDeleted: eventsSnapshot.size });
+      logger.log('✅ Calendario eliminado exitosamente:', calendarId);
+      logger.info('Calendario eliminado', { calendarId, eventsDeleted: eventsSnapshot.size });
       
     } catch (error) {
       console.error('❌ Error eliminando calendario:', error);
-      logError('Error al eliminar calendario', error as Error, { calendarId });
+      logger.error('Error al eliminar calendario', error as Error, { calendarId });
       throw error;
     }
   }
@@ -780,7 +781,7 @@ export class CalendarEventService {
     eventData: Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<string> {
     try {
-      console.log('📅 Datos del evento recibidos:', JSON.stringify(eventData, null, 2));
+      logger.log('📅 Datos del evento recibidos:', JSON.stringify(eventData, null, 2));
 
       // ✅ VALIDACIÓN DE LÍMITES - Obtener el owner del calendario para validar
       const calendarDoc = await getDoc(doc(db, 'shared_calendars', calendarId));
@@ -815,7 +816,7 @@ export class CalendarEventService {
 
     } catch (error) {
       console.error('❌ Error detallado al crear evento:', error);
-      logError('Error al crear evento', error as Error, { calendarId });
+      logger.error('Error al crear evento', error as Error, { calendarId });
       throw error;
     }
   }
@@ -914,9 +915,9 @@ export class CalendarEventService {
     
     console.log('🧹 Datos limpios para Firebase:', JSON.stringify(cleanEventData, null, 2));
     if (duration > 0) {
-      console.log(`⏱️ Duración del evento: ${duration} minutos (${(duration / 60).toFixed(2)} horas)`);
+      logger.log(`⏱️ Duración del evento: ${duration} minutos (${(duration / 60).toFixed(2)} horas)`);
     } else {
-      console.log('⏱️ Evento de hora única (sin duración)');
+      logger.log('⏱️ Evento de hora única (sin duración)');
     }
     
     const docRef = await addDoc(collection(db, 'calendar_events'), cleanEventData);
@@ -933,7 +934,7 @@ export class CalendarEventService {
     }
 
     console.log('✅ Evento creado exitosamente con ID:', docRef.id);
-    info('Evento creado', { eventId: docRef.id, calendarId, duration });
+    logger.info('Evento creado', { eventId: docRef.id, calendarId, duration });
     return docRef.id;
   }
 
@@ -960,12 +961,12 @@ export class CalendarEventService {
 
     console.log(`✅ Evento recurrente creado: ${parentEventId}`);
     if (typeof recurring.count === 'number') {
-      console.log(`📅 Se generarán ${recurring.count} instancias virtuales en el calendario`);
+      logger.log(`📅 Se generarán ${recurring.count} instancias virtuales en el calendario`);
     } else {
-      console.log('📅 Recurrencia sin límite establecido (se generan instancias según el rango visible en el cliente)');
+      logger.log('📅 Recurrencia sin límite establecido (se generan instancias según el rango visible en el cliente)');
     }
 
-    info('Evento recurrente creado', {
+    logger.info('Evento recurrente creado', {
       parentEventId,
       weekdays: recurring.weekdays,
       interval: recurring.interval,
@@ -980,9 +981,9 @@ export class CalendarEventService {
   static async deleteEvent(eventId: string): Promise<void> {
     try {
       await deleteDoc(doc(db, 'calendar_events', eventId));
-      info('Evento eliminado', { eventId });
+      logger.info('Evento eliminado', { eventId });
     } catch (error) {
-      logError('Error al eliminar evento', error as Error, { eventId });
+      logger.error('Error al eliminar evento', error as Error, { eventId });
       throw error;
     }
   }
@@ -990,16 +991,16 @@ export class CalendarEventService {
   // ✅ ACTUALIZADO: Eliminar serie completa de eventos recurrentes (ahora solo elimina el padre)
   static async deleteRecurringSeries(parentEventId: string): Promise<void> {
     try {
-      console.log('🗑️ Eliminando serie completa de eventos recurrentes (solo padre):', parentEventId);
+      logger.log('🗑️ Eliminando serie completa de eventos recurrentes (solo padre):', parentEventId);
 
       // ✅ Como ahora solo guardamos el evento padre, solo eliminamos ese documento
       await deleteDoc(doc(db, 'calendar_events', parentEventId));
 
-      console.log(`✅ Serie completa eliminada (1 documento)`);
-      info('Serie de eventos eliminada', { parentEventId });
+      logger.log(`✅ Serie completa eliminada (1 documento)`);
+      logger.info('Serie de eventos eliminada', { parentEventId });
 
     } catch (error) {
-      logError('Error al eliminar serie de eventos', error as Error, { parentEventId });
+      logger.error('Error al eliminar serie de eventos', error as Error, { parentEventId });
       throw error;
     }
   }
@@ -1010,7 +1011,7 @@ export class CalendarEventService {
     instanceDate: Date
   ): Promise<void> {
     try {
-      console.log('🗑️ Eliminando instancia específica del evento recurrente:', {
+      logger.log('🗑️ Eliminando instancia específica del evento recurrente:', {
         parentEventId,
         instanceDate: instanceDate.toISOString()
       });
@@ -1041,7 +1042,7 @@ export class CalendarEventService {
       });
 
       if (hasException) {
-        console.log('ℹ️ La instancia ya está marcada como excepción, no se duplica');
+        logger.log('ℹ️ La instancia ya está marcada como excepción, no se duplica');
         return;
       }
 
@@ -1053,14 +1054,14 @@ export class CalendarEventService {
         updatedAt: Timestamp.now()
       });
 
-      console.log(`✅ Instancia del ${instanceDate.toLocaleDateString()} marcada como excepción`);
-      info('Instancia de evento recurrente eliminada', {
+      logger.log(`✅ Instancia del ${instanceDate.toLocaleDateString()} marcada como excepción`);
+      logger.info('Instancia de evento recurrente eliminada', {
         parentEventId,
         exceptionDate: instanceDate.toISOString()
       });
 
     } catch (error) {
-      logError('Error al eliminar instancia recurrente', error as Error, { parentEventId, instanceDate });
+      logger.error('Error al eliminar instancia recurrente', error as Error, { parentEventId, instanceDate });
       throw error;
     }
   }
@@ -1071,7 +1072,7 @@ export class CalendarEventService {
     fromDate: Date
   ): Promise<void> {
     try {
-      console.log('🗑️ Terminando serie recurrente desde fecha:', {
+      logger.log('🗑️ Terminando serie recurrente desde fecha:', {
         parentEventId,
         fromDate: fromDate.toISOString()
       });
@@ -1093,29 +1094,29 @@ export class CalendarEventService {
       if (parentStartDate >= normalizedFromDate) {
         // Si el evento padre es posterior a la fecha, eliminarlo completamente
         await deleteDoc(doc(db, 'calendar_events', parentEventId));
-        console.log('✅ Evento padre eliminado (estaba después de la fecha de corte)');
+        logger.log('✅ Evento padre eliminado (estaba después de la fecha de corte)');
       } else {
         // No permitir que la fecha de fin quede antes del inicio del evento
         if (normalizedFromDate <= parentStartDate) {
           await deleteDoc(doc(db, 'calendar_events', parentEventId));
-          console.log('✅ Serie eliminada: la fecha de corte es igual o anterior al inicio');
+          logger.log('✅ Serie eliminada: la fecha de corte es igual o anterior al inicio');
         } else {
           // Actualizar el evento padre para que termine antes de fromDate
           await updateDoc(doc(db, 'calendar_events', parentEventId), {
             'recurring.endDate': Timestamp.fromDate(normalizedFromDate),
             updatedAt: Timestamp.now()
           });
-          console.log(`✅ Serie recurrente actualizada para terminar el ${normalizedFromDate.toLocaleDateString()}`);
+          logger.log(`✅ Serie recurrente actualizada para terminar el ${normalizedFromDate.toLocaleDateString()}`);
         }
       }
 
-      info('Serie de eventos modificada desde fecha', {
+      logger.info('Serie de eventos modificada desde fecha', {
         parentEventId,
         fromDate: fromDate.toISOString()
       });
 
     } catch (error) {
-      logError('Error al modificar serie desde fecha', error as Error, { parentEventId, fromDate });
+      logger.error('Error al modificar serie desde fecha', error as Error, { parentEventId, fromDate });
       throw error;
     }
   }
@@ -1221,7 +1222,7 @@ export class CalendarEventService {
 
       const sortedEvents = events.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
-      console.log(
+      logger.log(
         `✅ Total eventos expandidos: ${sortedEvents.length} (${recurringParents.length} padres recurrentes generaron ${sortedEvents.length - snapshot.size} instancias)`
       );
 
@@ -1234,7 +1235,7 @@ export class CalendarEventService {
       console.error('🔥 Error code:', (error as any)?.code);
       console.error('🔥 Error stack:', (error as any)?.stack);
       
-      logError('Error al obtener eventos', error as Error, { calendarIds });
+      logger.error('Error al obtener eventos', error as Error, { calendarIds });
       return { events: [], fetchedCount: 0 };
     }
   }
@@ -1323,7 +1324,7 @@ export class CalendarEventService {
       await updateDoc(doc(db, 'calendar_events', eventId), updateData);
 
     } catch (error) {
-      logError('Error al actualizar evento', error as Error, { eventId });
+      logger.error('Error al actualizar evento', error as Error, { eventId });
       throw error;
     }
   }
@@ -1374,9 +1375,9 @@ export class CalendarEventService {
       }
 
       await updateDoc(docRef, updateData);
-      info('Estado del servicio actualizado', { eventId, status, userId });
+      logger.info('Estado del servicio actualizado', { eventId, status, userId });
     } catch (error) {
-      logError('Error al actualizar estado del servicio', error as Error, { eventId, status });
+      logger.error('Error al actualizar estado del servicio', error as Error, { eventId, status });
       throw error;
     }
   }
@@ -1405,7 +1406,7 @@ export class CalendarEventService {
           [`recurringInstancesStatus.${oldLegacyKey}`]: deleteField(),
           updatedAt: now
         });
-        info('Estado de instancia recurrente restablecido', { parentEventId, instanceKey, status, userId });
+        logger.info('Estado de instancia recurrente restablecido', { parentEventId, instanceKey, status, userId });
         return;
       }
 
@@ -1431,9 +1432,9 @@ export class CalendarEventService {
         updatedAt: now
       });
 
-      info('Estado de instancia recurrente actualizado', { parentEventId, instanceKey, status, userId });
+      logger.info('Estado de instancia recurrente actualizado', { parentEventId, instanceKey, status, userId });
     } catch (error) {
-      logError('Error al actualizar instancia recurrente', error as Error, {
+      logger.error('Error al actualizar instancia recurrente', error as Error, {
         parentEventId,
         instanceDate: instanceDate.toISOString(),
         status
@@ -1486,7 +1487,7 @@ export class CalendarEventService {
 
       return events;
     } catch (error) {
-      logError('Error al obtener eventos por estado', error as Error, { calendarId, status });
+      logger.error('Error al obtener eventos por estado', error as Error, { calendarId, status });
       return [];
     }
   }
@@ -1519,7 +1520,7 @@ export class EventCommentService {
       return docRef.id;
       
     } catch (error) {
-      logError('Error al añadir comentario', error as Error, { eventId, userId });
+      logger.error('Error al añadir comentario', error as Error, { eventId, userId });
       throw error;
     }
   }
@@ -1632,7 +1633,7 @@ export class CalendarStatsService {
       };
       
     } catch (error) {
-      logError('Error al obtener estadísticas', error as Error, { userId });
+      logger.error('Error al obtener estadísticas', error as Error, { userId });
       return {
         totalEvents: 0,
         upcomingEvents: 0,

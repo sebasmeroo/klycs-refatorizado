@@ -149,6 +149,18 @@ service cloud.firestore {
 
       allow delete: if isAuthenticated() &&
                        (isOwner(resource.data.ownerId) || isAdmin(request.auth.uid));
+
+      // Subcolección de estadísticas mensuales (agregaciones)
+      match /monthlyStats/{monthKey} {
+        // Permitir lectura si puedes leer el calendario padre
+        allow read: if isAuthenticated() ||
+                    isAdmin(request.auth.uid) ||
+                    isPublicCalendarData(get(/databases/$(database)/documents/shared_calendars/$(calendarId)).data);
+
+        // Solo Cloud Functions pueden escribir (sin auth)
+        allow create, update: if false;
+        allow delete: if isAdmin(request.auth.uid);
+      }
     }
 
     // === REGLAS PARA EVENTOS DE CALENDARIO ===

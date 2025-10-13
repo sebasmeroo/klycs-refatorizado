@@ -22,6 +22,12 @@ class PWAService {
   }
 
   private async initializePWA() {
+    // ✅ NO registrar Service Worker en desarrollo (evita conflictos con Vite HMR)
+    if (import.meta.env.DEV) {
+      info('Service Worker disabled in development mode', { component: 'PWAService' });
+      return;
+    }
+
     if ('serviceWorker' in navigator) {
       try {
         await this.registerServiceWorker();

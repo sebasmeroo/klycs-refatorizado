@@ -29,11 +29,11 @@ class Logger {
   }
 
   private shouldLog(level: LogLevel): boolean {
-    // In production, only log warnings and errors
+    // In production, ONLY log critical errors (not warnings)
     if (this.isProduction) {
-      return level === 'warn' || level === 'error';
+      return level === 'error';
     }
-    
+
     // In development, log everything
     return this.isDev;
   }
@@ -139,5 +139,41 @@ export const perfLog = (operation: string, startTime: number) => {
   if (import.meta.env.DEV) {
     const duration = performance.now() - startTime;
     console.log(`⚡ ${operation} took ${duration.toFixed(2)}ms`);
+  }
+};
+
+/**
+ * Deshabilita completamente console.* en producción
+ * Llamar en main.tsx al inicio de la aplicación
+ *
+ * ✅ Silencia todos los console.log, console.warn, console.info
+ * ✅ Mantiene console.error para errores críticos
+ */
+export const disableConsoleInProduction = () => {
+  if (import.meta.env.PROD) {
+    const noop = () => {};
+
+    // Sobrescribir todos los métodos de console excepto error
+    console.log = noop;
+    console.warn = noop;
+    console.info = noop;
+    console.debug = noop;
+    console.table = noop;
+    console.group = noop;
+    console.groupCollapsed = noop;
+    console.groupEnd = noop;
+    console.time = noop;
+    console.timeEnd = noop;
+    console.timeLog = noop;
+    console.trace = noop;
+    console.dir = noop;
+    console.dirxml = noop;
+    console.count = noop;
+    console.countReset = noop;
+    console.assert = noop;
+    console.clear = noop;
+
+    // Mantener console.error para errores críticos
+    // console.error sigue funcionando normalmente
   }
 };

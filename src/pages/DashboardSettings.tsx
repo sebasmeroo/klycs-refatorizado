@@ -201,10 +201,10 @@ const DashboardSettings: React.FC = () => {
                   {stripeConnected ? (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#34c759] flex items-center gap-2"><CheckCircle size={16}/> Activo</span>
-                      <a href="/dashboard/stripe" className="ios-link-button">Abrir detalles</a>
+                      <a href="/dashboard/pagos" className="ios-link-button">Abrir detalles</a>
                     </div>
                   ) : (
-                    <a href="/dashboard/stripe" className="ios-cta-button w-full">Configurar</a>
+                    <a href="/dashboard/pagos" className="ios-cta-button w-full">Configurar</a>
                   )}
                 </div>
               </div>

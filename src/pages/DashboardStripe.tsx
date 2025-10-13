@@ -20,9 +20,9 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserCalendars } from '@/hooks/useCalendar';
 import { WorkHoursAnalyticsService } from '@/services/workHoursAnalytics';
-import { WorkHoursStats } from '@/types/calendar';
 import { toast } from '@/utils/toast';
-import { CollaborativeCalendarService, CalendarEventService } from '@/services/collaborativeCalendar';
+import { usePaymentStats, usePaymentPendingServices, useUpdatePayoutComplete } from '@/hooks/usePaymentStats';
+import { useQueryClient } from '@tanstack/react-query';
 
 type CurrencySummary = {
   currency: string;
@@ -59,6 +59,7 @@ const formatDisplayDate = (value?: string) => {
 
 const DashboardStripe: React.FC = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { planName, isLoading: planLoading } = useSubscriptionStatus();
   const { data: calendarsData, isLoading: loadingCalendars } = useUserCalendars(user?.uid);
   const calendars = calendarsData || [];
@@ -68,10 +69,6 @@ const DashboardStripe: React.FC = () => {
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [onlyCompleted, setOnlyCompleted] = useState(true);
-  const [stats, setStats] = useState<WorkHoursStats[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [period, setPeriod] = useState<'year' | 'quarter' | 'month'>('year');
   const [selectedQuarter, setSelectedQuarter] = useState(() => Math.floor((new Date().getMonth()) / 3) + 1);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
@@ -89,10 +86,19 @@ const DashboardStripe: React.FC = () => {
     lastPaymentBy?: string;
     note?: string;
   }>>({});
-  const [pendingServices, setPendingServices] = useState<Record<string, { count: number; examples: string[] }>>({});
-  const [pendingLoading, setPendingLoading] = useState(false);
   const [showPendingOnly, setShowPendingOnly] = useState(false);
   const [selectedProfessionalId, setSelectedProfessionalId] = useState<string | null>(null);
+
+  // ✅ REACT QUERY: Reemplaza loadStats manual con hook optimizado
+  const { data: stats = [], isLoading: statsLoading, dataUpdatedAt } = usePaymentStats(
+    user?.uid,
+    selectedYear,
+    onlyCompleted
+  );
+
+  const loading = statsLoading;
+  const hasLoadedOnce = stats.length > 0 || !statsLoading;
+  const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   const years = useMemo(() => {
     const current = new Date().getFullYear();
@@ -135,95 +141,21 @@ const DashboardStripe: React.FC = () => {
     return `${selectedYear}`;
   }, [period, selectedYear, selectedQuarter, selectedMonth]);
 
-  const loadStats = useCallback(async () => {
-    if (!paymentsEnabled || calendars.length === 0) {
-      setStats([]);
-      return;
-    }
+  // ✅ REACT QUERY: Reemplaza loadPending manual con hook optimizado
+  const calendarIds = useMemo(() => calendars.map(c => c.id), [calendars]);
+  const { data: pendingServices = {}, isLoading: pendingLoading } = usePaymentPendingServices(
+    calendarIds,
+    periodRange.start,
+    periodRange.end,
+    paymentsEnabled
+  );
 
-    try {
-      setLoading(true);
-      const mappedCalendars = calendars.map(cal => ({
-        id: cal.id,
-        name: cal.name,
-        hourlyRate: typeof cal.hourlyRate === 'number' ? cal.hourlyRate : 0,
-        currency: cal.hourlyRateCurrency ?? 'EUR'
-      }));
-
-      const professionalStats = await WorkHoursAnalyticsService.getAllProfessionalsStats(
-        mappedCalendars,
-        selectedYear,
-        onlyCompleted
-      );
-
-      setStats(professionalStats);
-      setHasLoadedOnce(true);
-      setLastUpdated(new Date());
-    } catch (error) {
-      console.error('Error al cargar estadísticas de pagos:', error);
-      toast.error('No pudimos actualizar el resumen económico');
-    } finally {
-      setLoading(false);
-    }
-  }, [paymentsEnabled, calendars, selectedYear, onlyCompleted]);
-
-  useEffect(() => {
-    if (!paymentsEnabled) return;
-    if (calendars.length > 0 && !hasLoadedOnce) {
-      loadStats();
-    }
-  }, [paymentsEnabled, calendars.length, hasLoadedOnce, loadStats]);
-
-  useEffect(() => {
-    if (!paymentsEnabled) return;
-    if (!hasLoadedOnce) return;
-    loadStats();
-  }, [paymentsEnabled, hasLoadedOnce, selectedYear, onlyCompleted, loadStats]);
-
-  useEffect(() => {
-    if (!paymentsEnabled || calendars.length === 0) {
-      setPendingServices({});
-      return;
-    }
-
-    let isActive = true;
-    const loadPending = async () => {
-      try {
-        setPendingLoading(true);
-        const calendarIds = calendars.map(calendar => calendar.id);
-        const { events } = await CalendarEventService.getCalendarEvents(
-          calendarIds,
-          periodRange.start,
-          periodRange.end
-        );
-
-        if (!isActive) return;
-
-        const pendingMap: Record<string, { count: number; examples: string[] }> = {};
-        events.forEach(event => {
-          if (event.serviceStatus === 'completed') return;
-          const entry = pendingMap[event.calendarId] ?? { count: 0, examples: [] };
-          entry.count += 1;
-          if (entry.examples.length < 3) {
-            entry.examples.push(event.title || 'Servicio pendiente');
-          }
-          pendingMap[event.calendarId] = entry;
-        });
-        setPendingServices(pendingMap);
-      } catch (error) {
-        console.error('Error cargando servicios pendientes', error);
-      } finally {
-        if (isActive) {
-          setPendingLoading(false);
-        }
-      }
-    };
-
-    loadPending();
-    return () => {
-      isActive = false;
-    };
-  }, [paymentsEnabled, calendars, periodRange]);
+  // ✅ Función para forzar refresh manual (botón Actualizar)
+  const handleRefresh = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['paymentStats'] });
+    queryClient.invalidateQueries({ queryKey: ['paymentPendingServices'] });
+    toast.success('Actualizando datos...');
+  }, [queryClient]);
 
   const statsForDisplay = useMemo(() => {
     return stats.map(stat => {
@@ -447,6 +379,9 @@ const DashboardStripe: React.FC = () => {
     }
   }, []);
 
+  // ✅ REACT QUERY: Hook de mutación optimizado
+  const updatePayoutMutation = useUpdatePayoutComplete();
+
   const handleSavePayout = useCallback(async (calendarId: string) => {
     const calendar = calendarMap.get(calendarId);
     if (!calendar) {
@@ -478,8 +413,15 @@ const DashboardStripe: React.FC = () => {
 
     try {
       setSavingPayout(prev => ({ ...prev, [calendarId]: true }));
-      await CollaborativeCalendarService.updatePayoutDetails(calendarId, draft);
-      await CollaborativeCalendarService.updatePayoutRecord(calendarId, periodKey, normalizedRecord);
+
+      // ✅ Usar mutación de React Query (actualiza caché automáticamente)
+      await updatePayoutMutation.mutateAsync({
+        calendarId,
+        periodKey,
+        payoutDetails: draft,
+        payoutRecord: normalizedRecord
+      });
+
       toast.success('Detalles de pago actualizados');
       setPayoutDrafts(prev => ({ ...prev, [calendarId]: draft }));
       setPayoutRecordDrafts(prev => ({ ...prev, [calendarId]: {
@@ -495,7 +437,7 @@ const DashboardStripe: React.FC = () => {
     } finally {
       setSavingPayout(prev => ({ ...prev, [calendarId]: false }));
     }
-  }, [calendarMap, payoutDrafts, payoutRecordDrafts, periodKey]);
+  }, [calendarMap, payoutDrafts, payoutRecordDrafts, periodKey, updatePayoutMutation]);
 
   const renderProfessionalDetail = useCallback((statContainer: typeof statsForDisplay[number]) => {
     const { base: stat, filteredMonths, filteredAmount, filteredHours, filteredEvents } = statContainer;
@@ -1025,9 +967,9 @@ const DashboardStripe: React.FC = () => {
             </div>
           </div>
           <div className="payments-header__actions">
-            <button onClick={loadStats} className="payments-button payments-button--ghost payments-button--with-icon">
-              <RefreshCw size={16} />
-              Actualizar
+            <button onClick={handleRefresh} className="payments-button payments-button--ghost payments-button--with-icon" disabled={loading}>
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              {loading ? 'Actualizando...' : 'Actualizar'}
             </button>
             <button
               onClick={exportToCSV}

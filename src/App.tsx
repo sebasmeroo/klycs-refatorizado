@@ -483,15 +483,15 @@ function App() {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="/dashboard/stripe" 
+        <Route
+          path="/dashboard/pagos"
           element={
             <ProtectedRoute>
               <DashboardLayout>
                 <DashboardStripe />
               </DashboardLayout>
             </ProtectedRoute>
-          } 
+          }
         />
         <Route 
           path="/dashboard/profile" 

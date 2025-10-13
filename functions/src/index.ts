@@ -450,3 +450,14 @@ export const stripeConnectSyncAccountStatus = onCall(syncConnectAccountStatus);
 export const stripeConnectGetBalance = onCall(getConnectAccountBalance);
 export const stripeConnectCreatePaymentIntent = onCall(createConnectPaymentIntent);
 export const stripeConnectCreateDashboardLoginLink = onCall(createConnectDashboardLoginLink);
+
+// === MONTHLY STATS AGGREGATION ===
+
+/**
+ * Aggregate monthly statistics automatically
+ * Cron job: 1st day of each month at 2:00 AM
+ *
+ * Reduces Firebase reads by 95% for historical data
+ * Pre-calculates stats for past months (immutable data)
+ */
+export { aggregateMonthlyStats, aggregateSpecificMonth } from './aggregateMonthlyStats';

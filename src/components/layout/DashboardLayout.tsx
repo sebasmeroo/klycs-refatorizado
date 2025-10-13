@@ -81,8 +81,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     {
       icon: Wallet,
       label: 'Pagos',
-      path: '/dashboard/stripe',
-      active: location.pathname.startsWith('/dashboard/stripe'),
+      path: '/dashboard/pagos',
+      active: location.pathname.startsWith('/dashboard/pagos'),
       color: 'from-yellow-500 to-orange-500'
     },
     {
@@ -108,7 +108,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
 
     if (isFreePlan) {
       return baseMenuItems.filter(item => {
-        const restrictedPaths = ['/dashboard/bookings', '/dashboard/horas', '/dashboard/stripe'];
+        const restrictedPaths = ['/dashboard/bookings', '/dashboard/horas', '/dashboard/pagos'];
         return !restrictedPaths.includes(item.path);
       });
     }
