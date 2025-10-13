@@ -242,43 +242,43 @@ export const Home: React.FC = () => {
 
         <main className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           {/* HERO */}
-          <section className={`relative overflow-hidden rounded-[40px] px-6 py-12 lg:px-16 lg:py-[72px] ${surfaceA}`}>
-            <div className="space-y-10">
-              <div className="text-center max-w-3xl mx-auto space-y-6">
-                <div className={`${badgeClass} inline-flex`}>Tarjetas digitales activas</div>
-                <h1 className={`text-3xl font-semibold leading-tight sm:text-4xl lg:text-5xl ${textPrimary}`}>
+          <section className={`relative overflow-hidden rounded-[28px] px-4 py-8 sm:rounded-[40px] sm:px-6 sm:py-12 lg:px-16 lg:py-[72px] ${surfaceA}`}>
+            <div className="space-y-6 sm:space-y-10">
+              <div className="text-center max-w-3xl mx-auto space-y-5 sm:space-y-6">
+                <div className={`${badgeClass} inline-flex text-[10px] sm:text-xs px-3 py-1 sm:px-4`}>Tarjetas digitales activas</div>
+                <h1 className={`text-2xl font-semibold leading-tight sm:text-4xl lg:text-5xl ${textPrimary}`}>
                   Lanza una tarjeta inmersiva, automatiza reservas y mantén tu marca en un solo enlace.
                 </h1>
-                <p className={`text-base leading-relaxed sm:text-lg ${textSecondary}`}>
+                <p className={`text-sm leading-relaxed sm:text-lg ${textSecondary}`}>
                   Diseña experiencias interactivas con bloques inteligentes, sincroniza calendarios y entiende qué convierte mejor en cada campaña.
                 </p>
 
-                <div className="flex flex-wrap gap-4 justify-center">
+                <div className="flex flex-wrap gap-3 sm:gap-4 justify-center">
                   <Link to="/register">
-                    <Button size="lg" className={primaryButton}>
+                    <Button size="lg" className={`${primaryButton} px-5 py-2.5 text-sm sm:px-6 sm:py-3 sm:text-base`}>
                       Crear mi tarjeta ahora
                       <ArrowRight className="ml-2 h-5 w-5" />
                     </Button>
                   </Link>
                   <Link to="/services">
-                    <Button variant="outline" size="lg" className={secondaryButton}>
+                    <Button variant="outline" size="lg" className={`${secondaryButton} px-5 py-2.5 text-sm sm:px-6 sm:py-3 sm:text-base`}>
                       Ver plantillas
                     </Button>
                   </Link>
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-3 max-w-4xl mx-auto">
+              <div className="grid gap-3 sm:gap-4 sm:grid-cols-3 max-w-4xl mx-auto">
                 {highlights.map(({ label, value, helper }) => (
                   <div
                     key={label}
-                    className={`rounded-3xl px-6 py-5 transition duration-200 ${
+                    className={`rounded-2xl px-5 py-4 sm:rounded-3xl sm:px-6 sm:py-5 transition duration-200 ${
                       isDark ? 'border border-white/15 bg-white/5 text-white' : 'border border-neutral-200 bg-white text-neutral-800 shadow-sm'
                     }`}
                   >
-                    <p className={`text-2xl font-semibold ${textPrimary}`}>{value}</p>
-                    <p className={`mt-1 text-xs uppercase tracking-[0.25em] ${textMuted}`}>{label}</p>
-                    <p className={`mt-3 text-xs ${textSecondary}`}>{helper}</p>
+                    <p className={`text-xl sm:text-2xl font-semibold ${textPrimary}`}>{value}</p>
+                    <p className={`mt-1 text-[11px] sm:text-xs uppercase tracking-[0.25em] ${textMuted}`}>{label}</p>
+                    <p className={`mt-2 text-xs ${textSecondary}`}>{helper}</p>
                   </div>
                 ))}
               </div>
@@ -286,7 +286,7 @@ export const Home: React.FC = () => {
           </section>
 
           {/* PREVIEW INTERACTIVO */}
-          <section className={`rounded-[40px] px-6 py-12 lg:px-16 lg:py-16 ${surfaceA}`}>
+          <section className={`hidden lg:block rounded-[40px] px-6 py-12 lg:px-16 lg:py-16 ${surfaceA}`}>
             <div className="text-center mb-12">
               <div className={`${badgeClass} inline-flex mb-4`}>
                 <Sparkles className="h-4 w-4 mr-2" />

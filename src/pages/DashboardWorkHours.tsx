@@ -1,68 +1,39 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useUserCalendars } from '@/hooks/useCalendar';
 import { WorkHoursAnalyticsService } from '@/services/workHoursAnalytics';
-import { WorkHoursStats } from '@/types/calendar';
-import { Clock, TrendingUp, Calendar, Users, Download, Filter, CheckCircle2, DollarSign } from 'lucide-react';
+import { Clock, TrendingUp, Calendar, Users, Download, Filter, CheckCircle2, DollarSign, RefreshCw } from 'lucide-react';
 import { toast } from '@/utils/toast';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Link } from 'react-router-dom';
+import { useWorkHoursStats, useWorkHoursTotals } from '@/hooks/useWorkHoursStats';
+import { logger } from '@/utils/logger';
 
 export const DashboardWorkHours: React.FC = () => {
   const { user } = useAuth();
   const { planName, isLoading: planLoading } = useSubscriptionStatus();
-  const { data: calendarsData, isLoading: loadingCalendars } = useUserCalendars(user?.uid);
-  const calendars = calendarsData || [];
 
   const normalizedPlan = (planName || 'FREE').toUpperCase();
   const analyticsEnabled = normalizedPlan !== 'FREE';
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [onlyCompleted, setOnlyCompleted] = useState(true);
-  const [stats, setStats] = useState<WorkHoursStats[]>([]);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  // Cargar estadísticas SOLO cuando el usuario hace clic en "Actualizar"
-  const loadStats = useCallback(async () => {
-    if (!analyticsEnabled) return;
-    if (calendars.length === 0) return;
+  // ✅ Hook optimizado con caché multi-capa
+  const {
+    data: stats = [],
+    isLoading: loading,
+    refetch
+  } = useWorkHoursStats(
+    analyticsEnabled ? user?.uid : undefined,
+    selectedYear,
+    onlyCompleted
+  );
 
-    try {
-      setLoading(true);
+  // ✅ Calcular totales automáticamente
+  const totals = useWorkHoursTotals(stats);
 
-      const calendarsWithNames = calendars.map(cal => ({
-        id: cal.id,
-        name: cal.name,
-        hourlyRate: typeof cal.hourlyRate === 'number' ? cal.hourlyRate : 0,
-        currency: cal.hourlyRateCurrency ?? 'EUR'
-      }));
-
-      const professionalStats = await WorkHoursAnalyticsService.getAllProfessionalsStats(
-        calendarsWithNames,
-        selectedYear,
-        onlyCompleted
-      );
-
-      setStats(professionalStats);
-      setHasLoadedOnce(true);
-    } catch (error) {
-      console.error('Error al cargar estadísticas:', error);
-      toast.error('Error al cargar las estadísticas');
-    } finally {
-      setLoading(false);
-    }
-  }, [analyticsEnabled, calendars, selectedYear, onlyCompleted]);
-
-  useEffect(() => {
-    if (!analyticsEnabled) return;
-    if (calendars.length > 0 && !hasLoadedOnce) {
-      loadStats();
-    }
-  }, [analyticsEnabled, calendars.length, hasLoadedOnce, loadStats]);
-
-  if (planLoading || loadingCalendars) {
+  if (planLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingSpinner />
@@ -96,19 +67,8 @@ export const DashboardWorkHours: React.FC = () => {
     );
   }
 
-  // Calcular totales generales
-  const totalHours = stats.reduce((sum, s) => sum + s.totalHours, 0);
-  const totalEvents = stats.reduce((sum, s) =>
-    sum + s.monthlyBreakdown.reduce((eventSum, month) => eventSum + month.events, 0),
-    0
-  );
-  const totalAmount = stats.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
-  const aggregateCurrency = stats[0]?.currency ?? 'EUR';
-
-  // Profesional con más horas
-  const topProfessional = stats.length > 0
-    ? stats.reduce((max, s) => s.totalHours > max.totalHours ? s : max, stats[0])
-    : null;
+  // ✅ Usar totales pre-calculados del hook
+  const { totalHours, totalEvents, totalAmount, currency: aggregateCurrency, topProfessional } = totals;
 
   // Años disponibles (últimos 3 años)
   const currentYear = new Date().getFullYear();
@@ -146,7 +106,7 @@ export const DashboardWorkHours: React.FC = () => {
 
       toast.success('Estadísticas exportadas exitosamente');
     } catch (error) {
-      console.error('Error al exportar:', error);
+      logger.error('Error al exportar estadísticas', error as Error);
       toast.error('Error al exportar las estadísticas');
     }
   };
@@ -168,11 +128,12 @@ export const DashboardWorkHours: React.FC = () => {
             </div>
             <div className="flex gap-2">
               <button
-                onClick={loadStats}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                onClick={() => refetch()}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                Actualizar
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Actualizando...' : 'Actualizar'}
               </button>
               <button
                 onClick={exportToCSV}
