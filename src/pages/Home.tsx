@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
@@ -115,6 +115,10 @@ export const Home: React.FC = () => {
   const [professionalEmail, setProfessionalEmail] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const featureSliderRef = useRef<HTMLDivElement | null>(null);
+  const featureAutoplayRef = useRef<number | null>(null);
+  const [activeFeatureIndex, setActiveFeatureIndex] = useState(0);
+  const totalFeatures = featureCards.length;
 
   const handleEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setProfessionalEmail(e.target.value);
@@ -158,6 +162,80 @@ export const Home: React.FC = () => {
       setIsSearching(false);
     }
   };
+
+  const stopFeatureAutoplay = useCallback(() => {
+    if (featureAutoplayRef.current !== null) {
+      window.clearInterval(featureAutoplayRef.current);
+      featureAutoplayRef.current = null;
+    }
+  }, []);
+
+  const startFeatureAutoplay = useCallback(() => {
+    stopFeatureAutoplay();
+    if (totalFeatures <= 1) {
+      return;
+    }
+    featureAutoplayRef.current = window.setInterval(() => {
+      setActiveFeatureIndex(prev => (prev + 1) % totalFeatures);
+    }, 4500);
+  }, [stopFeatureAutoplay, totalFeatures]);
+
+  useEffect(() => {
+    startFeatureAutoplay();
+    return () => {
+      stopFeatureAutoplay();
+    };
+  }, [startFeatureAutoplay, stopFeatureAutoplay]);
+
+  useEffect(() => {
+    const container = featureSliderRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handleScroll = () => {
+      const containerRect = container.getBoundingClientRect();
+      const containerCenter = containerRect.left + containerRect.width / 2;
+      let closestIndex = activeFeatureIndex;
+      let minDistance = Number.POSITIVE_INFINITY;
+
+      Array.from(container.children).forEach((child, index) => {
+        const rect = (child as HTMLElement).getBoundingClientRect();
+        const childCenter = rect.left + rect.width / 2;
+        const distance = Math.abs(childCenter - containerCenter);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestIndex = index;
+        }
+      });
+
+      setActiveFeatureIndex(prev => (prev === closestIndex ? prev : closestIndex));
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, [activeFeatureIndex, totalFeatures]);
+
+  useEffect(() => {
+    const container = featureSliderRef.current;
+    if (!container) {
+      return;
+    }
+
+    const targetChild = container.children[activeFeatureIndex] as HTMLElement | undefined;
+    if (!targetChild) {
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const idealOffset = targetChild.offsetLeft - (containerRect.width - targetChild.offsetWidth) / 2;
+    const maxScroll = container.scrollWidth - container.clientWidth;
+    const nextOffset = Math.max(0, Math.min(idealOffset, maxScroll));
+    container.scrollTo({ left: nextOffset, behavior: 'smooth' });
+  }, [activeFeatureIndex]);
 
   const heroGradient = isDark
     ? 'from-[#111826] via-[#05070f] to-[#0d142d]'
@@ -319,7 +397,47 @@ export const Home: React.FC = () => {
               </Link>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+            <div className="md:hidden">
+              <div
+                ref={featureSliderRef}
+                className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth gap-4 px-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                onTouchStart={stopFeatureAutoplay}
+                onTouchEnd={startFeatureAutoplay}
+                onMouseEnter={stopFeatureAutoplay}
+                onMouseLeave={startFeatureAutoplay}
+              >
+                {featureCards.map(({ icon: Icon, title, description }) => (
+                  <div key={title} className="flex-shrink-0 snap-center w-[calc(100%-1.5rem)]">
+                    <div className={`h-full space-y-4 rounded-3xl p-5 transition-transform duration-300 ${surfaceB}`}>
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${isDark ? 'bg-white/10 text-white' : 'bg-neutral-900 text-white'}`}>
+                        <Icon className="h-6 w-6" />
+                      </div>
+                      <h3 className={`text-lg font-semibold ${textPrimary}`}>{title}</h3>
+                      <p className={`text-sm leading-relaxed ${textSecondary}`}>{description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-5 flex justify-center gap-2">
+                {featureCards.map(({ title }, index) => (
+                  <button
+                    key={title}
+                    type="button"
+                    aria-label={`Ver ${title}`}
+                    className={`h-2 rounded-full transition-all ${activeFeatureIndex === index
+                      ? `w-6 ${isDark ? 'bg-white' : 'bg-neutral-900'}`
+                      : `w-2 ${isDark ? 'bg-white/30' : 'bg-neutral-400/60'}`
+                    }`}
+                    onClick={() => {
+                      setActiveFeatureIndex(index);
+                      startFeatureAutoplay();
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="hidden md:grid gap-6 md:grid-cols-2 xl:grid-cols-4">
               {featureCards.map(({ icon: Icon, title, description }) => (
                 <div
                   key={title}

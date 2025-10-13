@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import { IOSSection, IOSToggle } from '@/components/ui/IOSControls';
-import '@/styles/ios-dashboard.css';
 import { useAuth } from '@/hooks/useAuth';
-import { info } from '@/utils/logger';
+import { logger } from '@/utils/logger';
 import {
   User,
   Mail,
@@ -12,25 +10,22 @@ import {
   Instagram,
   Twitter,
   Linkedin,
-  // Upload,
   Save,
-  Edit3,
   Camera,
   Shield,
-  Key,
   Bell,
-  Settings,
-  Trash2
+  CheckCircle2,
+  X
 } from 'lucide-react';
 
 const DashboardProfile: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'notifications'>('profile');
   const [isEditing, setIsEditing] = useState(false);
-  
-  // Mock profile data - replace with actual data from Firebase
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Profile data
   const [profileData, setProfileData] = useState({
-    name: user?.name || '',
+    name: user?.displayName || user?.name || '',
     email: user?.email || '',
     phone: '+34 666 777 888',
     location: 'Madrid, España',
@@ -52,21 +47,29 @@ const DashboardProfile: React.FC = () => {
 
   const handleSave = async () => {
     try {
-      // Save profile functionality
-      info('Saving user profile', { component: 'DashboardProfile', userId: user?.id });
-      
+      setIsSaving(true);
+      logger.info('Saving user profile', { component: 'DashboardProfile', userId: user?.uid });
+
       // Import toast dynamically
       const { toast } = await import('@/utils/toast');
-      
+
       // Simulate save operation
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       toast.success('Perfil actualizado correctamente');
       setIsEditing(false);
     } catch (err) {
       const { toast } = await import('@/utils/toast');
       toast.error('Error al guardar el perfil');
+      logger.error('Error saving profile', err as Error);
+    } finally {
+      setIsSaving(false);
     }
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    // Reset to original values if needed
   };
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,267 +79,442 @@ const DashboardProfile: React.FC = () => {
     }
   };
 
-  const tabs = [
-    { id: 'profile', label: 'Perfil', icon: User },
-    { id: 'security', label: 'Seguridad', icon: Shield },
-    { id: 'notifications', label: 'Notificaciones', icon: Bell }
-  ];
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-10 py-10">
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-3xl p-6 md:p-8 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+              <div>
+                <p className="text-sm uppercase tracking-widest text-gray-500 dark:text-white/60">Perfil</p>
+                <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white">Mi cuenta</h1>
+                <p className="text-gray-600 dark:text-white/60 mt-2">Gestiona tu información personal y preferencias</p>
+              </div>
 
-  const ProfileTab = () => (
-    <div className="space-y-6">
-      <IOSSection title="Perfil" icon={<User size={14} />} variant="dark">
-        <div className="flex items-center space-x-6">
-          <div className="relative">
-            <div className="ios-user-avatar w-24 h-24">
-              <span className="text-white font-bold text-2xl">
-                {profileData.name.charAt(0).toUpperCase()}
-              </span>
-            </div>
-            <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" id="avatar-upload" />
-            <label htmlFor="avatar-upload" className="absolute bottom-0 right-0 ios-icon-button w-8 h-8 cursor-pointer">
-              <Camera size={16} className="text-gray-600" />
-            </label>
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center space-x-3 mb-2">
-              <h2 className="ios-section-title">{profileData.name}</h2>
-              <button onClick={() => setIsEditing(!isEditing)} className="ios-icon-button">
-                <Edit3 size={16} />
-              </button>
-            </div>
-            <p className="ios-stat-label">{profileData.email}</p>
-            <p className="ios-stat-label text-sm mt-2">{profileData.bio}</p>
-          </div>
-        </div>
-      </IOSSection>
-
-      <IOSSection title="Información básica" icon={<Settings size={14} />} variant="dark">
-        <div className="flex items-center justify-between mb-6">
-          {!isEditing && (
-            <button onClick={() => setIsEditing(true)} className="ios-link-button">
-              <Edit3 size={16} className="mr-2" />
-              Editar
-            </button>
-          )}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block ios-stat-label text-sm mb-2"><User size={16} className="inline mr-2" />Nombre Completo</label>
-            <input type="text" value={profileData.name} onChange={(e) => setProfileData(prev => ({ ...prev, name: e.target.value }))} disabled={!isEditing} className="ios-date-input w-full"/>
-          </div>
-          <div>
-            <label className="block ios-stat-label text-sm mb-2"><Mail size={16} className="inline mr-2" />Email</label>
-            <input type="email" value={profileData.email} onChange={(e) => setProfileData(prev => ({ ...prev, email: e.target.value }))} disabled={!isEditing} className="ios-date-input w-full"/>
-          </div>
-          <div>
-            <label className="block ios-stat-label text-sm mb-2"><Phone size={16} className="inline mr-2" />Teléfono</label>
-            <input type="tel" value={profileData.phone} onChange={(e) => setProfileData(prev => ({ ...prev, phone: e.target.value }))} disabled={!isEditing} className="ios-date-input w-full"/>
-          </div>
-          <div>
-            <label className="block ios-stat-label text-sm mb-2"><MapPin size={16} className="inline mr-2" />Ubicación</label>
-            <input type="text" value={profileData.location} onChange={(e) => setProfileData(prev => ({ ...prev, location: e.target.value }))} disabled={!isEditing} className="ios-date-input w-full"/>
-          </div>
-          <div className="md:col-span-2">
-            <label className="block ios-stat-label text-sm mb-2"><Globe size={16} className="inline mr-2" />Sitio Web</label>
-            <input type="url" value={profileData.website} onChange={(e) => setProfileData(prev => ({ ...prev, website: e.target.value }))} disabled={!isEditing} className="ios-date-input w-full"/>
-          </div>
-        </div>
-        <div className="mt-6">
-          <label className="block ios-stat-label text-sm mb-2">Biografía</label>
-          <textarea value={profileData.bio} onChange={(e) => setProfileData(prev => ({ ...prev, bio: e.target.value }))} disabled={!isEditing} rows={4} className="ios-date-input w-full resize-none"/>
-        </div>
-      </IOSSection>
-
-      <IOSSection title="Redes sociales" icon={<Instagram size={14} />} variant="dark">
-        <div className="space-y-4">
-          <div className="flex items-center space-x-4">
-            <Instagram size={20} className="text-pink-500" />
-            <input type="text" value={profileData.socialLinks.instagram} onChange={(e) => setProfileData(prev => ({ ...prev, socialLinks: { ...prev.socialLinks, instagram: e.target.value } }))} disabled={!isEditing} placeholder="@usuario" className="ios-date-input flex-1"/>
-          </div>
-          <div className="flex items-center space-x-4">
-            <Twitter size={20} className="text-blue-500" />
-            <input type="text" value={profileData.socialLinks.twitter} onChange={(e) => setProfileData(prev => ({ ...prev, socialLinks: { ...prev.socialLinks, twitter: e.target.value } }))} disabled={!isEditing} placeholder="@usuario" className="ios-date-input flex-1"/>
-          </div>
-          <div className="flex items-center space-x-4">
-            <Linkedin size={20} className="text-blue-600" />
-            <input type="text" value={profileData.socialLinks.linkedin} onChange={(e) => setProfileData(prev => ({ ...prev, socialLinks: { ...prev.socialLinks, linkedin: e.target.value } }))} disabled={!isEditing} placeholder="linkedin.com/in/usuario" className="ios-date-input flex-1"/>
-          </div>
-        </div>
-      </IOSSection>
-
-      {isEditing && (
-        <div className="rounded-2xl p-6 border border-black/5 bg-white">
-          <div className="flex items-center justify-end space-x-4">
-            <button onClick={() => setIsEditing(false)} className="ios-link-button">Cancelar</button>
-            <button onClick={handleSave} className="ios-cta-button"><Save size={16} className="mr-2"/>Guardar Cambios</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  const SecurityTab = () => (
-    <div className="space-y-6">
-      <IOSSection title="Seguridad de la cuenta" icon={<Shield size={14} />} variant="dark">
-          
-          <div className="space-y-4">
-            <div className="ios-booking-item">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="ios-booking-name mb-1">Contraseña</h4>
-                  <p className="ios-booking-time">Última actualización: hace 3 meses</p>
+              {!isEditing ? (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition shadow-sm"
+                >
+                  <User className="h-4 w-4" />
+                  Editar Perfil
+                </button>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleCancel}
+                    disabled={isSaving}
+                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 text-gray-700 dark:text-white font-semibold hover:bg-gray-50 dark:hover:bg-white/10 transition disabled:opacity-50"
+                  >
+                    <X className="h-4 w-4" />
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition disabled:opacity-50 shadow-sm"
+                  >
+                    {isSaving ? (
+                      <>
+                        <div className="h-4 w-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                        Guardando...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4" />
+                        Guardar Cambios
+                      </>
+                    )}
+                  </button>
                 </div>
-                <button className="ios-link-button">
-                  <Key size={16} className="mr-2" />
+              )}
+            </div>
+          </div>
+
+          {/* Avatar y info básica */}
+          <div className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-3xl p-6 md:p-8 shadow-sm">
+            <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+              <div className="relative">
+                <div className="h-24 w-24 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-gray-900 dark:text-white font-bold text-3xl shadow-lg">
+                  {profileData.name.charAt(0).toUpperCase() || 'U'}
+                </div>
+                {isEditing && (
+                  <>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      className="hidden"
+                      id="avatar-upload"
+                    />
+                    <label
+                      htmlFor="avatar-upload"
+                      className="absolute bottom-0 right-0 h-8 w-8 flex items-center justify-center rounded-xl bg-white text-slate-900 cursor-pointer hover:bg-gray-100 transition shadow-lg border border-gray-200"
+                    >
+                      <Camera size={16} />
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <div className="flex-1">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{profileData.name || 'Usuario'}</h2>
+                <p className="text-gray-600 dark:text-white/60 mt-1">{profileData.email}</p>
+                <p className="text-sm text-gray-500 dark:text-white/50 mt-2">{profileData.bio}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Información Personal */}
+          <div className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm rounded-3xl p-6 md:p-8 backdrop-blur">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <User className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Información Personal</h3>
+                <p className="text-sm text-gray-600 dark:text-white/60">Datos básicos de tu cuenta</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Nombre completo */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  <User className="inline h-4 w-4 mr-2" />
+                  Nombre Completo
+                </label>
+                <input
+                  type="text"
+                  value={profileData.name}
+                  onChange={(e) => setProfileData(prev => ({ ...prev, name: e.target.value }))}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 disabled:opacity-50 transition"
+                  placeholder="Tu nombre completo"
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  <Mail className="inline h-4 w-4 mr-2" />
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={profileData.email}
+                  onChange={(e) => setProfileData(prev => ({ ...prev, email: e.target.value }))}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 disabled:opacity-50 transition"
+                  placeholder="tu@email.com"
+                />
+              </div>
+
+              {/* Teléfono */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  <Phone className="inline h-4 w-4 mr-2" />
+                  Teléfono
+                </label>
+                <input
+                  type="tel"
+                  value={profileData.phone}
+                  onChange={(e) => setProfileData(prev => ({ ...prev, phone: e.target.value }))}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 disabled:opacity-50 transition"
+                  placeholder="+34 666 777 888"
+                />
+              </div>
+
+              {/* Ubicación */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  <MapPin className="inline h-4 w-4 mr-2" />
+                  Ubicación
+                </label>
+                <input
+                  type="text"
+                  value={profileData.location}
+                  onChange={(e) => setProfileData(prev => ({ ...prev, location: e.target.value }))}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 disabled:opacity-50 transition"
+                  placeholder="Madrid, España"
+                />
+              </div>
+
+              {/* Sitio Web */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  <Globe className="inline h-4 w-4 mr-2" />
+                  Sitio Web
+                </label>
+                <input
+                  type="url"
+                  value={profileData.website}
+                  onChange={(e) => setProfileData(prev => ({ ...prev, website: e.target.value }))}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 disabled:opacity-50 transition"
+                  placeholder="https://tuwebsite.com"
+                />
+              </div>
+
+              {/* Biografía */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  Biografía
+                </label>
+                <textarea
+                  value={profileData.bio}
+                  onChange={(e) => setProfileData(prev => ({ ...prev, bio: e.target.value }))}
+                  disabled={!isEditing}
+                  rows={4}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 disabled:opacity-50 resize-none transition"
+                  placeholder="Cuéntanos sobre ti..."
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Redes Sociales */}
+          <div className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm rounded-3xl p-6 md:p-8 backdrop-blur">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                <Instagram className="h-5 w-5 text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Redes Sociales</h3>
+                <p className="text-sm text-gray-600 dark:text-white/60">Conecta tus perfiles sociales</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Instagram */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  <Instagram className="inline h-4 w-4 mr-2 text-pink-400" />
+                  Instagram
+                </label>
+                <input
+                  type="text"
+                  value={profileData.socialLinks.instagram}
+                  onChange={(e) => setProfileData(prev => ({
+                    ...prev,
+                    socialLinks: { ...prev.socialLinks, instagram: e.target.value }
+                  }))}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-pink-400/60 disabled:opacity-50 transition"
+                  placeholder="@usuario"
+                />
+              </div>
+
+              {/* Twitter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  <Twitter className="inline h-4 w-4 mr-2 text-blue-400" />
+                  Twitter
+                </label>
+                <input
+                  type="text"
+                  value={profileData.socialLinks.twitter}
+                  onChange={(e) => setProfileData(prev => ({
+                    ...prev,
+                    socialLinks: { ...prev.socialLinks, twitter: e.target.value }
+                  }))}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-400/60 disabled:opacity-50 transition"
+                  placeholder="@usuario"
+                />
+              </div>
+
+              {/* LinkedIn */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-white/80 mb-2">
+                  <Linkedin className="inline h-4 w-4 mr-2 text-blue-600" />
+                  LinkedIn
+                </label>
+                <input
+                  type="text"
+                  value={profileData.socialLinks.linkedin}
+                  onChange={(e) => setProfileData(prev => ({
+                    ...prev,
+                    socialLinks: { ...prev.socialLinks, linkedin: e.target.value }
+                  }))}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-600/60 disabled:opacity-50 transition"
+                  placeholder="linkedin.com/in/usuario"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Notificaciones */}
+          <div className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm rounded-3xl p-6 md:p-8 backdrop-blur">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                <Bell className="h-5 w-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Preferencias de Notificaciones</h3>
+                <p className="text-sm text-gray-600 dark:text-white/60">Controla cómo quieres recibir notificaciones</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* Email Notifications */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm">
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Notificaciones por Email</p>
+                  <p className="text-sm text-gray-600 dark:text-white/60">Recibir notificaciones importantes por email</p>
+                </div>
+                <button
+                  onClick={() => setProfileData(prev => ({
+                    ...prev,
+                    preferences: { ...prev.preferences, emailNotifications: !prev.preferences.emailNotifications }
+                  }))}
+                  disabled={!isEditing}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                    profileData.preferences.emailNotifications ? 'bg-emerald-500' : 'bg-white/20'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      profileData.preferences.emailNotifications ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Push Notifications */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm">
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Notificaciones Push</p>
+                  <p className="text-sm text-gray-600 dark:text-white/60">Recibir notificaciones en tiempo real</p>
+                </div>
+                <button
+                  onClick={() => setProfileData(prev => ({
+                    ...prev,
+                    preferences: { ...prev.preferences, pushNotifications: !prev.preferences.pushNotifications }
+                  }))}
+                  disabled={!isEditing}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                    profileData.preferences.pushNotifications ? 'bg-emerald-500' : 'bg-white/20'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      profileData.preferences.pushNotifications ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Marketing Emails */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm">
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Emails de Marketing</p>
+                  <p className="text-sm text-gray-600 dark:text-white/60">Recibir ofertas y novedades</p>
+                </div>
+                <button
+                  onClick={() => setProfileData(prev => ({
+                    ...prev,
+                    preferences: { ...prev.preferences, marketingEmails: !prev.preferences.marketingEmails }
+                  }))}
+                  disabled={!isEditing}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                    profileData.preferences.marketingEmails ? 'bg-emerald-500' : 'bg-white/20'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      profileData.preferences.marketingEmails ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Booking Reminders */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm">
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Recordatorios de Reservas</p>
+                  <p className="text-sm text-gray-600 dark:text-white/60">Recibir recordatorios de citas próximas</p>
+                </div>
+                <button
+                  onClick={() => setProfileData(prev => ({
+                    ...prev,
+                    preferences: { ...prev.preferences, bookingReminders: !prev.preferences.bookingReminders }
+                  }))}
+                  disabled={!isEditing}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                    profileData.preferences.bookingReminders ? 'bg-emerald-500' : 'bg-white/20'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      profileData.preferences.bookingReminders ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Seguridad */}
+          <div className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm rounded-3xl p-6 md:p-8 backdrop-blur">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="h-10 w-10 rounded-xl bg-rose-500/10 flex items-center justify-center">
+                <Shield className="h-5 w-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Seguridad de la Cuenta</h3>
+                <p className="text-sm text-gray-600 dark:text-white/60">Protege tu cuenta con opciones avanzadas</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm">
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Cambiar Contraseña</p>
+                  <p className="text-sm text-gray-600 dark:text-white/60">Última actualización: hace 3 meses</p>
+                </div>
+                <button className="px-4 py-2 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white font-medium hover:bg-white/10 transition">
                   Cambiar
                 </button>
               </div>
-            </div>
-            
-            <div className="ios-booking-item">
-              <div className="flex items-center justify-between">
+
+              <div className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm">
                 <div>
-                  <h4 className="ios-booking-name mb-1">Autenticación de Dos Factores</h4>
-                  <p className="ios-booking-time">Añade una capa extra de seguridad</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Autenticación de Dos Factores</p>
+                  <p className="text-sm text-gray-600 dark:text-white/60">Añade una capa extra de seguridad</p>
                 </div>
-                <button className="ios-cta-button text-sm px-4 py-2">
-                  <Shield size={16} className="mr-2" />
+                <button className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-medium hover:bg-emerald-400 transition">
                   Activar
                 </button>
               </div>
-            </div>
-            
-            <div className="ios-booking-item">
-              <div className="flex items-center justify-between">
+
+              <div className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm">
                 <div>
-                  <h4 className="ios-booking-name mb-1">Sesiones Activas</h4>
-                  <p className="ios-booking-time">Gestiona dispositivos conectados</p>
+                  <p className="font-medium text-gray-900 dark:text-white">Sesiones Activas</p>
+                  <p className="text-sm text-gray-600 dark:text-white/60">Gestiona dispositivos conectados</p>
                 </div>
-                <button className="ios-link-button">
-                  <Settings size={16} className="mr-2" />
+                <button className="px-4 py-2 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm text-gray-900 dark:text-white font-medium hover:bg-white/10 transition">
                   Gestionar
                 </button>
               </div>
             </div>
           </div>
-      </IOSSection>
-      
-      <IOSSection title="Zona de peligro" icon={<Trash2 size={14} />} variant="dark">
-          <div className="ios-error-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-red-500 font-semibold mb-1">Eliminar Cuenta</h4>
-                <p className="ios-stat-label">Esta acción no se puede deshacer</p>
-              </div>
-              <button className="ios-error-close">
-                <Trash2 size={16} className="mr-2" />
-                Eliminar
-              </button>
-            </div>
-          </div>
-      </IOSSection>
-    </div>
-  );
 
-  const NotificationsTab = () => (
-    <div className="space-y-6">
-      <IOSSection title="Preferencias de notificaciones" icon={<Bell size={14} />} variant="dark">
-          
-          <div className="space-y-4">
-            <div className="ios-booking-item">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="ios-booking-name mb-1">Notificaciones por Email</h4>
-                  <p className="ios-booking-time">Recibir notificaciones importantes por email</p>
-                </div>
-                <IOSToggle label="" checked={profileData.preferences.emailNotifications} onChange={(checked) => setProfileData(prev => ({ ...prev, preferences: { ...prev.preferences, emailNotifications: checked } }))} />
+          {/* Success message al guardar */}
+          {!isEditing && (
+            <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-3xl p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                <p className="text-emerald-700 dark:text-emerald-200">Tu perfil está actualizado y sincronizado</p>
               </div>
             </div>
-            
-            <div className="ios-booking-item">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="ios-booking-name mb-1">Notificaciones Push</h4>
-                  <p className="ios-booking-time">Recibir notificaciones en tiempo real</p>
-                </div>
-                <IOSToggle label="" checked={profileData.preferences.pushNotifications} onChange={(checked) => setProfileData(prev => ({ ...prev, preferences: { ...prev.preferences, pushNotifications: checked } }))} />
-              </div>
-            </div>
-            
-            <div className="ios-booking-item">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="ios-booking-name mb-1">Emails de Marketing</h4>
-                  <p className="ios-booking-time">Recibir ofertas y novedades</p>
-                </div>
-                <IOSToggle label="" checked={profileData.preferences.marketingEmails} onChange={(checked) => setProfileData(prev => ({ ...prev, preferences: { ...prev.preferences, marketingEmails: checked } }))} />
-              </div>
-            </div>
-            
-            <div className="ios-booking-item">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="ios-booking-name mb-1">Recordatorios de Reservas</h4>
-                  <p className="ios-booking-time">Recibir recordatorios de citas próximas</p>
-                </div>
-                <IOSToggle label="" checked={profileData.preferences.bookingReminders} onChange={(checked) => setProfileData(prev => ({ ...prev, preferences: { ...prev.preferences, bookingReminders: checked } }))} />
-              </div>
-            </div>
-          </div>
-      </IOSSection>
-    </div>
-  );
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 'profile': return <ProfileTab />;
-      case 'security': return <SecurityTab />;
-      case 'notifications': return <NotificationsTab />;
-      default: return <ProfileTab />;
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* iOS Header */}
-      <div className="glass-card-ios">
-        <div className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="ios-feature-icon bg-gradient-to-br from-purple-500 to-purple-600">
-                <User size={24} className="text-white" />
-              </div>
-              <div>
-                <h1 className="ios-page-title">Mi Perfil</h1>
-                <p className="ios-page-subtitle">Gestiona tu información personal y preferencias</p>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
-
-      {/* iOS Tabs */}
-      <div className="glass-card-ios">
-        <div className="p-6">
-          <div className="flex items-center space-x-1">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`ios-tab-button ${
-                  activeTab === tab.id ? 'ios-tab-active' : 'ios-tab-inactive'
-                }`}
-              >
-                <tab.icon size={16} />
-                <span className="ml-2">{tab.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Tab Content */}
-      {renderTabContent()}
     </div>
   );
 };
