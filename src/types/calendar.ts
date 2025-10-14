@@ -2,6 +2,9 @@ import { Timestamp } from 'firebase/firestore';
 
 // ===== TIPOS PRINCIPALES =====
 
+export type PaymentFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly';
+export type PaymentMethod = 'cash' | 'transfer' | 'bizum' | 'other';
+
 export interface CalendarUser {
   id: string;
   name: string;
@@ -34,12 +37,18 @@ export interface SharedCalendar {
     bank?: string;
     notes?: string;
     paypalEmail?: string;
+    paymentType?: PaymentFrequency;
+    paymentDay?: number;
+    paymentMethod?: PaymentMethod;
+    customHourlyRate?: number;
   };
   payoutRecords?: Record<string, {
     status: 'pending' | 'paid';
     lastPaymentDate?: string;
     lastPaymentBy?: string;
     note?: string;
+    paymentMethod?: PaymentMethod;
+    amountPaid?: number;
   }>;
 }
 

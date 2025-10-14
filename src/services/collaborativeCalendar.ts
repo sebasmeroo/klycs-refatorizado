@@ -31,7 +31,9 @@ import {
   CalendarEventFirestore,
   UserCalendarSettings,
   CalendarStats,
-  RecurringInstanceStatus
+  RecurringInstanceStatus,
+  PaymentFrequency,
+  PaymentMethod
 } from '@/types/calendar';
 import { logger } from '@/utils/logger';
 import { subscriptionsService } from '@/services/subscriptions';
@@ -336,6 +338,10 @@ export class CollaborativeCalendarService {
       bank?: string;
       notes?: string;
       paypalEmail?: string;
+      paymentType?: PaymentFrequency;
+      paymentDay?: number;
+      paymentMethod?: PaymentMethod;
+      customHourlyRate?: number;
     }
   ): Promise<void> {
     try {
@@ -358,6 +364,8 @@ export class CollaborativeCalendarService {
       lastPaymentDate?: string;
       lastPaymentBy?: string;
       note?: string;
+      paymentMethod?: PaymentMethod;
+      amountPaid?: number;
     }
   ): Promise<void> {
     try {

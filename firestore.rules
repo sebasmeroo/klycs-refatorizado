@@ -427,6 +427,59 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // === REGLAS PARA RETIROS DE PLATAFORMA ===
+    match /platform_withdrawals/{withdrawalId} {
+      // Lectura: solo el propietario o admin
+      allow read, list: if isAuthenticated() &&
+                        (resource.data.userId == request.auth.uid || isAdmin(request.auth.uid));
+
+      // Crear retiro
+      allow create: if isAuthenticated() &&
+                   isOwner(request.resource.data.userId) &&
+                   isValidDocSize() &&
+                   request.resource.data.keys().hasAll(['userId', 'amount', 'status', 'createdAt']) &&
+                   request.resource.data.amount is number && request.resource.data.amount > 0 &&
+                   request.resource.data.status in ['pending', 'completed', 'failed'] &&
+                   isValidTimestamp(request.resource.data.createdAt.toMillis());
+
+      // Actualizar retiro: solo el propietario
+      allow update: if isAuthenticated() &&
+                   isOwner(resource.data.userId) &&
+                   isValidDocSize();
+
+      // Eliminar retiro: solo el propietario
+      allow delete: if isAuthenticated() &&
+                   isOwner(resource.data.userId);
+    }
+
+    // === REGLAS PARA FACTURAS EXTERNAS ===
+    match /external_invoices/{invoiceId} {
+      // Lectura: solo el propietario o admin
+      allow read, list: if isAuthenticated() &&
+                        (resource.data.userId == request.auth.uid || isAdmin(request.auth.uid));
+
+      // Crear factura
+      allow create: if isAuthenticated() &&
+                   isOwner(request.resource.data.userId) &&
+                   isValidDocSize() &&
+                   request.resource.data.keys().hasAll(['userId', 'clientName', 'amount', 'status', 'issueDate', 'createdAt']) &&
+                   isValidString(request.resource.data.clientName, 1, 200) &&
+                   request.resource.data.amount is number && request.resource.data.amount > 0 &&
+                   request.resource.data.status in ['pending', 'paid', 'overdue', 'cancelled'] &&
+                   isValidTimestamp(request.resource.data.createdAt.toMillis());
+
+      // Actualizar factura: solo el propietario
+      allow update: if isAuthenticated() &&
+                   isOwner(resource.data.userId) &&
+                   isValidDocSize() &&
+                   // No permitir cambiar userId, createdAt
+                   noImmutableFieldsChanged(['userId', 'createdAt']);
+
+      // Eliminar factura: solo el propietario
+      allow delete: if isAuthenticated() &&
+                   isOwner(resource.data.userId);
+    }
+
     // === BLOQUEAR TODO LO DEMÁS ===
     match /{document=**} {
       allow read, write: if false;

@@ -208,6 +208,8 @@ export const useUpdatePayoutRecord = () => {
         lastPaymentDate?: string;
         lastPaymentBy?: string;
         note?: string;
+        paymentMethod?: import('@/types/calendar').PaymentMethod;
+        amountPaid?: number;
       };
     }) => {
       costMonitoring.trackFirestoreWrite(1);
@@ -253,12 +255,18 @@ export const useUpdatePayoutComplete = () => {
         bank?: string;
         notes?: string;
         paypalEmail?: string;
+        paymentType?: import('@/types/calendar').PaymentFrequency;
+        paymentDay?: number;
+        paymentMethod?: import('@/types/calendar').PaymentMethod;
+        customHourlyRate?: number;
       };
       payoutRecord: {
         status: 'pending' | 'paid';
         lastPaymentDate?: string;
         lastPaymentBy?: string;
         note?: string;
+        paymentMethod?: import('@/types/calendar').PaymentMethod;
+        amountPaid?: number;
       };
     }) => {
       costMonitoring.trackFirestoreWrite(2); // 2 escrituras
