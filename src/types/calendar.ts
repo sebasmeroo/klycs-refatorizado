@@ -134,6 +134,10 @@ export interface CalendarEvent {
   serviceStatus?: 'pending' | 'completed' | 'not_done' | 'in_progress';
   completedAt?: Date; // Fecha cuando se marcó como completado
   completedBy?: string; // userId de quien marcó como completado
+
+  // Cliente externo (opcional) - para tracking de facturación
+  externalClientId?: string; // ID del cliente externo
+  linkedToClient?: boolean; // Si está vinculado a un cliente externo
   
   // Recordatorios
   reminders: EventReminder[];
@@ -281,6 +285,8 @@ export interface CalendarEventFirestore extends Omit<CalendarEvent, 'startDate' 
   createdAt: Timestamp;
   updatedAt: Timestamp;
   completedAt?: Timestamp;
+  externalClientId?: string; // Cliente externo vinculado
+  linkedToClient?: boolean;
   recurring?: Omit<RecurrencePattern, 'endDate'> & { endDate?: Timestamp };
   recurringInstancesStatus?: Record<string, {
     status: 'completed' | 'not_done' | 'in_progress' | 'pending';

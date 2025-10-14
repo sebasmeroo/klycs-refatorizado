@@ -36,6 +36,7 @@ import {
 import { logger } from '@/utils/logger';
 import { subscriptionsService } from '@/services/subscriptions';
 import { generateRecurringInstances } from '@/utils/recurrence';
+import { ExternalClientsService } from '@/services/externalClientsService';
 
 const normalizeRecurringStatuses = (
   raw?: CalendarEventFirestore['recurringInstancesStatus']
@@ -882,6 +883,12 @@ export class CalendarEventService {
       cleanEventData.customFieldsData = eventData.customFieldsData;
     }
 
+    // ✅ Cliente externo (opcional)
+    if (eventData.externalClientId) {
+      cleanEventData.externalClientId = eventData.externalClientId;
+      cleanEventData.linkedToClient = true;
+    }
+
     if (eventData.recurringInstancesStatus && Object.keys(eventData.recurringInstancesStatus).length > 0) {
       const serializedStatuses: Record<string, any> = {};
       Object.entries(eventData.recurringInstancesStatus).forEach(([key, value]) => {
@@ -1376,6 +1383,45 @@ export class CalendarEventService {
 
       await updateDoc(docRef, updateData);
       logger.info('Estado del servicio actualizado', { eventId, status, userId });
+
+      // ✅ NUEVO: Sincronizar con cliente externo si está vinculado
+      if (status === 'completed' && data.externalClientId && data.duration) {
+        try {
+          // Obtener datos del cliente externo para su tarifa horaria
+          const clientDoc = await getDoc(doc(db, 'external_clients', data.externalClientId));
+          if (clientDoc.exists()) {
+            const clientData = clientDoc.data();
+            const clientHourlyRate = typeof clientData.hourlyRate === 'number' ? clientData.hourlyRate : 0;
+            const hours = data.duration / 60; // Convertir minutos a horas
+
+            // Obtener nombre del calendario/profesional
+            const calendarDoc = await getDoc(doc(db, 'shared_calendars', data.calendarId));
+            const professionalName = calendarDoc.exists() ? calendarDoc.data().name : 'Profesional';
+
+            // Registrar servicio para el cliente externo usando LA TARIFA DEL CLIENTE
+            await ExternalClientsService.recordService(data.externalClientId, {
+              eventId,
+              professionalId: data.calendarId,
+              professionalName,
+              professionalRate: clientHourlyRate, // ✅ Usar tarifa del cliente
+              date: data.startDate.toDate(),
+              title: data.title,
+              hours
+            });
+
+            logger.log('✅ Servicio sincronizado con cliente externo', {
+              eventId,
+              clientId: data.externalClientId,
+              hours,
+              clientRate: clientHourlyRate,
+              amount: hours * clientHourlyRate
+            });
+          }
+        } catch (error) {
+          // No lanzar error, solo log (no debe bloquear la completación del servicio)
+          logger.error('Error al sincronizar con cliente externo', error as Error, { eventId });
+        }
+      }
     } catch (error) {
       logger.error('Error al actualizar estado del servicio', error as Error, { eventId, status });
       throw error;

@@ -295,7 +295,7 @@ const ProfessionalCalendar = React.lazy(() =>
     })
 );
 
-const AdminTemplateSync = React.lazy(() => 
+const AdminTemplateSync = React.lazy(() =>
   import('@/pages/AdminTemplateSync')
     .then(module => ({ default: module.default }))
     .catch(err => {
@@ -304,7 +304,23 @@ const AdminTemplateSync = React.lazy(() =>
     })
 );
 
+const DashboardClients = React.lazy(() =>
+  import('@/pages/DashboardClients')
+    .then(module => ({ default: module.default }))
+    .catch(err => {
+      logError('Failed to load DashboardClients component', err, { component: 'App' });
+      return { default: () => <div>Error loading Dashboard Clients</div> };
+    })
+);
 
+const DashboardClientDetail = React.lazy(() =>
+  import('@/pages/DashboardClientDetail')
+    .then(module => ({ default: module.default }))
+    .catch(err => {
+      logError('Failed to load DashboardClientDetail component', err, { component: 'App' });
+      return { default: () => <div>Error loading Client Detail</div> };
+    })
+);
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -539,6 +555,26 @@ function App() {
             <ProtectedRoute>
               <DashboardLayout>
                 <DashboardWorkHours />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard/clientes"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <DashboardClients />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard/clientes/:clientId"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <DashboardClientDetail />
               </DashboardLayout>
             </ProtectedRoute>
           }

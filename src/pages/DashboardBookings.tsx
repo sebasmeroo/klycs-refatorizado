@@ -69,6 +69,7 @@ import { useUserCalendars, useMultipleCalendarEvents, useCreateEvent, useUpdateE
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/authStore';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { useExternalClients } from '@/hooks/useExternalClients';
 import { Link } from 'react-router-dom';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
@@ -267,6 +268,9 @@ const DashboardBookings: React.FC = () => {
   const updateEventMutation = useUpdateEvent();
   const deleteEventMutation = useDeleteEvent();
 
+  // ===== CLIENTES EXTERNOS =====
+  const { data: externalClients } = useExternalClients(user?.uid);
+
   // ===== ESTADO =====
   const calendars = calendarsData || [];
     const events = eventsData || [];
@@ -308,6 +312,7 @@ const DashboardBookings: React.FC = () => {
     location: '',
     hasEndTime: true // Toggle para hora única vs rango
   });
+  const [selectedExternalClient, setSelectedExternalClient] = useState<string>(''); // Cliente externo vinculado
   const [recurrence, setRecurrence] = useState<RecurrencePattern | null>(null);
   const [customFieldsData, setCustomFieldsData] = useState<Record<string, any>>({});
   const [showEditRecurrence, setShowEditRecurrence] = useState(false);
@@ -794,7 +799,8 @@ const DashboardBookings: React.FC = () => {
       location: '',
       hasEndTime: true
     });
-    
+    setSelectedExternalClient(''); // Limpiar cliente externo
+
     // Limpiar datos de campos personalizados
     setCustomFieldsData({});
   }, [selectedProfessional]);
@@ -810,6 +816,7 @@ const DashboardBookings: React.FC = () => {
       location: '',
       hasEndTime: true
     });
+    setSelectedExternalClient(''); // Limpiar cliente externo
     setRecurrence(null);
     setCustomFieldsData({});
   }, []);
@@ -1210,6 +1217,11 @@ const DashboardBookings: React.FC = () => {
         eventDataToSend.customFieldsData = { ...customFieldsData };
       }
 
+      // ✅ Agregar cliente externo si fue seleccionado
+      if (selectedExternalClient) {
+        eventDataToSend.externalClientId = selectedExternalClient;
+        eventDataToSend.linkedToClient = true;
+      }
 
       const eventId = await CalendarEventService.createEvent(selectedProfessional.id, eventDataToSend);
 
@@ -1236,6 +1248,8 @@ const DashboardBookings: React.FC = () => {
         visibility: eventDataToSend.visibility,
         reminders: [],
         customFieldsData: Object.keys(customFieldsData).length > 0 ? { ...customFieldsData } : undefined,
+        externalClientId: selectedExternalClient || undefined,
+        linkedToClient: !!selectedExternalClient,
         createdAt: now,
         updatedAt: now
       };
@@ -1264,6 +1278,7 @@ const DashboardBookings: React.FC = () => {
     newEventForm,
     recurrence,
     customFieldsData,
+    selectedExternalClient,
     user?.uid,
     closeCreateEventPanel,
     addEventToCaches,
@@ -2910,6 +2925,33 @@ const DashboardBookings: React.FC = () => {
           {/* Divider */}
           <div className="border-t border-gray-200 my-4"></div>
 
+          {/* Cliente Externo */}
+          {externalClients && externalClients.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Cliente Externo (Opcional)
+              </label>
+              <select
+                value={selectedExternalClient}
+                onChange={(e) => setSelectedExternalClient(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Sin cliente externo</option>
+                {externalClients.map(client => (
+                  <option key={client.id} value={client.id}>
+                    {client.name} {client.company ? `(${client.company})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Si vinculas este evento a un cliente externo, las horas trabajadas se registrarán automáticamente al completarlo
+              </p>
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="border-t border-gray-200 my-4"></div>
+
           {/* Recurrencia */}
           <RecurrenceSelector
             value={recurrence}
@@ -3061,13 +3103,16 @@ const DashboardBookings: React.FC = () => {
     recurrence,
     customFieldsData,
     globalCustomFields,
+    externalClients,
+    selectedExternalClient,
     handleCreateEvent,
     closeCreateEventPanel,
     handleEventTitleChange,
     handleEventStartTimeChange,
     handleEventEndTimeChange,
     handleEventDescriptionChange,
-    handleEventLocationChange
+    handleEventLocationChange,
+    creatingEvent
   ]);
 
   return (

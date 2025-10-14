@@ -338,6 +338,60 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // === REGLAS PARA CLIENTES EXTERNOS ===
+    match /external_clients/{clientId} {
+      // Lectura: solo el propietario del cliente
+      allow read, list: if isAuthenticated() &&
+                        (resource.data.ownerId == request.auth.uid || isAdmin(request.auth.uid));
+
+      // Crear cliente externo
+      allow create: if isAuthenticated() &&
+                   isOwner(request.resource.data.ownerId) &&
+                   isValidDocSize() &&
+                   request.resource.data.keys().hasAll(['name', 'ownerId', 'totalHours', 'totalAmount', 'currency', 'createdAt']) &&
+                   isValidString(request.resource.data.name, 1, 100) &&
+                   request.resource.data.totalHours is number && request.resource.data.totalHours >= 0 &&
+                   request.resource.data.totalAmount is number && request.resource.data.totalAmount >= 0 &&
+                   request.resource.data.currency in ['EUR', 'USD', 'GBP'] &&
+                   isValidTimestamp(request.resource.data.createdAt.toMillis());
+
+      // Actualizar cliente externo: solo el propietario
+      allow update: if isAuthenticated() &&
+                   isOwner(resource.data.ownerId) &&
+                   isValidDocSize() &&
+                   // No permitir cambiar ownerId, createdAt
+                   noImmutableFieldsChanged(['ownerId', 'createdAt']);
+
+      // Eliminar cliente: solo si no tiene servicios (verificado en código)
+      allow delete: if isAuthenticated() &&
+                   isOwner(resource.data.ownerId);
+
+      // Subcolección de servicios
+      match /services/{serviceId} {
+        // Lectura: propietario del cliente
+        allow read, list: if isAuthenticated() &&
+                          (get(/databases/$(database)/documents/external_clients/$(clientId)).data.ownerId == request.auth.uid ||
+                           isAdmin(request.auth.uid));
+
+        // Crear servicio: solo el propietario del cliente (generalmente automático desde eventos)
+        allow create: if isAuthenticated() &&
+                     isValidDocSize() &&
+                     request.resource.data.keys().hasAll(['clientId', 'eventId', 'professionalId', 'professionalName', 'professionalRate', 'date', 'title', 'hours', 'amount', 'status', 'createdAt']) &&
+                     request.resource.data.hours is number && request.resource.data.hours > 0 && request.resource.data.hours <= 24 &&
+                     request.resource.data.amount is number && request.resource.data.amount >= 0 &&
+                     request.resource.data.status in ['completed', 'cancelled'] &&
+                     isValidTimestamp(request.resource.data.createdAt.toMillis());
+
+        // Actualizar servicio: solo para cancelar
+        allow update: if isAuthenticated() &&
+                     get(/databases/$(database)/documents/external_clients/$(clientId)).data.ownerId == request.auth.uid &&
+                     request.resource.data.status == 'cancelled';
+
+        // No permitir eliminar servicios (solo cancelarlos)
+        allow delete: if false;
+      }
+    }
+
     // === REGLAS PARA STRIPE CUSTOMERS ===
     match /stripeCustomers/{userId} {
       // Permitir leer tu propia información de Stripe

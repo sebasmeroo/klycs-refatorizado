@@ -19,7 +19,8 @@ type CacheKey =
   | `professionals:${string}`
   | `templates:${string}`
   | `paymentStats:${string}:${number}:${boolean}`
-  | `pendingServices:${string}:${string}`;
+  | `pendingServices:${string}:${string}`
+  | `externalClients:${string}`;
 
 export class PersistentCache {
   private static readonly PREFIX = 'klycs_cache_';

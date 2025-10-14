@@ -20,7 +20,8 @@ import {
   Users,
   Clock,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Building2
 } from 'lucide-react';
 import { PaymentFailedBanner } from '@/components/subscription/PaymentFailedBanner';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
@@ -79,6 +80,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       color: 'from-indigo-500 to-indigo-600'
     },
     {
+      icon: Building2,
+      label: 'Clientes Externos',
+      path: '/dashboard/clientes',
+      active: location.pathname.startsWith('/dashboard/clientes'),
+      color: 'from-teal-500 to-cyan-600'
+    },
+    {
       icon: Wallet,
       label: 'Pagos',
       path: '/dashboard/pagos',
@@ -108,7 +116,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
 
     if (isFreePlan) {
       return baseMenuItems.filter(item => {
-        const restrictedPaths = ['/dashboard/bookings', '/dashboard/horas', '/dashboard/pagos'];
+        const restrictedPaths = ['/dashboard/bookings', '/dashboard/horas', '/dashboard/clientes', '/dashboard/pagos'];
         return !restrictedPaths.includes(item.path);
       });
     }
