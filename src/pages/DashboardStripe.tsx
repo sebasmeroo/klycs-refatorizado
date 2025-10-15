@@ -25,7 +25,8 @@ import {
   ChevronRight,
   ChevronDown,
   Filter,
-  Search
+  Search,
+  X
 } from 'lucide-react';
 import '@/styles/payments-dashboard.css';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
@@ -46,6 +47,7 @@ import {
 } from '@/hooks/useExternalInvoices';
 import { InvoiceStatus } from '@/types/income';
 import { useExternalClients } from '@/hooks/useExternalClients';
+import { useWorkHoursByPeriod, useWorkHoursByPeriodTotals } from '@/hooks/useWorkHoursByPeriod';
 
 type CurrencySummary = {
   currency: string;
@@ -324,7 +326,7 @@ const DashboardStripe: React.FC = () => {
   const [incomeTab, setIncomeTab] = useState<'platform' | 'external'>('platform');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [onlyCompleted, setOnlyCompleted] = useState(true);
-  const [period, setPeriod] = useState<'year' | 'quarter' | 'month'>('year');
+  const [period, setPeriod] = useState<'year' | 'quarter' | 'month' | 'payment'>('year');
   const [selectedQuarter, setSelectedQuarter] = useState(() => Math.floor((new Date().getMonth()) / 3) + 1);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
   const [payoutDrafts, setPayoutDrafts] = useState<Record<string, PayoutDraft>>({});
@@ -365,6 +367,7 @@ const DashboardStripe: React.FC = () => {
 
   // Collapsible sections state
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
+  const [isProfessionalsSidebarCollapsed, setIsProfessionalsSidebarCollapsed] = useState(false);
   const [isHeaderControlsExpanded, setIsHeaderControlsExpanded] = useState(false);
 
   // ✅ REACT QUERY: Reemplaza loadStats manual con hook optimizado
@@ -374,8 +377,15 @@ const DashboardStripe: React.FC = () => {
     onlyCompleted
   );
 
-  const loading = statsLoading;
-  const hasLoadedOnce = stats.length > 0 || !statsLoading;
+  // ✅ NUEVO: Hook para estadísticas por periodo de pago
+  const { data: statsByPeriod = [], isLoading: statsByPeriodLoading } = useWorkHoursByPeriod(
+    user?.uid,
+    onlyCompleted
+  );
+  const periodTotals = useWorkHoursByPeriodTotals(statsByPeriod);
+
+  const loading = period === 'payment' ? statsByPeriodLoading : statsLoading;
+  const hasLoadedOnce = (stats.length > 0 || !statsLoading) || (statsByPeriod.length > 0 || !statsByPeriodLoading);
   const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   const {
@@ -454,6 +464,7 @@ const DashboardStripe: React.FC = () => {
     setIsRefreshing(true);
     try {
       await queryClient.invalidateQueries({ queryKey: ['paymentStats'] });
+      await queryClient.invalidateQueries({ queryKey: ['workHoursByPeriod'] });
       await queryClient.invalidateQueries({ queryKey: ['paymentPendingServices'] });
       await queryClient.invalidateQueries({ queryKey: ['calendars'] });
       await queryClient.invalidateQueries({ queryKey: ['platformWithdrawals'] });
@@ -469,6 +480,19 @@ const DashboardStripe: React.FC = () => {
   }, [queryClient]);
 
   const statsForDisplay = useMemo(() => {
+    // ✅ Si el periodo es 'payment', usar datos filtrados por periodo de pago
+    if (period === 'payment') {
+      return statsByPeriod.map(item => ({
+        base: item.stats,
+        filteredMonths: item.stats.monthlyBreakdown,
+        filteredAmount: item.stats.totalAmount,
+        filteredHours: item.stats.totalHours,
+        filteredEvents: item.stats.monthlyBreakdown.reduce((sum, m) => sum + m.events, 0),
+        paymentPeriod: item.period // ✅ Información del periodo de pago
+      }));
+    }
+
+    // ✅ Comportamiento original para otros periodos
     return stats.map(stat => {
       const filteredMonths = stat.monthlyBreakdown.filter(month => {
         const [yearStr, monthStr] = month.month.split('-');
@@ -489,7 +513,7 @@ const DashboardStripe: React.FC = () => {
         filteredEvents
       };
     });
-  }, [stats, periodRange]);
+  }, [stats, periodRange, period, statsByPeriod]);
 
   const totalsByCurrency = useMemo<CurrencySummary[]>(() => {
     const map = new Map<string, CurrencySummary>();
@@ -700,6 +724,13 @@ const DashboardStripe: React.FC = () => {
       return displayStats[0].base.professionalId;
     });
   }, [displayStats]);
+
+  const selectedProfessional = useMemo(() => {
+    if (!displayStats.length || !selectedProfessionalId) {
+      return null;
+    }
+    return displayStats.find(({ base }) => base.professionalId === selectedProfessionalId) ?? null;
+  }, [displayStats, selectedProfessionalId]);
 
   const handlePayoutFieldChange = useCallback((
     calendarId: string,
@@ -1072,7 +1103,7 @@ const DashboardStripe: React.FC = () => {
   }, [calendarMap, payoutDrafts, payoutRecordDrafts, periodKey, updatePayoutMutation]);
 
   const renderProfessionalDetail = useCallback((statContainer: typeof statsForDisplay[number]) => {
-    const { base: stat, filteredMonths, filteredAmount, filteredHours, filteredEvents } = statContainer;
+    const { base: stat, filteredMonths, filteredAmount, filteredHours, filteredEvents, paymentPeriod } = statContainer as typeof statsForDisplay[number] & { paymentPeriod?: any };
     const relatedCalendar = calendarMap.get(stat.professionalId);
     const owner = relatedCalendar?.members?.find(member => member.role === 'owner') ?? relatedCalendar?.members?.[0];
 
@@ -1201,9 +1232,22 @@ const DashboardStripe: React.FC = () => {
                 <span className="payments-payment-badge payments-payment-badge--method">
                   {getPaymentMethodLabel(preferredMethod)}
                 </span>
+                {paymentPeriod && (
+                  <span className="payments-payment-badge payments-payment-badge--period" style={{ backgroundColor: '#10b981', color: 'white' }}>
+                    📅 {paymentPeriod.label}
+                  </span>
+                )}
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            className="payments-professional-card__close-btn"
+            onClick={() => setSelectedProfessionalId(null)}
+            aria-label="Cerrar detalles"
+          >
+            <X size={20} />
+          </button>
           <div className="payments-status">
             {editing ? (
               <select
@@ -1816,118 +1860,17 @@ const DashboardStripe: React.FC = () => {
   }
 
   return (
-    <div className="payments-page">
-      <div className="payments-container payments-container--with-sidebar">
+    <div className={`payments-page ${isProfessionalsSidebarCollapsed ? 'professionals-collapsed' : ''}`}>
+      <div className="payments-container payments-layout-two-columns">
+        {/* Contenido principal */}
         <div className="payments-main-content">
-        <header className="payments-header">
-          <div className="payments-header__info">
-            <div className="payments-header__icon">
-              <Wallet size={24} />
-            </div>
-            <div>
-              <h1 className="payments-header__title">Gestor financiero</h1>
-              <p className="payments-header__subtitle">
-                Centraliza nómina, ingresos y reportes del equipo
-              </p>
-            </div>
-          </div>
-          <div className="payments-header__actions">
-            <button
-              onClick={() => setIsHeaderControlsExpanded(!isHeaderControlsExpanded)}
-              className="payments-button payments-button--ghost payments-button--with-icon"
-            >
-              <Filter size={16} />
-              Controles
-              <ChevronDown size={16} />
-            </button>
-            <button
-              onClick={exportToCSV}
-              disabled={!stats.length}
-              className="payments-button payments-button--ghost payments-button--with-icon"
-            >
-              <Download size={16} />
-              Exportar CSV
-            </button>
-            <button
-              onClick={exportPendingToCSV}
-              disabled={!hasPendingProfessionals}
-              className="payments-button payments-button--ghost payments-button--with-icon"
-            >
-              <Download size={16} />
-              Exportar pendientes
-            </button>
-            {lastUpdated && (
-              <span className="payments-header__timestamp">
-                Última actualización: {lastUpdated.toLocaleString()}
-              </span>
-            )}
-          </div>
-
-          {isHeaderControlsExpanded && (
-            <div className="payments-header__controls">
-              <div className="payments-filters">
-                <div className="payments-select">
-                  <label>Año</label>
-                  <select value={selectedYear} onChange={(event) => setSelectedYear(Number(event.target.value))}>
-                    {years.map(year => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="payments-select">
-                  <label>Período</label>
-                  <select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)}>
-                    <option value="year">Año completo</option>
-                    <option value="quarter">Trimestre</option>
-                    <option value="month">Mes</option>
-                  </select>
-                </div>
-                {period === 'quarter' && (
-                  <div className="payments-select">
-                    <label>Trimestre</label>
-                    <select value={selectedQuarter} onChange={(event) => setSelectedQuarter(Number(event.target.value))}>
-                      {[1, 2, 3, 4].map(quarter => (
-                        <option key={quarter} value={quarter}>Q{quarter}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {period === 'month' && (
-                  <div className="payments-select">
-                    <label>Mes</label>
-                    <select value={selectedMonth} onChange={(event) => setSelectedMonth(Number(event.target.value))}>
-                      {MONTH_LABELS.map((label, index) => (
-                        <option key={label} value={index}>{label}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setOnlyCompleted(!onlyCompleted)}
-                  className={`payments-toggle ${onlyCompleted ? 'payments-toggle--active' : ''}`}
-                >
-                  {onlyCompleted ? 'Solo servicios completados' : 'Todos los servicios'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowPendingOnly(!showPendingOnly)}
-                  className={`payments-toggle ${showPendingOnly ? 'payments-toggle--active' : ''}`}
-                >
-                  {showPendingOnly ? 'Solo pendientes' : 'Todos los profesionales'}
-                </button>
-              </div>
-            </div>
-          )}
-        </header>
-
         <nav className="payments-tabs">
           <button
             type="button"
             className={`payments-tab ${activeTab === 'calendar' ? 'is-active' : ''}`}
             onClick={() => setActiveTab('calendar')}
           >
-            Nómina
+            General
           </button>
           <button
             type="button"
@@ -1938,26 +1881,19 @@ const DashboardStripe: React.FC = () => {
           </button>
           <button
             type="button"
-            className={`payments-tab ${activeTab === 'stats' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('stats')}
-          >
-            Estadísticas
-          </button>
-          <button
-            type="button"
-            className={`payments-tab ${activeTab === 'alerts' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('alerts')}
-          >
-            Alertas
-          </button>
-          <button
-            type="button"
             className={`payments-tab ${activeTab === 'export' ? 'is-active' : ''}`}
             onClick={() => setActiveTab('export')}
           >
             Exportar
           </button>
         </nav>
+
+        {/* Panel expandible de profesional seleccionado con TODOS los detalles */}
+        {selectedProfessional && activeTab === 'calendar' && (
+          <div className="payments-professional-detail-wrapper">
+            {renderProfessionalDetail(selectedProfessional)}
+          </div>
+        )}
 
         {activeTab === 'calendar' && (
           loading ? (
@@ -1968,6 +1904,109 @@ const DashboardStripe: React.FC = () => {
           ) : (
             <>
               <section className="payments-card">
+                <header className="payments-header">
+                  <div className="payments-header__info">
+                    <div className="payments-header__icon">
+                      <Wallet size={24} />
+                    </div>
+                    <div>
+                      <h1 className="payments-header__title">Gestor financiero</h1>
+                      <p className="payments-header__subtitle">
+                        Centraliza nómina, ingresos y reportes del equipo
+                      </p>
+                    </div>
+                  </div>
+                  <div className="payments-header__actions">
+                    <button
+                      onClick={() => setIsHeaderControlsExpanded(!isHeaderControlsExpanded)}
+                      className="payments-button payments-button--ghost payments-button--with-icon"
+                    >
+                      <Filter size={16} />
+                      Controles
+                      <ChevronDown size={16} />
+                    </button>
+                    <button
+                      onClick={exportToCSV}
+                      disabled={!stats.length}
+                      className="payments-button payments-button--ghost payments-button--with-icon"
+                    >
+                      <Download size={16} />
+                      Exportar CSV
+                    </button>
+                    <button
+                      onClick={exportPendingToCSV}
+                      disabled={!hasPendingProfessionals}
+                      className="payments-button payments-button--ghost payments-button--with-icon"
+                    >
+                      <Download size={16} />
+                      Exportar pendientes
+                    </button>
+                    {lastUpdated && (
+                      <span className="payments-header__timestamp">
+                        Última actualización: {lastUpdated.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+
+                  {isHeaderControlsExpanded && (
+                    <div className="payments-header__controls">
+                      <div className="payments-filters">
+                        <div className="payments-select">
+                          <label>Año</label>
+                          <select value={selectedYear} onChange={(event) => setSelectedYear(Number(event.target.value))}>
+                            {years.map(year => (
+                              <option key={year} value={year}>{year}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="payments-select">
+                          <label>Período</label>
+                          <select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)}>
+                            <option value="year">Año completo</option>
+                            <option value="quarter">Trimestre</option>
+                            <option value="month">Mes</option>
+                            <option value="payment">Por Periodo de Pago</option>
+                          </select>
+                        </div>
+                        {period === 'quarter' && (
+                          <div className="payments-select">
+                            <label>Trimestre</label>
+                            <select value={selectedQuarter} onChange={(event) => setSelectedQuarter(Number(event.target.value))}>
+                              {[1, 2, 3, 4].map(quarter => (
+                                <option key={quarter} value={quarter}>Q{quarter}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {period === 'month' && (
+                          <div className="payments-select">
+                            <label>Mes</label>
+                            <select value={selectedMonth} onChange={(event) => setSelectedMonth(Number(event.target.value))}>
+                              {MONTH_LABELS.map((label, index) => (
+                                <option key={label} value={index}>{label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setOnlyCompleted(!onlyCompleted)}
+                          className={`payments-toggle ${onlyCompleted ? 'payments-toggle--active' : ''}`}
+                        >
+                          {onlyCompleted ? 'Solo servicios completados' : 'Todos los servicios'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowPendingOnly(!showPendingOnly)}
+                          className={`payments-toggle ${showPendingOnly ? 'payments-toggle--active' : ''}`}
+                        >
+                          {showPendingOnly ? 'Solo pendientes' : 'Todos los profesionales'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </header>
+
                 <h3 className="payments-card__section-title">Resumen general</h3>
                 {!stats.length ? (
                   <div className="payments-empty">No hay horas registradas para {selectedYear}. Actualiza o cambia el filtro.</div>
@@ -2036,6 +2075,107 @@ const DashboardStripe: React.FC = () => {
                     </article>
                   </div>
                 )}
+
+                {/* KPIs por profesional */}
+                {stats.length > 0 && (
+                  <div className="payments-professional-kpis">
+                    <h4 className="payments-professional-kpis__title">Vista por profesional</h4>
+                    <div className="payments-professional-kpis__grid">
+                      {displayStats.slice(0, 12).map(({ base, filteredAmount, filteredHours, filteredEvents }) => {
+                        const calendar = calendarMap.get(base.professionalId);
+                        const owner = calendar?.members?.find(m => m.role === 'owner') ?? calendar?.members?.[0];
+                        const payoutDetails = ((calendar as any)?.payoutDetails ?? {}) as {
+                          paymentType?: PaymentFrequency;
+                          paymentDay?: number;
+                          paymentMethod?: PaymentMethod;
+                        };
+                        const isPending = isProfessionalPending(base.professionalId);
+                        const recordStatus = calendar?.payoutRecords?.[periodKey]?.status ?? 'pending';
+                        const paymentType = payoutDetails.paymentType ?? 'monthly';
+                        const paymentDay = typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null;
+                        const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
+                        const nextPaymentDate = getNextPaymentDate(new Date(), paymentType, paymentDay, latestRecord?.lastPaymentDate);
+
+                        // Determinar la alerta más importante
+                        let alertIcon = '';
+                        let alertText = '';
+                        let alertType = '';
+
+                        if (recordStatus === 'pending' && filteredAmount > 0) {
+                          alertIcon = '💰';
+                          alertText = `Pendiente: ${formatCurrency(filteredAmount, base.currency)}`;
+                          alertType = 'error';
+                        } else if (nextPaymentDate) {
+                          const daysUntil = Math.ceil((nextPaymentDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          if (daysUntil >= 0 && daysUntil <= 7) {
+                            alertIcon = '⚠️';
+                            alertText = `Próximo pago: ${daysUntil === 0 ? 'Hoy' : daysUntil === 1 ? 'Mañana' : `${daysUntil}d`}`;
+                            alertType = 'warning';
+                          } else {
+                            alertIcon = '✓';
+                            alertText = 'Al día';
+                            alertType = 'success';
+                          }
+                        } else {
+                          alertIcon = 'ℹ️';
+                          alertText = 'Sin configurar';
+                          alertType = 'info';
+                        }
+
+                        return (
+                          <article
+                            key={base.professionalId}
+                            className={`payments-professional-kpi ${isPending ? 'payments-professional-kpi--pending' : ''}`}
+                            onClick={() => setSelectedProfessionalId(base.professionalId)}
+                          >
+                            <div className="payments-professional-kpi__header">
+                              <div className="payments-professional-kpi__avatar">
+                                {owner?.avatar ? (
+                                  <img src={owner.avatar} alt={base.professionalName} />
+                                ) : (
+                                  <span>{(base.professionalName || 'P').charAt(0).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <div className="payments-professional-kpi__info">
+                                <h5>{base.professionalName || 'Profesional'}</h5>
+                                <span className="payments-professional-kpi__email">{owner?.email || base.professionalEmail || '—'}</span>
+                              </div>
+                            </div>
+                            <div className="payments-professional-kpi__metrics">
+                              <div className="payments-professional-kpi__metric">
+                                <span className="payments-professional-kpi__metric-label">Total</span>
+                                <strong className="payments-professional-kpi__metric-value">
+                                  {formatCurrency(filteredAmount, base.currency)}
+                                </strong>
+                              </div>
+                              <div className="payments-professional-kpi__metric">
+                                <span className="payments-professional-kpi__metric-label">Horas</span>
+                                <strong className="payments-professional-kpi__metric-value">
+                                  {(filteredHours || 0).toFixed(1)}h
+                                </strong>
+                              </div>
+                              <div className="payments-professional-kpi__metric">
+                                <span className="payments-professional-kpi__metric-label">Servicios</span>
+                                <strong className="payments-professional-kpi__metric-value">
+                                  {filteredEvents || 0}
+                                </strong>
+                              </div>
+                            </div>
+                            <div className={`payments-professional-kpi__alert payments-professional-kpi__alert--${alertType}`}>
+                              <span className="payments-professional-kpi__alert-icon">{alertIcon}</span>
+                              <span className="payments-professional-kpi__alert-text">{alertText}</span>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                    {displayStats.length > 12 && (
+                      <p className="payments-professional-kpis__more">
+                        Mostrando 12 de {displayStats.length} profesionales. Usa la lista lateral para ver todos.
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
 
               {scheduledPayments.length > 0 && (
@@ -2069,23 +2209,280 @@ const DashboardStripe: React.FC = () => {
                 </section>
               )}
 
+              {/* Alertas y conciliación */}
               <section className="payments-card">
                 <div className="payments-card__section-header">
                   <div>
-                    <h3 className="payments-card__section-title">Detalle por profesional</h3>
+                    <h3 className="payments-card__section-title">Alertas y conciliación</h3>
                     <p className="payments-card__subtitle">
-                      Revisa el acumulado antes de realizar transferencias para validar horas y comisiones.
+                      Revisión de pagos pendientes, servicios sin completar y estado financiero general
                     </p>
                   </div>
                 </div>
-                {!stats.length ? (
-                  <div className="payments-empty">Aún no hay movimientos registrados en {selectedYear}.</div>
-                ) : (
-                  <div className="payments-list">
-                    {displayStats.map(renderProfessionalDetail)}
+
+                {/* Semáforo financiero */}
+                <div className="payments-alerts-traffic-light">
+                  <div className={`payments-traffic-light ${
+                    netProfit >= totalIncome * 0.2 ? 'payments-traffic-light--green' :
+                    netProfit >= 0 ? 'payments-traffic-light--yellow' :
+                    'payments-traffic-light--red'
+                  }`}>
+                    <div className="payments-traffic-light__indicator">
+                      {netProfit >= totalIncome * 0.2 ? '🟢' : netProfit >= 0 ? '🟡' : '🔴'}
+                    </div>
+                    <div>
+                      <h4>Estado financiero</h4>
+                      <p>
+                        {netProfit >= totalIncome * 0.2
+                          ? 'Excelente - Margen saludable superior al 20%'
+                          : netProfit >= 0
+                            ? 'Aceptable - Margen positivo pero ajustado'
+                            : 'Alerta - Costes superan ingresos'}
+                      </p>
+                      <strong>
+                        Margen: {Number.isFinite(profitMargin) ? `${profitMargin.toFixed(1)}%` : '—'}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Alertas de pagos próximos */}
+                <div className="payments-alerts-section">
+                  <h4>Pagos próximos (7 días)</h4>
+                  {(() => {
+                    const upcomingPayments = scheduledPayments.filter(payment => {
+                      const daysUntil = Math.ceil((payment.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                      return daysUntil >= 0 && daysUntil <= 7;
+                    });
+
+                    return upcomingPayments.length > 0 ? (
+                      <ul className="payments-alerts-list">
+                        {upcomingPayments.map(payment => {
+                          const daysUntil = Math.ceil((payment.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          const professional = displayStats.find(s => s.base.professionalId === payment.professionalId);
+                          return (
+                            <li key={payment.professionalId} className="payments-alert-item payments-alert-item--warning">
+                              <div className="payments-alert-item__icon">⚠️</div>
+                              <div className="payments-alert-item__content">
+                                <strong>{payment.professionalName}</strong>
+                                <span>Pago {payment.paymentType} programado {payment.relativeLabel.toLowerCase()}</span>
+                                {professional && (
+                                  <span className="text-sm">Monto pendiente: {formatCurrency(professional.filteredAmount, professional.base.currency)}</span>
+                                )}
+                              </div>
+                              <div className="payments-alert-item__badge">
+                                {daysUntil === 0 ? 'Hoy' : daysUntil === 1 ? 'Mañana' : `${daysUntil} días`}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <p className="payments-alerts-empty">No hay pagos programados en los próximos 7 días</p>
+                    );
+                  })()}
+                </div>
+
+                {/* Servicios pendientes de completar */}
+                <div className="payments-alerts-section">
+                  <h4>Servicios pendientes de completar</h4>
+                  {(() => {
+                    const professionalsWithPending = Object.entries(pendingServices)
+                      .filter(([_, data]) => data.count > 0)
+                      .map(([professionalId, data]) => {
+                        const professional = displayStats.find(s => s.base.professionalId === professionalId);
+                        return { professionalId, data, professional };
+                      });
+
+                    return professionalsWithPending.length > 0 ? (
+                      <ul className="payments-alerts-list">
+                        {professionalsWithPending.map(({ professionalId, data, professional }) => (
+                          <li key={professionalId} className="payments-alert-item payments-alert-item--info">
+                            <div className="payments-alert-item__icon">📋</div>
+                            <div className="payments-alert-item__content">
+                              <strong>{professional?.base.professionalName || 'Profesional'}</strong>
+                              <span>{data.count} servicios sin completar en el período actual</span>
+                              <span className="text-sm">Ejemplos: {data.examples.slice(0, 2).join(', ')}</span>
+                            </div>
+                            <div className="payments-alert-item__badge payments-alert-item__badge--count">
+                              {data.count}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="payments-alerts-empty">✅ Todos los servicios están completados</p>
+                    );
+                  })()}
+                </div>
+
+                {/* Profesionales sin pagar */}
+                <div className="payments-alerts-section">
+                  <h4>Profesionales pendientes de pago</h4>
+                  {(() => {
+                    const unpaidProfessionals = displayStats.filter(({ base }) => {
+                      const calendar = calendarMap.get(base.professionalId);
+                      const recordStatus = calendar?.payoutRecords?.[periodKey]?.status ?? 'pending';
+                      return recordStatus === 'pending' && base.filteredAmount > 0;
+                    });
+
+                    return unpaidProfessionals.length > 0 ? (
+                      <ul className="payments-alerts-list">
+                        {unpaidProfessionals.map(({ base }) => (
+                          <li key={base.professionalId} className="payments-alert-item payments-alert-item--error">
+                            <div className="payments-alert-item__icon">💰</div>
+                            <div className="payments-alert-item__content">
+                              <strong>{base.professionalName}</strong>
+                              <span>Pago pendiente del período {periodKey}</span>
+                              <span className="text-sm">Total adeudado: {formatCurrency(base.filteredAmount, base.currency)}</span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="payments-alerts-empty">✅ Todos los profesionales están al día</p>
+                    );
+                  })()}
+                </div>
+
+                {/* Facturas vencidas */}
+                {invoices.some(inv => inv.status === 'overdue') && (
+                  <div className="payments-alerts-section">
+                    <h4>Facturas vencidas</h4>
+                    <ul className="payments-alerts-list">
+                      {invoices
+                        .filter(inv => inv.status === 'overdue')
+                        .map(invoice => (
+                          <li key={invoice.id} className="payments-alert-item payments-alert-item--error">
+                            <div className="payments-alert-item__icon">🚨</div>
+                            <div className="payments-alert-item__content">
+                              <strong>{invoice.clientName}</strong>
+                              <span>Factura vencida - {formatCurrency(invoice.amount, invoice.currency)}</span>
+                              {invoice.dueDate && (
+                                <span className="text-sm">Vencimiento: {invoice.dueDate.toLocaleDateString('es-ES')}</span>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                    </ul>
                   </div>
                 )}
+
+                {/* Resumen de conciliación */}
+                <div className="payments-alerts-summary">
+                  <h4>Resumen de conciliación</h4>
+                  <div className="payments-alerts-summary-grid">
+                    <div>
+                      <span>Total a pagar este período</span>
+                      <strong>{formatCurrency(currentTotalAmount, primaryCurrency)}</strong>
+                    </div>
+                    <div>
+                      <span>Profesionales pendientes</span>
+                      <strong>{displayStats.filter(({ base }) => {
+                        const calendar = calendarMap.get(base.professionalId);
+                        return (calendar?.payoutRecords?.[periodKey]?.status ?? 'pending') === 'pending';
+                      }).length}</strong>
+                    </div>
+                    <div>
+                      <span>Servicios sin completar</span>
+                      <strong>{Object.values(pendingServices).reduce((sum, data) => sum + data.count, 0)}</strong>
+                    </div>
+                    <div>
+                      <span>Pagos en 7 días</span>
+                      <strong>{scheduledPayments.filter(p => {
+                        const days = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                        return days >= 0 && days <= 7;
+                      }).length}</strong>
+                    </div>
+                  </div>
+                </div>
               </section>
+
+              {/* Panel de estadísticas */}
+              <section className="payments-card payments-card--stats">
+                <div className="payments-card__section-header">
+                  <div>
+                    <h3 className="payments-card__section-title">Estadísticas</h3>
+                    <p className="payments-card__subtitle">Visión consolidada de ingresos, nómina y salud financiera.</p>
+                  </div>
+                </div>
+                <div className="payments-stats-grid">
+                  <article className="payments-stats-card">
+                    <span>Ingresos totales</span>
+                    <strong>{formatCurrency(totalIncome, primaryCurrency)}</strong>
+                    <small>Netos plataforma + facturas cobradas</small>
+                  </article>
+                  <article className="payments-stats-card">
+                    <span>Nómina pagada</span>
+                    <strong>{formatCurrency(payrollPaid, primaryCurrency)}</strong>
+                    <small>Acumulado del período actual</small>
+                  </article>
+                  <article className="payments-stats-card">
+                    <span>Ganancia neta</span>
+                    <strong>{formatCurrency(netProfit, primaryCurrency)}</strong>
+                    <small>Diferencia entre ingresos y nómina</small>
+                  </article>
+                  <article className="payments-stats-card">
+                    <span>Margen</span>
+                    <strong>{Number.isFinite(profitMargin) ? `${profitMargin.toFixed(1)}%` : '—'}</strong>
+                    <small>{netProfit >= 0 ? 'Rentabilidad positiva' : 'Rentabilidad negativa'}</small>
+                  </article>
+                </div>
+                <div className="payments-stats-columns">
+                  <div className="payments-stats-column">
+                    <h4>Ingresos vs Nómina</h4>
+                    <ul className="payments-stats-list">
+                      <li>
+                        <span>Ingresos totales</span>
+                        <strong>{formatCurrency(totalIncome, primaryCurrency)}</strong>
+                      </li>
+                      <li>
+                        <span>Nómina actual</span>
+                        <strong>{formatCurrency(payrollPaid, primaryCurrency)}</strong>
+                      </li>
+                      <li>
+                        <span>Ganancia neta</span>
+                        <strong>{formatCurrency(netProfit, primaryCurrency)}</strong>
+                      </li>
+                      <li>
+                        <span>Variación nómina</span>
+                        <strong>{formatCurrency(payrollVariation, primaryCurrency)}</strong>
+                      </li>
+                    </ul>
+                  </div>
+                  <div className="payments-stats-column">
+                    <h4>Tipos de pago</h4>
+                    <ul className="payments-stats-list">
+                      {paymentTypeStats.map(item => (
+                        <li key={item.value}>
+                          <div className="payments-stats-list__row">
+                            <span>{item.label}</span>
+                            <strong>{item.count}</strong>
+                          </div>
+                          <div className="payments-stats-bar">
+                            <span style={{ width: `${item.percent}%` }} />
+                          </div>
+                          <small>{item.percent}% del equipo</small>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="payments-stats-column">
+                    <h4>Estado de facturas</h4>
+                    <ul className="payments-stats-list">
+                      {invoiceStatusStats.map(item => (
+                        <li key={item.value}>
+                          <div className="payments-stats-list__row">
+                            <span>{item.label}</span>
+                            <strong>{formatCurrency(item.amount, invoices[0]?.currency || primaryCurrency)}</strong>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </section>
+
             </>
           )
         )}
@@ -2479,282 +2876,6 @@ const DashboardStripe: React.FC = () => {
           </section>
         )}
 
-        {activeTab === 'stats' && (
-          <section className="payments-card payments-card--stats">
-            <div className="payments-card__section-header">
-              <div>
-                <h3 className="payments-card__section-title">Panel general</h3>
-                <p className="payments-card__subtitle">Visión consolidada de ingresos, nómina y salud financiera.</p>
-              </div>
-            </div>
-            <div className="payments-stats-grid">
-              <article className="payments-stats-card">
-                <span>Ingresos totales</span>
-                <strong>{formatCurrency(totalIncome, primaryCurrency)}</strong>
-                <small>Netos plataforma + facturas cobradas</small>
-              </article>
-              <article className="payments-stats-card">
-                <span>Nómina pagada</span>
-                <strong>{formatCurrency(payrollPaid, primaryCurrency)}</strong>
-                <small>Acumulado del período actual</small>
-              </article>
-              <article className="payments-stats-card">
-                <span>Ganancia neta</span>
-                <strong>{formatCurrency(netProfit, primaryCurrency)}</strong>
-                <small>Diferencia entre ingresos y nómina</small>
-              </article>
-              <article className="payments-stats-card">
-                <span>Margen</span>
-                <strong>{Number.isFinite(profitMargin) ? `${profitMargin.toFixed(1)}%` : '—'}</strong>
-                <small>{netProfit >= 0 ? 'Rentabilidad positiva' : 'Rentabilidad negativa'}</small>
-              </article>
-            </div>
-            <div className="payments-stats-columns">
-              <div className="payments-stats-column">
-                <h4>Ingresos vs Nómina</h4>
-                <ul className="payments-stats-list">
-                  <li>
-                    <span>Ingresos totales</span>
-                    <strong>{formatCurrency(totalIncome, primaryCurrency)}</strong>
-                  </li>
-                  <li>
-                    <span>Nómina actual</span>
-                    <strong>{formatCurrency(payrollPaid, primaryCurrency)}</strong>
-                  </li>
-                  <li>
-                    <span>Ganancia neta</span>
-                    <strong>{formatCurrency(netProfit, primaryCurrency)}</strong>
-                  </li>
-                  <li>
-                    <span>Variación nómina</span>
-                    <strong>{formatCurrency(payrollVariation, primaryCurrency)}</strong>
-                  </li>
-                </ul>
-              </div>
-              <div className="payments-stats-column">
-                <h4>Tipos de pago</h4>
-                <ul className="payments-stats-list">
-                  {paymentTypeStats.map(item => (
-                    <li key={item.value}>
-                      <div className="payments-stats-list__row">
-                        <span>{item.label}</span>
-                        <strong>{item.count}</strong>
-                      </div>
-                      <div className="payments-stats-bar">
-                        <span style={{ width: `${item.percent}%` }} />
-                      </div>
-                      <small>{item.percent}% del equipo</small>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="payments-stats-column">
-                <h4>Estado de facturas</h4>
-                <ul className="payments-stats-list">
-                  {invoiceStatusStats.map(item => (
-                    <li key={item.value}>
-                      <div className="payments-stats-list__row">
-                        <span>{item.label}</span>
-                        <strong>{formatCurrency(item.amount, invoices[0]?.currency || primaryCurrency)}</strong>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {activeTab === 'alerts' && (
-          <section className="payments-card">
-            <div className="payments-card__section-header">
-              <div>
-                <h3 className="payments-card__section-title">Alertas y conciliación</h3>
-                <p className="payments-card__subtitle">
-                  Revisión de pagos pendientes, servicios sin completar y estado financiero general
-                </p>
-              </div>
-            </div>
-
-            {/* Semáforo financiero */}
-            <div className="payments-alerts-traffic-light">
-              <div className={`payments-traffic-light ${
-                netProfit >= totalIncome * 0.2 ? 'payments-traffic-light--green' :
-                netProfit >= 0 ? 'payments-traffic-light--yellow' :
-                'payments-traffic-light--red'
-              }`}>
-                <div className="payments-traffic-light__indicator">
-                  {netProfit >= totalIncome * 0.2 ? '🟢' : netProfit >= 0 ? '🟡' : '🔴'}
-                </div>
-                <div>
-                  <h4>Estado financiero</h4>
-                  <p>
-                    {netProfit >= totalIncome * 0.2
-                      ? 'Excelente - Margen saludable superior al 20%'
-                      : netProfit >= 0
-                        ? 'Aceptable - Margen positivo pero ajustado'
-                        : 'Alerta - Costes superan ingresos'}
-                  </p>
-                  <strong>
-                    Margen: {Number.isFinite(profitMargin) ? `${profitMargin.toFixed(1)}%` : '—'}
-                  </strong>
-                </div>
-              </div>
-            </div>
-
-            {/* Alertas de pagos próximos */}
-            <div className="payments-alerts-section">
-              <h4>Pagos próximos (7 días)</h4>
-              {(() => {
-                const upcomingPayments = scheduledPayments.filter(payment => {
-                  const daysUntil = Math.ceil((payment.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                  return daysUntil >= 0 && daysUntil <= 7;
-                });
-
-                return upcomingPayments.length > 0 ? (
-                  <ul className="payments-alerts-list">
-                    {upcomingPayments.map(payment => {
-                      const daysUntil = Math.ceil((payment.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                      const professional = displayStats.find(s => s.base.professionalId === payment.professionalId);
-                      return (
-                        <li key={payment.professionalId} className="payments-alert-item payments-alert-item--warning">
-                          <div className="payments-alert-item__icon">⚠️</div>
-                          <div className="payments-alert-item__content">
-                            <strong>{payment.professionalName}</strong>
-                            <span>Pago {payment.paymentType} programado {payment.relativeLabel.toLowerCase()}</span>
-                            {professional && (
-                              <span className="text-sm">Monto pendiente: {formatCurrency(professional.filteredAmount, professional.base.currency)}</span>
-                            )}
-                          </div>
-                          <div className="payments-alert-item__badge">
-                            {daysUntil === 0 ? 'Hoy' : daysUntil === 1 ? 'Mañana' : `${daysUntil} días`}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p className="payments-alerts-empty">No hay pagos programados en los próximos 7 días</p>
-                );
-              })()}
-            </div>
-
-            {/* Servicios pendientes de completar */}
-            <div className="payments-alerts-section">
-              <h4>Servicios pendientes de completar</h4>
-              {(() => {
-                const professionalsWithPending = Object.entries(pendingServices)
-                  .filter(([_, data]) => data.count > 0)
-                  .map(([professionalId, data]) => {
-                    const professional = displayStats.find(s => s.base.professionalId === professionalId);
-                    return { professionalId, data, professional };
-                  });
-
-                return professionalsWithPending.length > 0 ? (
-                  <ul className="payments-alerts-list">
-                    {professionalsWithPending.map(({ professionalId, data, professional }) => (
-                      <li key={professionalId} className="payments-alert-item payments-alert-item--info">
-                        <div className="payments-alert-item__icon">📋</div>
-                        <div className="payments-alert-item__content">
-                          <strong>{professional?.base.professionalName || 'Profesional'}</strong>
-                          <span>{data.count} servicios sin completar en el período actual</span>
-                          <span className="text-sm">Ejemplos: {data.examples.slice(0, 2).join(', ')}</span>
-                        </div>
-                        <div className="payments-alert-item__badge payments-alert-item__badge--count">
-                          {data.count}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="payments-alerts-empty">✅ Todos los servicios están completados</p>
-                );
-              })()}
-            </div>
-
-            {/* Profesionales sin pagar */}
-            <div className="payments-alerts-section">
-              <h4>Profesionales pendientes de pago</h4>
-              {(() => {
-                const unpaidProfessionals = displayStats.filter(({ base }) => {
-                  const calendar = calendarMap.get(base.professionalId);
-                  const recordStatus = calendar?.payoutRecords?.[periodKey]?.status ?? 'pending';
-                  return recordStatus === 'pending' && base.filteredAmount > 0;
-                });
-
-                return unpaidProfessionals.length > 0 ? (
-                  <ul className="payments-alerts-list">
-                    {unpaidProfessionals.map(({ base }) => (
-                      <li key={base.professionalId} className="payments-alert-item payments-alert-item--error">
-                        <div className="payments-alert-item__icon">💰</div>
-                        <div className="payments-alert-item__content">
-                          <strong>{base.professionalName}</strong>
-                          <span>Pago pendiente del período {periodKey}</span>
-                          <span className="text-sm">Total adeudado: {formatCurrency(base.filteredAmount, base.currency)}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="payments-alerts-empty">✅ Todos los profesionales están al día</p>
-                );
-              })()}
-            </div>
-
-            {/* Facturas vencidas */}
-            {invoices.some(inv => inv.status === 'overdue') && (
-              <div className="payments-alerts-section">
-                <h4>Facturas vencidas</h4>
-                <ul className="payments-alerts-list">
-                  {invoices
-                    .filter(inv => inv.status === 'overdue')
-                    .map(invoice => (
-                      <li key={invoice.id} className="payments-alert-item payments-alert-item--error">
-                        <div className="payments-alert-item__icon">🚨</div>
-                        <div className="payments-alert-item__content">
-                          <strong>{invoice.clientName}</strong>
-                          <span>Factura vencida - {formatCurrency(invoice.amount, invoice.currency)}</span>
-                          {invoice.dueDate && (
-                            <span className="text-sm">Vencimiento: {invoice.dueDate.toLocaleDateString('es-ES')}</span>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Resumen de conciliación */}
-            <div className="payments-alerts-summary">
-              <h4>Resumen de conciliación</h4>
-              <div className="payments-alerts-summary-grid">
-                <div>
-                  <span>Total a pagar este período</span>
-                  <strong>{formatCurrency(currentTotalAmount, primaryCurrency)}</strong>
-                </div>
-                <div>
-                  <span>Profesionales pendientes</span>
-                  <strong>{displayStats.filter(({ base }) => {
-                    const calendar = calendarMap.get(base.professionalId);
-                    return (calendar?.payoutRecords?.[periodKey]?.status ?? 'pending') === 'pending';
-                  }).length}</strong>
-                </div>
-                <div>
-                  <span>Servicios sin completar</span>
-                  <strong>{Object.values(pendingServices).reduce((sum, data) => sum + data.count, 0)}</strong>
-                </div>
-                <div>
-                  <span>Pagos en 7 días</span>
-                  <strong>{scheduledPayments.filter(p => {
-                    const days = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                    return days >= 0 && days <= 7;
-                  }).length}</strong>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
         {activeTab === 'export' && (
           <section className="payments-card payments-card--placeholder">
             <div className="payments-card__section-header">
@@ -2769,8 +2890,124 @@ const DashboardStripe: React.FC = () => {
         )}
         </div>
 
-        {/* Sidebar fijo con filtros, calendario y notificaciones */}
-        <aside className="payments-sidebar">
+        {/* Sidebar unificado con dos columnas */}
+        <aside className={`payments-unified-sidebar ${isProfessionalsSidebarCollapsed ? 'professionals-collapsed' : ''}`}>
+          {/* Columna izquierda: Profesionales */}
+          <div className="payments-unified-sidebar__professionals">
+            <button
+              type="button"
+              className="payments-unified-sidebar__toggle"
+              onClick={() => setIsProfessionalsSidebarCollapsed(!isProfessionalsSidebarCollapsed)}
+              aria-label={isProfessionalsSidebarCollapsed ? 'Expandir profesionales' : 'Contraer profesionales'}
+            >
+              {isProfessionalsSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+            </button>
+
+            <div className="payments-unified-sidebar__professionals-content">
+            {activeTab !== 'calendar' ? (
+              <div className="payments-professionals-sidebar__empty">
+                Selecciona la pestaña General para ver profesionales.
+              </div>
+            ) : !stats.length ? (
+              <div className="payments-professionals-sidebar__empty">
+                Aún no hay movimientos registrados en {selectedYear}.
+              </div>
+            ) : !displayStats.length ? (
+              <div className="payments-professionals-sidebar__empty">
+                No hay profesionales que coincidan con los filtros seleccionados.
+              </div>
+            ) : (
+              <>
+                <div className="payments-professionals-sidebar__header">
+                  <h3>Profesionales</h3>
+                  <span>{displayStats.length}</span>
+                </div>
+                <div className="payments-professionals-list">
+                  {displayStats.map(statContainer => {
+                    const { base, filteredAmount, filteredHours } = statContainer;
+                    const isActive = selectedProfessional?.base.professionalId === base.professionalId;
+                    const pending = isProfessionalPending(base.professionalId);
+                    const calendar = calendarMap.get(base.professionalId);
+                    const payoutDetails = ((calendar as any)?.payoutDetails ?? {}) as {
+                      paymentType?: PaymentFrequency;
+                      paymentDay?: number;
+                      paymentMethod?: PaymentMethod;
+                    };
+                    const paymentType: PaymentFrequency = payoutDetails.paymentType ?? 'monthly';
+                    const paymentDay = typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null;
+                    const paymentMethod: PaymentMethod = payoutDetails.paymentMethod ?? 'transfer';
+                    const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
+                    const nextPaymentDate = getNextPaymentDate(
+                      new Date(),
+                      paymentType,
+                      paymentDay,
+                      latestRecord?.lastPaymentDate
+                    );
+                    const nextPaymentLabel = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programar';
+                    const currency = (base.currency || 'EUR').toUpperCase();
+                    const amountLabel = formatCurrency(filteredAmount ?? 0, currency);
+                    const hoursValue = typeof filteredHours === 'number' ? filteredHours : 0;
+                    const owner = calendar?.members?.find(member => member.role === 'owner') ?? calendar?.members?.[0];
+
+                    return (
+                      <button
+                        type="button"
+                        key={base.professionalId}
+                        className={[
+                          'payments-professionals-list__item',
+                          isActive ? 'is-active' : '',
+                          pending ? 'is-pending' : ''
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        onClick={() => setSelectedProfessionalId(base.professionalId)}
+                        aria-pressed={isActive}
+                      >
+                        <div className="payments-professionals-list__avatar">
+                          {owner?.avatar ? (
+                            <img src={owner.avatar} alt={base.professionalName || 'Profesional'} />
+                          ) : (
+                            <span>{(base.professionalName || 'P').charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        {!isProfessionalsSidebarCollapsed && (
+                          <>
+                            <div className="payments-professionals-list__content">
+                              <div className="payments-professionals-list__header">
+                                <span className="payments-professionals-list__name">
+                                  {base.professionalName || 'Profesional sin nombre'}
+                                </span>
+                                {pending && (
+                                  <span className="payments-professionals-list__badge payments-professionals-list__badge--pending">
+                                    Pendiente
+                                  </span>
+                                )}
+                              </div>
+                              {base.professionalEmail && (
+                                <span className="payments-professionals-list__email">{base.professionalEmail}</span>
+                              )}
+                              <div className="payments-professionals-list__meta">
+                                <span>{amountLabel}</span>
+                                <span>{hoursValue.toFixed(2)} h</span>
+                              </div>
+                              <div className="payments-professionals-list__footer">
+                                <span>Próximo pago · {nextPaymentLabel}</span>
+                                <span>{getPaymentMethodLabel(paymentMethod)}</span>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            </div>
+          </div>
+
+          {/* Columna derecha: Filtros, calendario, notificaciones */}
+          <div className="payments-unified-sidebar__main">
           {/* Botón de actualizar */}
           <button
             onClick={handleRefresh}
@@ -3026,6 +3263,7 @@ const DashboardStripe: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
           </div>
         </aside>
       </div>

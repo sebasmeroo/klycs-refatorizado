@@ -101,12 +101,17 @@ export class TeamService {
   // ===== GESTIÓN DE PROFESIONALES =====
   
   static async addProfessional(
-    teamId: string, 
+    teamId: string,
     professionalData: {
       name: string;
       email: string;
       role: string;
       color: string;
+      hourlyRate?: number;
+      hourlyRateCurrency?: string;
+      paymentType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+      paymentDay?: number;
+      paymentMethod?: 'cash' | 'transfer' | 'bizum' | 'other';
       permissions: TeamProfessional['permissions'];
     }
   ): Promise<string> {
@@ -148,6 +153,13 @@ export class TeamService {
         color: professionalData.color,
         ownerId: team.ownerId,
         linkedEmail: professionalData.email,
+        hourlyRate: professionalData.hourlyRate || 0,
+        hourlyRateCurrency: professionalData.hourlyRateCurrency || 'EUR',
+        payoutDetails: {
+          paymentType: professionalData.paymentType,
+          paymentDay: professionalData.paymentDay,
+          paymentMethod: professionalData.paymentMethod
+        },
         members: [
           {
             id: team.ownerId,
@@ -240,16 +252,67 @@ export class TeamService {
 
       // Remover profesional del equipo
       const updatedProfessionals = team.professionals.filter(p => p.id !== professionalId);
-      
+
       await updateDoc(doc(db, 'teams', teamId), {
         professionals: updatedProfessionals,
         updatedAt: serverTimestamp()
       });
 
       info('Profesional removido del equipo', { teamId, professionalId });
-      
+
     } catch (error) {
       logError('Error al remover profesional', error as Error, { teamId, professionalId });
+      throw error;
+    }
+  }
+
+  static async updateProfessionalPaymentConfig(
+    teamId: string,
+    professionalId: string,
+    paymentConfig: {
+      hourlyRate?: number;
+      hourlyRateCurrency?: string;
+      paymentType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+      paymentDay?: number;
+      paymentMethod?: 'cash' | 'transfer' | 'bizum' | 'other';
+    }
+  ): Promise<void> {
+    try {
+      const team = await this.getTeamById(teamId);
+      if (!team) {
+        throw new Error('Equipo no encontrado');
+      }
+
+      const professionalIndex = team.professionals.findIndex(p => p.id === professionalId);
+      if (professionalIndex === -1) {
+        throw new Error('Profesional no encontrado');
+      }
+
+      const professional = team.professionals[professionalIndex];
+
+      // Si tiene calendario vinculado, actualizar la configuración de pagos del calendario
+      if (professional.linkedCalendarId) {
+        const calendarRef = doc(db, 'calendars', professional.linkedCalendarId);
+        const calendarDoc = await getDoc(calendarRef);
+
+        if (calendarDoc.exists()) {
+          await updateDoc(calendarRef, {
+            hourlyRate: paymentConfig.hourlyRate,
+            hourlyRateCurrency: paymentConfig.hourlyRateCurrency,
+            'payoutDetails.paymentType': paymentConfig.paymentType,
+            'payoutDetails.paymentDay': paymentConfig.paymentDay,
+            'payoutDetails.paymentMethod': paymentConfig.paymentMethod,
+            updatedAt: serverTimestamp()
+          });
+
+          console.log('✅ Configuración de pagos actualizada en calendario:', professional.linkedCalendarId);
+        }
+      }
+
+      info('Configuración de pagos actualizada', { teamId, professionalId, paymentConfig });
+
+    } catch (error) {
+      logError('Error al actualizar configuración de pagos', error as Error, { teamId, professionalId });
       throw error;
     }
   }

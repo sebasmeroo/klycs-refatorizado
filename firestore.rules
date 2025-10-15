@@ -427,7 +427,57 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    // === REGLAS PARA RETIROS DE PLATAFORMA ===
+    // === REGLAS PARA INGRESOS FINANCIEROS (COLECCIÓN PADRE) ===
+    match /financial_income/{userId} {
+      // Lectura del documento padre (metadata)
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow create, update: if isAuthenticated() && isOwner(userId);
+      allow delete: if false; // No permitir eliminar el documento padre
+
+      // Subcolección de retiros de plataforma
+      match /withdrawals/{withdrawalId} {
+        // Lectura: solo el propietario o admin
+        allow read, list: if isAuthenticated() &&
+                          (isOwner(userId) || isAdmin(request.auth.uid));
+
+        // Crear retiro
+        allow create: if isAuthenticated() &&
+                     isOwner(userId) &&
+                     isValidDocSize() &&
+                     request.resource.data.userId == userId;
+
+        // Actualizar retiro: solo el propietario
+        allow update: if isAuthenticated() &&
+                     isOwner(userId) &&
+                     isValidDocSize();
+
+        // Eliminar retiro: solo el propietario
+        allow delete: if isAuthenticated() && isOwner(userId);
+      }
+
+      // Subcolección de facturas externas
+      match /invoices/{invoiceId} {
+        // Lectura: solo el propietario o admin
+        allow read, list: if isAuthenticated() &&
+                          (isOwner(userId) || isAdmin(request.auth.uid));
+
+        // Crear factura
+        allow create: if isAuthenticated() &&
+                     isOwner(userId) &&
+                     isValidDocSize() &&
+                     request.resource.data.userId == userId;
+
+        // Actualizar factura: solo el propietario
+        allow update: if isAuthenticated() &&
+                     isOwner(userId) &&
+                     isValidDocSize();
+
+        // Eliminar factura: solo el propietario
+        allow delete: if isAuthenticated() && isOwner(userId);
+      }
+    }
+
+    // === REGLAS PARA RETIROS DE PLATAFORMA (LEGACY - mantener por compatibilidad) ===
     match /platform_withdrawals/{withdrawalId} {
       // Lectura: solo el propietario o admin
       allow read, list: if isAuthenticated() &&
@@ -452,7 +502,7 @@ service cloud.firestore {
                    isOwner(resource.data.userId);
     }
 
-    // === REGLAS PARA FACTURAS EXTERNAS ===
+    // === REGLAS PARA FACTURAS EXTERNAS (LEGACY - mantener por compatibilidad) ===
     match /external_invoices/{invoiceId} {
       // Lectura: solo el propietario o admin
       allow read, list: if isAuthenticated() &&

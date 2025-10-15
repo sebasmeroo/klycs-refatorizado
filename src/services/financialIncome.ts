@@ -75,16 +75,24 @@ export class FinancialIncomeService {
   }): Promise<void> {
     try {
       const netAmount = data.grossAmount - data.commission;
-      await addDoc(withdrawalsCollection(userId), {
+
+      // ✅ Construir objeto sin campos undefined
+      const withdrawalData: PlatformWithdrawalFirestore = {
         userId,
         date: Timestamp.fromDate(data.date),
         grossAmount: data.grossAmount,
         commission: data.commission,
         netAmount,
-        note: data.note,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
-      } satisfies PlatformWithdrawalFirestore);
+      };
+
+      // Solo agregar note si tiene valor
+      if (data.note !== undefined && data.note.trim() !== '') {
+        withdrawalData.note = data.note;
+      }
+
+      await addDoc(withdrawalsCollection(userId), withdrawalData);
     } catch (error) {
       logger.error('Error creando retiro de plataforma', error as Error, { userId, data });
       throw error;
@@ -125,19 +133,30 @@ export class FinancialIncomeService {
     notes?: string;
   }): Promise<void> {
     try {
-      await addDoc(invoicesCollection(userId), {
+      // ✅ Construir objeto sin campos undefined
+      const invoiceData: ExternalInvoiceFirestore = {
         userId,
         clientName: data.clientName,
         amount: data.amount,
         currency: data.currency.toUpperCase(),
         status: data.status,
         issueDate: Timestamp.fromDate(data.issueDate),
-        dueDate: data.dueDate ? Timestamp.fromDate(data.dueDate) : undefined,
-        reference: data.reference,
-        notes: data.notes,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
-      } satisfies ExternalInvoiceFirestore);
+      };
+
+      // Solo agregar campos opcionales si tienen valor
+      if (data.dueDate) {
+        invoiceData.dueDate = Timestamp.fromDate(data.dueDate);
+      }
+      if (data.reference !== undefined && data.reference.trim() !== '') {
+        invoiceData.reference = data.reference;
+      }
+      if (data.notes !== undefined && data.notes.trim() !== '') {
+        invoiceData.notes = data.notes;
+      }
+
+      await addDoc(invoicesCollection(userId), invoiceData);
     } catch (error) {
       logger.error('Error creando factura externa', error as Error, { userId, data });
       throw error;

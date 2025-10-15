@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Plus, 
-  Mail, 
-  Calendar, 
-  Settings, 
-  Trash2, 
-  Eye, 
+import {
+  Users,
+  Plus,
+  Mail,
+  Calendar,
+  Settings,
+  Trash2,
+  Eye,
   EyeOff,
   UserPlus,
   Shield,
@@ -15,8 +15,11 @@ import {
   XCircle,
   AlertCircle,
   Copy,
-  ExternalLink
+  ExternalLink,
+  DollarSign,
+  Wallet
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { TeamService } from '@/services/teamService';
 import { UserTeam, TeamProfessional } from '@/types';
@@ -32,13 +35,35 @@ const ROLE_SUGGESTIONS = [
   'Veterinario/a', 'Abogado/a', 'Consultor/a', 'Terapeuta', 'Especialista'
 ];
 
+const PAYMENT_TYPE_OPTIONS = [
+  { value: 'weekly' as const, label: 'Semanal' },
+  { value: 'biweekly' as const, label: 'Quincenal' },
+  { value: 'monthly' as const, label: 'Mensual' }
+];
+
+const PAYMENT_METHOD_OPTIONS = [
+  { value: 'cash' as const, label: 'Efectivo' },
+  { value: 'transfer' as const, label: 'Transferencia' },
+  { value: 'bizum' as const, label: 'Bizum' },
+  { value: 'other' as const, label: 'Otro' }
+];
+
+const CURRENCY_OPTIONS = [
+  { value: 'EUR', label: '€ EUR' },
+  { value: 'USD', label: '$ USD' },
+  { value: 'GBP', label: '£ GBP' }
+];
+
 const DashboardTeam: React.FC = () => {
   const { user } = useAuth();
   const [team, setTeam] = useState<UserTeam | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddProfessional, setShowAddProfessional] = useState(false);
+  const [showEditPayment, setShowEditPayment] = useState(false);
+  const [editingProfessional, setEditingProfessional] = useState<TeamProfessional | null>(null);
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [isAddingProfessional, setIsAddingProfessional] = useState(false);
+  const [isUpdatingPayment, setIsUpdatingPayment] = useState(false);
 
   // Estados para crear equipo
   const [teamForm, setTeamForm] = useState({
@@ -52,12 +77,26 @@ const DashboardTeam: React.FC = () => {
     email: '',
     role: '',
     color: PROFESSIONAL_COLOR_PALETTE[0],
+    hourlyRate: 0,
+    hourlyRateCurrency: 'EUR',
+    paymentType: 'monthly' as 'daily' | 'weekly' | 'biweekly' | 'monthly',
+    paymentDay: 1,
+    paymentMethod: 'transfer' as 'cash' | 'transfer' | 'bizum' | 'other',
     permissions: {
       canCreateEvents: true,
       canEditEvents: true,
       canDeleteEvents: false,
       canViewAllEvents: true
     }
+  });
+
+  // Estados para editar configuración de pagos
+  const [paymentEditForm, setPaymentEditForm] = useState({
+    hourlyRate: 0,
+    hourlyRateCurrency: 'EUR',
+    paymentType: 'monthly' as 'daily' | 'weekly' | 'biweekly' | 'monthly',
+    paymentDay: 1,
+    paymentMethod: 'transfer' as 'cash' | 'transfer' | 'bizum' | 'other'
   });
 
   // ===== EFFECTS =====
@@ -133,6 +172,11 @@ const DashboardTeam: React.FC = () => {
         email: professionalForm.email.trim(),
         role: professionalForm.role.trim() || 'Profesional',
         color: professionalForm.color,
+        hourlyRate: professionalForm.hourlyRate,
+        hourlyRateCurrency: professionalForm.hourlyRateCurrency,
+        paymentType: professionalForm.paymentType,
+        paymentDay: professionalForm.paymentDay,
+        paymentMethod: professionalForm.paymentMethod,
         permissions: professionalForm.permissions
       });
       
@@ -148,6 +192,11 @@ const DashboardTeam: React.FC = () => {
         email: '',
         role: '',
         color: PROFESSIONAL_COLOR_PALETTE[Math.floor(Math.random() * PROFESSIONAL_COLOR_PALETTE.length)],
+        hourlyRate: 0,
+        hourlyRateCurrency: 'EUR',
+        paymentType: 'monthly' as 'daily' | 'weekly' | 'biweekly' | 'monthly',
+        paymentDay: 1,
+        paymentMethod: 'transfer' as 'cash' | 'transfer' | 'bizum' | 'other',
         permissions: {
           canCreateEvents: true,
           canEditEvents: true,
@@ -197,6 +246,68 @@ const DashboardTeam: React.FC = () => {
     const loginUrl = `${window.location.origin}/team/login`;
     navigator.clipboard.writeText(loginUrl);
     alert('✅ URL copiada al portapapeles');
+  };
+
+  const handleEditPaymentConfig = async (professional: TeamProfessional) => {
+    if (!professional.linkedCalendarId) return;
+
+    try {
+      // Cargar configuración actual del calendario
+      const { CollaborativeCalendarService } = await import('@/services/collaborativeCalendar');
+      const calendar = await CollaborativeCalendarService.getCalendar(professional.linkedCalendarId);
+
+      if (calendar) {
+        setPaymentEditForm({
+          hourlyRate: calendar.hourlyRate || 0,
+          hourlyRateCurrency: calendar.hourlyRateCurrency || 'EUR',
+          paymentType: calendar.payoutDetails?.paymentType || 'monthly',
+          paymentDay: calendar.payoutDetails?.paymentDay || 1,
+          paymentMethod: calendar.payoutDetails?.paymentMethod || 'transfer'
+        });
+        setEditingProfessional(professional);
+        setShowEditPayment(true);
+      }
+    } catch (error) {
+      console.error('Error cargando configuración de pagos:', error);
+      alert('❌ Error al cargar la configuración de pagos');
+    }
+  };
+
+  const handleSavePaymentConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!team?.id || !editingProfessional?.id) return;
+
+    setIsUpdatingPayment(true);
+
+    try {
+      console.log('💰 Actualizando configuración de pagos...');
+
+      await TeamService.updateProfessionalPaymentConfig(team.id, editingProfessional.id, {
+        hourlyRate: paymentEditForm.hourlyRate,
+        hourlyRateCurrency: paymentEditForm.hourlyRateCurrency,
+        paymentType: paymentEditForm.paymentType,
+        paymentDay: paymentEditForm.paymentDay,
+        paymentMethod: paymentEditForm.paymentMethod
+      });
+
+      console.log('✅ Configuración de pagos actualizada');
+
+      // Recargar datos del equipo
+      const updatedTeam = await TeamService.getUserTeam(user!.uid);
+      setTeam(updatedTeam);
+
+      setShowEditPayment(false);
+      setEditingProfessional(null);
+
+      alert(`✅ Configuración de pagos actualizada para ${editingProfessional.name}`);
+
+    } catch (error) {
+      console.error('Error actualizando configuración de pagos:', error);
+      alert(`❌ Error al actualizar configuración de pagos: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setIsUpdatingPayment(false);
+    }
   };
 
   const getStatusIcon = (professional: TeamProfessional) => {
@@ -449,6 +560,34 @@ const DashboardTeam: React.FC = () => {
                     </span>
                   )}
                 </div>
+
+                {/* Información de pagos y link al dashboard */}
+                {professional.linkedCalendarId && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3 text-xs">
+                        <span className="text-gray-600 font-medium">Configuración de pagos:</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleEditPaymentConfig(professional)}
+                          className="flex items-center space-x-2 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-medium transition-colors"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                          <span>Editar Pagos</span>
+                        </button>
+                        <Link
+                          to="/dashboard/pagos"
+                          className="flex items-center space-x-2 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-medium transition-colors"
+                        >
+                          <Wallet className="w-3.5 h-3.5" />
+                          <span>Ver Dashboard</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ))
           )}
@@ -543,14 +682,111 @@ const DashboardTeam: React.FC = () => {
                         type="button"
                         onClick={() => setProfessionalForm(prev => ({ ...prev, color }))}
                         className={`w-8 h-8 rounded-full border-2 ${
-                          professionalForm.color === color 
-                            ? 'border-gray-900' 
+                          professionalForm.color === color
+                            ? 'border-gray-900'
                             : 'border-transparent hover:border-gray-300'
                         } transition-colors`}
                         style={{ backgroundColor: color }}
                         disabled={isAddingProfessional}
                       />
                     ))}
+                  </div>
+                </div>
+
+                {/* Configuración de pagos */}
+                <div className="border-t pt-4 space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-900">Configuración de Pagos</h3>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Tarifa por hora
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={professionalForm.hourlyRate}
+                        onChange={(e) => setProfessionalForm(prev => ({ ...prev, hourlyRate: parseFloat(e.target.value) || 0 }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="0.00"
+                        disabled={isAddingProfessional}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Moneda
+                      </label>
+                      <select
+                        value={professionalForm.hourlyRateCurrency}
+                        onChange={(e) => setProfessionalForm(prev => ({ ...prev, hourlyRateCurrency: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isAddingProfessional}
+                      >
+                        {CURRENCY_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Periodicidad
+                      </label>
+                      <select
+                        value={professionalForm.paymentType}
+                        onChange={(e) => setProfessionalForm(prev => ({
+                          ...prev,
+                          paymentType: e.target.value as 'weekly' | 'biweekly' | 'monthly'
+                        }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isAddingProfessional}
+                      >
+                        {PAYMENT_TYPE_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Día de pago
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        value={professionalForm.paymentDay}
+                        onChange={(e) => setProfessionalForm(prev => ({ ...prev, paymentDay: parseInt(e.target.value) || 1 }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isAddingProfessional}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {professionalForm.paymentType === 'monthly' && 'Día del mes (1-31)'}
+                        {professionalForm.paymentType === 'biweekly' && 'Día del ciclo (1-14)'}
+                        {professionalForm.paymentType === 'weekly' && 'Día de la semana (1=Lun, 7=Dom)'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Método de pago preferido
+                    </label>
+                    <select
+                      value={professionalForm.paymentMethod}
+                      onChange={(e) => setProfessionalForm(prev => ({
+                        ...prev,
+                        paymentMethod: e.target.value as 'cash' | 'transfer' | 'bizum' | 'other'
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={isAddingProfessional}
+                    >
+                      {PAYMENT_METHOD_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -569,6 +805,146 @@ const DashboardTeam: React.FC = () => {
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isAddingProfessional ? 'Agregando...' : 'Agregar Profesional'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para editar configuración de pagos */}
+      {showEditPayment && editingProfessional && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">Editar Configuración de Pagos</h2>
+                  <p className="text-sm text-gray-600 mt-1">{editingProfessional.name}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowEditPayment(false);
+                    setEditingProfessional(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSavePaymentConfig} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Tarifa por hora
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={paymentEditForm.hourlyRate}
+                      onChange={(e) => setPaymentEditForm(prev => ({ ...prev, hourlyRate: parseFloat(e.target.value) || 0 }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="0.00"
+                      disabled={isUpdatingPayment}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Moneda
+                    </label>
+                    <select
+                      value={paymentEditForm.hourlyRateCurrency}
+                      onChange={(e) => setPaymentEditForm(prev => ({ ...prev, hourlyRateCurrency: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={isUpdatingPayment}
+                    >
+                      {CURRENCY_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Periodicidad
+                    </label>
+                    <select
+                      value={paymentEditForm.paymentType}
+                      onChange={(e) => setPaymentEditForm(prev => ({
+                        ...prev,
+                        paymentType: e.target.value as 'weekly' | 'biweekly' | 'monthly'
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={isUpdatingPayment}
+                    >
+                      {PAYMENT_TYPE_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Día de pago
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={paymentEditForm.paymentDay}
+                      onChange={(e) => setPaymentEditForm(prev => ({ ...prev, paymentDay: parseInt(e.target.value) || 1 }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={isUpdatingPayment}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      {paymentEditForm.paymentType === 'monthly' && 'Día del mes (1-31)'}
+                      {paymentEditForm.paymentType === 'biweekly' && 'Día del ciclo (1-14)'}
+                      {paymentEditForm.paymentType === 'weekly' && 'Día de la semana (1=Lun, 7=Dom)'}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Método de pago preferido
+                  </label>
+                  <select
+                    value={paymentEditForm.paymentMethod}
+                    onChange={(e) => setPaymentEditForm(prev => ({
+                      ...prev,
+                      paymentMethod: e.target.value as 'cash' | 'transfer' | 'bizum' | 'other'
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={isUpdatingPayment}
+                  >
+                    {PAYMENT_METHOD_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditPayment(false);
+                      setEditingProfessional(null);
+                    }}
+                    className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                    disabled={isUpdatingPayment}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingPayment}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isUpdatingPayment ? 'Guardando...' : 'Guardar Cambios'}
                   </button>
                 </div>
               </form>

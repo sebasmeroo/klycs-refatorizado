@@ -345,8 +345,17 @@ export class CollaborativeCalendarService {
     }
   ): Promise<void> {
     try {
+      // ✅ Filtrar campos undefined para evitar errores de Firestore
+      const cleanedDetails: Record<string, any> = {};
+
+      Object.entries(payoutDetails).forEach(([key, value]) => {
+        if (value !== undefined) {
+          cleanedDetails[key] = value;
+        }
+      });
+
       await updateDoc(doc(db, 'shared_calendars', calendarId), {
-        payoutDetails,
+        payoutDetails: cleanedDetails,
         updatedAt: Timestamp.now()
       });
       logger.info('Detalles de pago del profesional actualizados', { calendarId });
@@ -369,10 +378,21 @@ export class CollaborativeCalendarService {
     }
   ): Promise<void> {
     try {
+      // ✅ Filtrar campos undefined para evitar errores de Firestore
+      const cleanedRecord: Record<string, any> = {
+        status: record.status // status es requerido
+      };
+
+      Object.entries(record).forEach(([key, value]) => {
+        if (key !== 'status' && value !== undefined) {
+          cleanedRecord[key] = value;
+        }
+      });
+
       const updatePayload: Record<string, unknown> = {
         updatedAt: Timestamp.now()
       };
-      updatePayload[`payoutRecords.${periodKey}`] = record;
+      updatePayload[`payoutRecords.${periodKey}`] = cleanedRecord;
       await updateDoc(doc(db, 'shared_calendars', calendarId), updatePayload);
       logger.info('Registro de pago actualizado', { calendarId, periodKey });
     } catch (error) {

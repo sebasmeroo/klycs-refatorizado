@@ -35,6 +35,7 @@ import {
 } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useCalendar, useCalendarEvents } from '@/hooks/useCalendar';
+import { getCurrentPaymentPeriod } from '@/utils/paymentPeriods';
 
 const weekdayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
@@ -156,11 +157,53 @@ export const ProfessionalCalendar: React.FC = () => {
   const nextDayEvents = nextDayKey ? (eventsByDate.get(nextDayKey) ?? []) : [];
   const completedEvents = useMemo(() => events.filter(event => event.serviceStatus === 'completed'), [events]);
 
+  // ✅ Calcular periodo de pago actual basado en configuración del calendario
+  const paymentPeriod = useMemo(() => {
+    if (!calendar?.payoutDetails) return null;
+
+    const paymentType = calendar.payoutDetails.paymentType || 'monthly';
+    const paymentDay = calendar.payoutDetails.paymentDay;
+
+    // Encontrar último pago registrado
+    const payoutRecords = calendar.payoutRecords || {};
+    let lastPaymentDate: string | undefined;
+    let latestTimestamp = 0;
+
+    Object.values(payoutRecords).forEach(record => {
+      if (record?.lastPaymentDate) {
+        const timestamp = new Date(record.lastPaymentDate).getTime();
+        if (timestamp > latestTimestamp) {
+          latestTimestamp = timestamp;
+          lastPaymentDate = record.lastPaymentDate;
+        }
+      }
+    });
+
+    return getCurrentPaymentPeriod(new Date(), paymentType, paymentDay, lastPaymentDate);
+  }, [calendar]);
+
+  // ✅ Filtrar eventos completados por periodo de pago actual
+  const completedEventsThisPeriod = useMemo(() => {
+    if (!paymentPeriod) return completedEvents;
+
+    return completedEvents.filter(event => {
+      const eventDate = new Date(event.startDate);
+      return eventDate >= paymentPeriod.start && eventDate <= paymentPeriod.end;
+    });
+  }, [completedEvents, paymentPeriod]);
+
   const totalHoursWorked = useMemo(() => {
     if (completedEvents.length === 0) return 0;
     const minutes = completedEvents.reduce((sum, event) => sum + (event.duration || 0), 0);
     return minutes / 60;
   }, [completedEvents]);
+
+  // ✅ Calcular horas trabajadas en el periodo actual
+  const hoursThisPeriod = useMemo(() => {
+    if (completedEventsThisPeriod.length === 0) return 0;
+    const minutes = completedEventsThisPeriod.reduce((sum, event) => sum + (event.duration || 0), 0);
+    return minutes / 60;
+  }, [completedEventsThisPeriod]);
 
   const currentMonthStart = useMemo(() => startOfMonth(currentDate), [currentDate]);
   const currentMonthEnd = useMemo(() => endOfMonth(currentDate), [currentDate]);
@@ -544,21 +587,56 @@ export const ProfessionalCalendar: React.FC = () => {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden">
-          <div className="p-5 md:p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">Horas registradas</p>
-              <h3 className="text-2xl font-semibold text-slate-900">{totalHoursWorked.toFixed(1)} h</h3>
-              <p className="text-sm text-slate-500 mt-1">
-                Basado en servicios marcados como completados en todo el historial
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-600">
-                <CheckCircle2 className="w-4 h-4" /> {completedEvents.length} servicios completados
-              </span>
-              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 text-indigo-600">
-                {completedThisMonth.length} este mes
-              </span>
+          <div className="p-5 md:p-6 space-y-6">
+            {/* ✅ Periodo de pago actual */}
+            {paymentPeriod && (
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4">
+                <p className="text-xs uppercase tracking-widest text-green-600 font-semibold mb-2">📅 Periodo de pago actual</p>
+                <h3 className="text-xl font-semibold text-green-900">{paymentPeriod.label}</h3>
+                <p className="text-sm text-green-700 mt-1">
+                  {paymentPeriod.start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} - {paymentPeriod.end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <div className="bg-white rounded-xl px-4 py-2 border border-green-200">
+                    <p className="text-xs text-green-600 font-medium uppercase">Horas este periodo</p>
+                    <p className="text-2xl font-bold text-green-900">{hoursThisPeriod.toFixed(1)} h</p>
+                  </div>
+                  <div className="bg-white rounded-xl px-4 py-2 border border-green-200">
+                    <p className="text-xs text-green-600 font-medium uppercase">Servicios completados</p>
+                    <p className="text-2xl font-bold text-green-900">{completedEventsThisPeriod.length}</p>
+                  </div>
+                  {calendar?.hourlyRate && calendar.hourlyRate > 0 && (
+                    <div className="bg-white rounded-xl px-4 py-2 border border-green-200">
+                      <p className="text-xs text-green-600 font-medium uppercase">Monto estimado</p>
+                      <p className="text-2xl font-bold text-green-900">
+                        {(hoursThisPeriod * calendar.hourlyRate).toLocaleString('es-ES', {
+                          style: 'currency',
+                          currency: calendar.hourlyRateCurrency || 'EUR'
+                        })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Horas totales (histórico) */}
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">Horas registradas (total)</p>
+                <h3 className="text-2xl font-semibold text-slate-900">{totalHoursWorked.toFixed(1)} h</h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  Basado en servicios marcados como completados en todo el historial
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-600">
+                  <CheckCircle2 className="w-4 h-4" /> {completedEvents.length} servicios completados
+                </span>
+                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 text-indigo-600">
+                  {completedThisMonth.length} este mes
+                </span>
+              </div>
             </div>
           </div>
         </div>
