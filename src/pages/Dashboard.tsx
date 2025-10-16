@@ -1,12 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Eye, Calendar, BarChart3, ExternalLink, TrendingUp, Users, MousePointer, CheckCircle2, Clock, Sparkles, ArrowUpRight, Lightbulb, Target, Palette, Zap, Star, Heart, MessageCircle, Share2, DollarSign, Settings, Globe, Camera, Trophy, Shield, Smartphone, Laptop, Brain, Rocket, Gift, ChevronRight, TrendingDown, AlertTriangle, ThumbsUp, Coffee, Briefcase, PieChart, LineChart, Activity, Award, Crown, Diamond, Flame, ChartBar } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useRealTimeStats } from '@/hooks/useRealTimeStats';
+import { useUserBookings } from '@/hooks/useBookings';
+import { useCards } from '@/hooks/useCards';
 import '@/styles/ios-dashboard.css';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [selectedTip, setSelectedTip] = useState(0);
+
+  // ✅ Usar datos reales con React Query optimizado
+  const { stats, loading: statsLoading } = useRealTimeStats();
+  const { data: bookingsData, isLoading: bookingsLoading } = useUserBookings(user?.uid, {
+    dateTo: new Date().toISOString(),
+  });
+  const { data: cardsData } = useCards(user?.uid);
+
+  // Procesar reservas recientes (últimas 3)
+  const recentBookings = useMemo(() => {
+    if (!bookingsData?.data) return [];
+    return bookingsData.data
+      .sort((a: any, b: any) => {
+        const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+        const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+        return dateB.getTime() - dateA.getTime();
+      })
+      .slice(0, 3);
+  }, [bookingsData]);
+
+  const loading = statsLoading || bookingsLoading;
 
   return (
     <div className="space-y-6">
@@ -33,56 +57,88 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* iOS Stats Grid */}
+      {/* iOS Stats Grid - Datos Reales */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="ios-stat-card animate-slideUp" style={{ animationDelay: '0.1s' }}>
           <div className="flex items-center justify-between">
             <div>
               <p className="ios-stat-label">Visitas este mes</p>
-              <p className="ios-stat-value text-blue-600">847</p>
-              <p className="ios-stat-change text-green-600">+12% este mes</p>
+              {loading ? (
+                <div className="animate-pulse h-8 w-16 bg-gray-200 rounded mt-1"></div>
+              ) : (
+                <>
+                  <p className="ios-stat-value text-blue-600">{stats?.totalViews || 0}</p>
+                  <p className={`ios-stat-change ${(stats?.viewsChange || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(stats?.viewsChange || 0) >= 0 ? '+' : ''}{(stats?.viewsChange || 0).toFixed(1)}% este mes
+                  </p>
+                </>
+              )}
             </div>
             <div className="ios-stat-icon bg-gradient-to-br from-blue-500 to-blue-600">
               <Users size={20} className="text-white" />
             </div>
           </div>
         </div>
-        
+
         <div className="ios-stat-card animate-slideUp" style={{ animationDelay: '0.2s' }}>
           <div className="flex items-center justify-between">
             <div>
               <p className="ios-stat-label">Clics en enlaces</p>
-              <p className="ios-stat-value text-purple-600">324</p>
-              <p className="ios-stat-change text-green-600">+8% este mes</p>
+              {loading ? (
+                <div className="animate-pulse h-8 w-16 bg-gray-200 rounded mt-1"></div>
+              ) : (
+                <>
+                  <p className="ios-stat-value text-purple-600">{stats?.totalClicks || 0}</p>
+                  <p className={`ios-stat-change ${(stats?.clicksChange || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(stats?.clicksChange || 0) >= 0 ? '+' : ''}{(stats?.clicksChange || 0).toFixed(1)}% este mes
+                  </p>
+                </>
+              )}
             </div>
             <div className="ios-stat-icon bg-gradient-to-br from-purple-500 to-purple-600">
               <MousePointer size={20} className="text-white" />
             </div>
           </div>
         </div>
-        
+
         <div className="ios-stat-card animate-slideUp" style={{ animationDelay: '0.3s' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="ios-stat-label">Reservas pendientes</p>
-              <p className="ios-stat-value text-orange-600">12</p>
-              <p className="ios-stat-change text-orange-600">3 nuevas hoy</p>
+              <p className="ios-stat-label">Total Reservas</p>
+              {loading ? (
+                <div className="animate-pulse h-8 w-16 bg-gray-200 rounded mt-1"></div>
+              ) : (
+                <>
+                  <p className="ios-stat-value text-orange-600">{stats?.totalBookings || 0}</p>
+                  <p className={`ios-stat-change ${(stats?.bookingsChange || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(stats?.bookingsChange || 0) >= 0 ? '+' : ''}{(stats?.bookingsChange || 0).toFixed(1)}% este mes
+                  </p>
+                </>
+              )}
             </div>
             <div className="ios-stat-icon bg-gradient-to-br from-orange-500 to-orange-600">
-              <Clock size={20} className="text-white" />
+              <Calendar size={20} className="text-white" />
             </div>
           </div>
         </div>
-        
+
         <div className="ios-stat-card animate-slideUp" style={{ animationDelay: '0.4s' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="ios-stat-label">Reservas completadas</p>
-              <p className="ios-stat-value text-green-600">98</p>
-              <p className="ios-stat-change text-green-600">+15% este mes</p>
+              <p className="ios-stat-label">Ingresos totales</p>
+              {loading ? (
+                <div className="animate-pulse h-8 w-16 bg-gray-200 rounded mt-1"></div>
+              ) : (
+                <>
+                  <p className="ios-stat-value text-green-600">€{stats?.totalRevenue || 0}</p>
+                  <p className={`ios-stat-change ${(stats?.revenueChange || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(stats?.revenueChange || 0) >= 0 ? '+' : ''}{(stats?.revenueChange || 0).toFixed(1)}% este mes
+                  </p>
+                </>
+              )}
             </div>
             <div className="ios-stat-icon bg-gradient-to-br from-green-500 to-green-600">
-              <CheckCircle2 size={20} className="text-white" />
+              <DollarSign size={20} className="text-white" />
             </div>
           </div>
         </div>
@@ -117,18 +173,37 @@ export const Dashboard: React.FC = () => {
             </div>
             
             <div className="space-y-3 mt-4">
-              <div className="ios-info-row">
-                <span className="ios-info-label">Enlaces activos</span>
-                <span className="ios-info-value">8</span>
-              </div>
-              <div className="ios-info-row">
-                <span className="ios-info-label">Servicios disponibles</span>
-                <span className="ios-info-value">5</span>
-              </div>
-              <div className="ios-info-row">
-                <span className="ios-info-label">Última actualización</span>
-                <span className="ios-info-value">Hace 2 horas</span>
-              </div>
+              {loading ? (
+                <>
+                  <div className="ios-info-row">
+                    <div className="animate-pulse h-4 w-32 bg-gray-200 rounded"></div>
+                    <div className="animate-pulse h-4 w-8 bg-gray-200 rounded"></div>
+                  </div>
+                  <div className="ios-info-row">
+                    <div className="animate-pulse h-4 w-40 bg-gray-200 rounded"></div>
+                    <div className="animate-pulse h-4 w-8 bg-gray-200 rounded"></div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="ios-info-row">
+                    <span className="ios-info-label">Tarjetas activas</span>
+                    <span className="ios-info-value">{cardsData?.length || 0}</span>
+                  </div>
+                  <div className="ios-info-row">
+                    <span className="ios-info-label">Total de vistas</span>
+                    <span className="ios-info-value">{stats?.totalViews || 0}</span>
+                  </div>
+                  <div className="ios-info-row">
+                    <span className="ios-info-label">Tasa de conversión</span>
+                    <span className="ios-info-value">
+                      {stats?.totalViews && stats.totalClicks
+                        ? ((stats.totalClicks / stats.totalViews) * 100).toFixed(1)
+                        : 0}%
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -145,50 +220,77 @@ export const Dashboard: React.FC = () => {
             </div>
             
             <div className="space-y-3">
-              <div className="ios-booking-item">
-                <div className="flex items-center space-x-3">
-                  <div className="ios-booking-avatar bg-green-500">
-                    <span className="text-white font-medium text-sm">MG</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="ios-booking-name">María García</p>
-                    <p className="ios-booking-time">Hoy a las 14:30</p>
-                  </div>
-                  <div className="ios-status-badge ios-status-confirmed">
-                    <CheckCircle2 size={12} />
-                  </div>
+              {loading ? (
+                <>
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="ios-booking-item">
+                      <div className="flex items-center space-x-3">
+                        <div className="animate-pulse w-10 h-10 rounded-full bg-gray-200"></div>
+                        <div className="flex-1 space-y-2">
+                          <div className="animate-pulse h-4 w-32 bg-gray-200 rounded"></div>
+                          <div className="animate-pulse h-3 w-24 bg-gray-200 rounded"></div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              ) : recentBookings.length > 0 ? (
+                recentBookings.map((booking: any, index: number) => {
+                  const bookingDate = booking.date?.toDate ? booking.date.toDate() : new Date(booking.date);
+                  const initials = booking.clientName
+                    ? booking.clientName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                    : 'UK';
+                  const colors = ['bg-green-500', 'bg-orange-500', 'bg-blue-500', 'bg-purple-500', 'bg-pink-500'];
+                  const avatarColor = colors[index % colors.length];
+
+                  const formatBookingTime = (date: Date) => {
+                    const now = new Date();
+                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const bookingDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                    const diffDays = Math.floor((bookingDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+                    const timeStr = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+                    if (diffDays === 0) return `Hoy a las ${timeStr}`;
+                    if (diffDays === 1) return `Mañana a las ${timeStr}`;
+                    if (diffDays === -1) return `Ayer a las ${timeStr}`;
+                    if (diffDays > 1 && diffDays <= 7) {
+                      const dayName = date.toLocaleDateString('es-ES', { weekday: 'long' });
+                      return `${dayName.charAt(0).toUpperCase() + dayName.slice(1)} a las ${timeStr}`;
+                    }
+                    return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) + ` a las ${timeStr}`;
+                  };
+
+                  return (
+                    <div key={booking.id} className="ios-booking-item">
+                      <div className="flex items-center space-x-3">
+                        <div className={`ios-booking-avatar ${avatarColor}`}>
+                          <span className="text-white font-medium text-sm">{initials}</span>
+                        </div>
+                        <div className="flex-1">
+                          <p className="ios-booking-name">{booking.clientName || 'Cliente'}</p>
+                          <p className="ios-booking-time">{formatBookingTime(bookingDate)}</p>
+                        </div>
+                        <div className={`ios-status-badge ${
+                          booking.status === 'confirmed' ? 'ios-status-confirmed' :
+                          booking.status === 'completed' ? 'ios-status-confirmed' :
+                          'ios-status-pending'
+                        }`}>
+                          {booking.status === 'confirmed' || booking.status === 'completed' ? (
+                            <CheckCircle2 size={12} />
+                          ) : (
+                            <Clock size={12} />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-6 text-gray-500 text-sm">
+                  No hay reservas recientes
                 </div>
-              </div>
-              
-              <div className="ios-booking-item">
-                <div className="flex items-center space-x-3">
-                  <div className="ios-booking-avatar bg-orange-500">
-                    <span className="text-white font-medium text-sm">CL</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="ios-booking-name">Carlos López</p>
-                    <p className="ios-booking-time">Mañana a las 10:00</p>
-                  </div>
-                  <div className="ios-status-badge ios-status-pending">
-                    <Clock size={12} />
-                  </div>
-                </div>
-              </div>
-              
-              <div className="ios-booking-item">
-                <div className="flex items-center space-x-3">
-                  <div className="ios-booking-avatar bg-blue-500">
-                    <span className="text-white font-medium text-sm">AR</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="ios-booking-name">Ana Rodríguez</p>
-                    <p className="ios-booking-time">Viernes a las 16:15</p>
-                  </div>
-                  <div className="ios-status-badge ios-status-confirmed">
-                    <CheckCircle2 size={12} />
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
             
             <Link to="/dashboard/bookings" className="ios-view-all-button">

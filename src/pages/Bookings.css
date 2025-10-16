@@ -1,0 +1,131 @@
+.calendar-grid {
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  height: 100%;
+}
+
+.calendar-grid__week-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid #e5e7eb;
+  background-color: #ffffff;
+}
+
+.calendar-grid__week-day {
+  padding: 0.75rem;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.calendar-grid__body {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+  flex: 1;
+}
+
+.calendar-grid__day {
+  position: relative;
+  padding: 0.5rem;
+  min-height: 110px;
+  border-right: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  background-color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.calendar-grid__day:hover {
+  background-color: #f8fafc;
+}
+
+.calendar-grid__day:nth-child(7n) {
+  border-right: none;
+}
+
+.calendar-grid__day--outside {
+  background-color: #f8fafc;
+}
+
+.calendar-grid__day--today {
+  background-color: #eff6ff;
+}
+
+.calendar-grid__day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+
+.calendar-grid__day-number {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.calendar-grid__day-number--muted {
+  color: #94a3b8;
+}
+
+.calendar-grid__day-number--today {
+  color: #1d4ed8;
+}
+
+.calendar-grid__day-indicator {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background-color: #2563eb;
+}
+
+.calendar-grid__events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.calendar-grid__event {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.2s ease;
+}
+
+.calendar-grid__event:hover {
+  opacity: 0.85;
+}
+
+.calendar-grid__more {
+  font-size: 0.75rem;
+  color: #64748b;
+  padding: 0 0.5rem;
+}
+
+.calendar-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.calendar-main__content {
+  flex: 1;
+  padding: 1.5rem;
+  overflow: auto;
+}

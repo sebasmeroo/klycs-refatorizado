@@ -284,8 +284,54 @@ const DashboardBookings: React.FC = () => {
 
   // ===== ESTADO =====
   const calendars = calendarsData || [];
-    const events = eventsData || [];
-    const [stats, setStats] = useState<CalendarStats | null>(null);
+  const events = eventsData || [];
+
+  // Convierte una disponibilidad aprobada a un pseudo-evento para el calendario
+  const availabilityToEvent = useCallback((availability: ProfessionalAvailability): CalendarEvent => {
+    const startDate = new Date(availability.date);
+    const [startHour, startMinute] = availability.startTime.split(':').map(Number);
+    startDate.setHours(startHour, startMinute, 0, 0);
+
+    const endDate = new Date(availability.date);
+    const [endHour, endMinute] = availability.endTime.split(':').map(Number);
+    endDate.setHours(endHour, endMinute, 0, 0);
+
+    return {
+      id: `availability-${availability.id}`,
+      calendarId: availability.calendarId,
+      title: `📝 ${availability.title}`,
+      description: availability.note,
+      startDate,
+      endDate,
+      isAllDay: false,
+      hasEndTime: true,
+      color: availability.professionalColor,
+      createdBy: availability.professionalId,
+      attendees: [],
+      comments: [],
+      attachments: [],
+      status: 'confirmed' as const,
+      visibility: 'public' as const,
+      reminders: [],
+      createdAt: availability.createdAt,
+      updatedAt: availability.updatedAt,
+      // Marcador especial para identificar que es una disponibilidad
+      customFieldsData: {
+        _isAvailability: true,
+        _availabilityId: availability.id,
+        _professionalName: availability.professionalName,
+      },
+    };
+  }, []);
+
+  // Combinar eventos con disponibilidades aprobadas
+  const allEvents = useMemo(() => {
+    const availabilityEvents = (approvedAvailabilities || [])
+      .map(availabilityToEvent);
+    return [...events, ...availabilityEvents];
+  }, [events, approvedAvailabilities, availabilityToEvent]);
+
+  const [stats, setStats] = useState<CalendarStats | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventComments, setEventComments] = useState<EventComment[]>([]);
   const [calendarUsers, setCalendarUsers] = useState<CalendarUser[]>([]);
@@ -549,44 +595,6 @@ const DashboardBookings: React.FC = () => {
 
   // ===== FUNCIONES AUXILIARES =====
 
-  // Convierte una disponibilidad aprobada a un pseudo-evento para el calendario
-  const availabilityToEvent = useCallback((availability: ProfessionalAvailability): CalendarEvent => {
-    const startDate = new Date(availability.date);
-    const [startHour, startMinute] = availability.startTime.split(':').map(Number);
-    startDate.setHours(startHour, startMinute, 0, 0);
-
-    const endDate = new Date(availability.date);
-    const [endHour, endMinute] = availability.endTime.split(':').map(Number);
-    endDate.setHours(endHour, endMinute, 0, 0);
-
-    return {
-      id: `availability-${availability.id}`,
-      calendarId: availability.calendarId,
-      title: `📝 ${availability.title}`,
-      description: availability.note,
-      startDate,
-      endDate,
-      isAllDay: false,
-      hasEndTime: true,
-      color: availability.professionalColor,
-      createdBy: availability.professionalId,
-      attendees: [],
-      comments: [],
-      attachments: [],
-      status: 'confirmed' as const,
-      visibility: 'public' as const,
-      reminders: [],
-      createdAt: availability.createdAt,
-      updatedAt: availability.updatedAt,
-      // Marcador especial para identificar que es una disponibilidad
-      customFieldsData: {
-        _isAvailability: true,
-        _availabilityId: availability.id,
-        _professionalName: availability.professionalName,
-      },
-    };
-  }, []);
-
   const generateCalendarDays = useCallback((): CalendarDay[] => {
     const currentDate = calendarState.currentDate;
     const year = currentDate.getFullYear();
@@ -604,14 +612,6 @@ const DashboardBookings: React.FC = () => {
 
     const days: CalendarDay[] = [];
     const today = new Date();
-
-    // Convertir disponibilidades aprobadas a pseudo-eventos
-    const availabilityEvents = (approvedAvailabilities || [])
-      .filter(av => visibleCalendarIds.includes(av.calendarId))
-      .map(availabilityToEvent);
-
-    // Combinar eventos reales con disponibilidades
-    const allEvents = [...events, ...availabilityEvents];
 
     for (let i = 0; i < 42; i++) { // 6 semanas x 7 días
       const date = new Date(startDate);
@@ -635,7 +635,7 @@ const DashboardBookings: React.FC = () => {
     }
 
     return days;
-  }, [calendarState.currentDate, events, approvedAvailabilities, availabilityToEvent]);
+  }, [calendarState.currentDate, allEvents]);
   
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCalendarState(prev => {
@@ -2254,7 +2254,7 @@ const DashboardBookings: React.FC = () => {
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekStart.getDate() + 7);
 
-      const eventsForWeek = events.filter(event => {
+      const eventsForWeek = allEvents.filter(event => {
         return visibleCalendarIds.has(event.calendarId) &&
           event.startDate >= weekStart &&
           event.startDate < weekEnd;
@@ -2381,28 +2381,42 @@ const DashboardBookings: React.FC = () => {
     const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-7 border-b border-gray-200">
+      <div style={{
+        backgroundColor: 'white',
+        borderRadius: '0.75rem',
+        boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
+        border: '1px solid rgb(229 231 235)',
+        overflow: 'hidden',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        <div className="grid grid-cols-7 border-b border-gray-200" style={{ flexShrink: 0 }}>
           {weekDays.map(day => (
             <div key={day} className="p-3 text-center">
               <span className="text-sm font-medium text-gray-600">{day}</span>
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7">
+        <div className="grid grid-cols-7" style={{
+          flex: 1,
+          gridAutoRows: '1fr',
+          minHeight: 0
+        }}>
           {days.map((day, index) => (
             <div
               key={index}
-              className={`relative min-h-[100px] p-2 border-r border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
+              className={`relative p-2 border-r border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
                 !day.isCurrentMonth ? 'bg-gray-50/50' : ''
               } ${day.isToday ? 'bg-blue-50' : ''}`}
+              style={{ minHeight: 0, display: 'flex', flexDirection: 'column' }}
               onClick={() => {
                 if (day.isCurrentMonth && selectedProfessional) {
                   openCreateEventPanel(day.date, selectedProfessional);
                 }
               }}
             >
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between mb-1" style={{ flexShrink: 0 }}>
                 <span className={`text-sm font-medium ${
                   day.isCurrentMonth
                     ? day.isToday
@@ -2414,7 +2428,7 @@ const DashboardBookings: React.FC = () => {
                 </span>
                 {day.isToday && <div className="w-2 h-2 bg-blue-500 rounded-full" />}
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
                 {day.events.slice(0, 2).map(event => (
                   <div
                     key={event.id}
@@ -3185,14 +3199,20 @@ const DashboardBookings: React.FC = () => {
   ]);
 
   return (
-    <div className="h-screen bg-gray-50 flex overflow-hidden">
+    <div style={{ display: 'flex', height: '100vh', backgroundColor: '#f9fafb', overflow: 'hidden' }}>
       {/* Sidebar de calendarios */}
       {calendarSidebar}
 
       {/* Contenido principal */}
-      <div className={`flex-1 flex flex-col overflow-hidden min-h-0 transition-all duration-300 ${
-        showInbox ? 'mr-0' : ''
-      }`}>
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        minHeight: 0,
+        transition: 'all 0.3s ease',
+        marginRight: showInbox ? '0' : '0'
+      }}>
         {/* Header estilo TimeTree */}
         <div className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -3293,7 +3313,12 @@ const DashboardBookings: React.FC = () => {
                           </div>
                         
         {/* Área del calendario */}
-        <div className="flex-1 p-6 overflow-auto">
+        <div style={{
+          flex: 1,
+          padding: '1.5rem',
+          overflow: 'auto',
+          minHeight: 0
+        }}>
           {calendarGrid}
         </div>
                         
@@ -4278,58 +4303,60 @@ const DashboardBookings: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Estado del Servicio */}
-                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-500">Estado del Servicio:</span>
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          event.serviceStatus === 'completed' ? 'bg-green-100 text-green-700' :
-                          event.serviceStatus === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                          event.serviceStatus === 'not_done' ? 'bg-red-100 text-red-700' :
-                          'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {event.serviceStatus === 'completed' ? '✓ Completado' :
-                           event.serviceStatus === 'in_progress' ? '⏳ En Progreso' :
-                           event.serviceStatus === 'not_done' ? '✗ No Realizado' :
-                           '⏱ Pendiente'}
-                        </span>
-                      </div>
+                    {/* Estado del Servicio - Solo para eventos reales, no para notificaciones de disponibilidad */}
+                    {!event.customFieldsData?._isAvailability && (
+                      <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-gray-500">Estado del Servicio:</span>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            event.serviceStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                            event.serviceStatus === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                            event.serviceStatus === 'not_done' ? 'bg-red-100 text-red-700' :
+                            'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {event.serviceStatus === 'completed' ? '✓ Completado' :
+                             event.serviceStatus === 'in_progress' ? '⏳ En Progreso' :
+                             event.serviceStatus === 'not_done' ? '✗ No Realizado' :
+                             '⏱ Pendiente'}
+                          </span>
+                        </div>
 
-                      {/* Botones de acción rápida */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleMarkServiceStatus(event, 'completed');
-                          }}
-                          disabled={updatingServiceStatus === event.id || event.serviceStatus === 'completed'}
-                          className="flex items-center justify-center gap-1 px-2 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded text-xs font-medium transition-colors"
-                        >
-                          {updatingServiceStatus === event.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="w-3 h-3" />
-                          )}
-                          Completar
-                        </button>
+                        {/* Botones de acción rápida */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMarkServiceStatus(event, 'completed');
+                            }}
+                            disabled={updatingServiceStatus === event.id || event.serviceStatus === 'completed'}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded text-xs font-medium transition-colors"
+                          >
+                            {updatingServiceStatus === event.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="w-3 h-3" />
+                            )}
+                            Completar
+                          </button>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleMarkServiceStatus(event, 'not_done');
-                          }}
-                          disabled={updatingServiceStatus === event.id || event.serviceStatus === 'not_done'}
-                          className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded text-xs font-medium transition-colors"
-                        >
-                          {updatingServiceStatus === event.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <XCircle className="w-3 h-3" />
-                          )}
-                          No Hecho
-                        </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMarkServiceStatus(event, 'not_done');
+                            }}
+                            disabled={updatingServiceStatus === event.id || event.serviceStatus === 'not_done'}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded text-xs font-medium transition-colors"
+                          >
+                            {updatingServiceStatus === event.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <XCircle className="w-3 h-3" />
+                            )}
+                            No Hecho
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
                       <span className="text-xs text-gray-500">
@@ -4818,52 +4845,54 @@ const DashboardBookings: React.FC = () => {
               </div>
 
               {/* Footer con acciones */}
-              <div className="p-6 bg-gray-50 border-t border-gray-200 space-y-4">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  {/* Botón marcar como completado */}
-                  <button
-                    onClick={async () => {
-                      await handleMarkServiceStatus(selectedEventInfo, 'completed');
-                    }}
-                    disabled={updatingServiceStatus === selectedEventInfo.id || selectedEventInfo.serviceStatus === 'completed'}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {updatingServiceStatus === selectedEventInfo.id ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="w-5 h-5" />
-                    )}
-                    {selectedEventInfo.serviceStatus === 'completed' ? 'Completado' : 'Marcar Completado'}
-                  </button>
+              {!selectedEventInfo.customFieldsData?._isAvailability && (
+                <div className="p-6 bg-gray-50 border-t border-gray-200 space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {/* Botón marcar como completado */}
+                    <button
+                      onClick={async () => {
+                        await handleMarkServiceStatus(selectedEventInfo, 'completed');
+                      }}
+                      disabled={updatingServiceStatus === selectedEventInfo.id || selectedEventInfo.serviceStatus === 'completed'}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {updatingServiceStatus === selectedEventInfo.id ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-5 h-5" />
+                      )}
+                      {selectedEventInfo.serviceStatus === 'completed' ? 'Completado' : 'Marcar Completado'}
+                    </button>
 
-                  {/* Botón marcar como no realizado */}
-                  <button
-                    onClick={async () => {
-                      await handleMarkServiceStatus(selectedEventInfo, 'not_done');
-                    }}
-                    disabled={updatingServiceStatus === selectedEventInfo.id || selectedEventInfo.serviceStatus === 'not_done'}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {updatingServiceStatus === selectedEventInfo.id ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <XCircle className="w-5 h-5" />
-                    )}
-                    {selectedEventInfo.serviceStatus === 'not_done' ? 'No Realizado' : 'Marcar No Realizado'}
-                  </button>
+                    {/* Botón marcar como no realizado */}
+                    <button
+                      onClick={async () => {
+                        await handleMarkServiceStatus(selectedEventInfo, 'not_done');
+                      }}
+                      disabled={updatingServiceStatus === selectedEventInfo.id || selectedEventInfo.serviceStatus === 'not_done'}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {updatingServiceStatus === selectedEventInfo.id ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <XCircle className="w-5 h-5" />
+                      )}
+                      {selectedEventInfo.serviceStatus === 'not_done' ? 'No Realizado' : 'Marcar No Realizado'}
+                    </button>
+                  </div>
+
+                  {/* Info de completado */}
+                  {selectedEventInfo.completedAt && selectedEventInfo.serviceStatus === 'completed' && (
+                    <p className="text-xs text-gray-500 text-center mt-3">
+                      Completado el {selectedEventInfo.completedAt.toLocaleDateString('es-ES')} a las{' '}
+                      {selectedEventInfo.completedAt.toLocaleTimeString('es-ES', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                  )}
                 </div>
-
-                {/* Info de completado */}
-                {selectedEventInfo.completedAt && selectedEventInfo.serviceStatus === 'completed' && (
-                  <p className="text-xs text-gray-500 text-center mt-3">
-                    Completado el {selectedEventInfo.completedAt.toLocaleDateString('es-ES')} a las{' '}
-                    {selectedEventInfo.completedAt.toLocaleTimeString('es-ES', {
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </p>
-                )}
-              </div>
+              )}
             </motion.div>
           </motion.div>
         )}

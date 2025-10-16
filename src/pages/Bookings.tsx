@@ -45,9 +45,10 @@ import {
   CalendarStatsService
 } from '@/services/collaborativeCalendar';
 import { CreateCalendarModal } from '@/components/calendar/CreateCalendarModal';
-import { createDemoCalendarData, getDemoStats } from '@/utils/calendarDemoData';
+import { getDemoStats } from '@/utils/calendarDemoData';
 import { useUserCalendars, useMultipleCalendarEvents } from '@/hooks/useCalendar';
 import { useEventComments, useAddEventComment } from '@/hooks/useEventComments';
+import './Bookings.css';
 
 // ===== TIPOS AUXILIARES =====
 
@@ -337,65 +338,62 @@ export const Bookings: React.FC = () => {
     const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Header con días de la semana */}
-        <div className="grid grid-cols-7 border-b border-gray-200">
+      <div className="calendar-grid">
+        <div className="calendar-grid__week-days">
           {weekDays.map(day => (
-            <div key={day} className="p-3 text-center">
-              <span className="text-sm font-medium text-gray-600">{day}</span>
+            <div key={day} className="calendar-grid__week-day">
+              <span>{day}</span>
             </div>
           ))}
         </div>
+        <div className="calendar-grid__body">
+          {days.map((day, index) => {
+            const dayClasses = [
+              'calendar-grid__day',
+              !day.isCurrentMonth ? 'calendar-grid__day--outside' : '',
+              day.isToday ? 'calendar-grid__day--today' : ''
+            ].filter(Boolean).join(' ');
 
-        {/* Grid de días */}
-        <div className="grid grid-cols-7">
-          {days.map((day, index) => (
-            <div
-              key={index}
-              className={`relative min-h-[100px] p-2 border-r border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
-                !day.isCurrentMonth ? 'bg-gray-50/50' : ''
-              } ${day.isToday ? 'bg-blue-50' : ''}`}
-              onClick={() => setShowCreateEvent(true)}
-            >
-              {/* Número del día */}
-              <div className="flex items-center justify-between mb-1">
-                <span className={`text-sm font-medium ${
-                  day.isCurrentMonth 
-                    ? day.isToday 
-                      ? 'text-blue-600' 
-                      : 'text-gray-900'
-                    : 'text-gray-400'
-                }`}>
-                  {day.dayNumber}
-              </span>
-                {day.isToday && (
-                  <div className="w-2 h-2 bg-blue-500 rounded-full" />
-                )}
+            const dayNumberClasses = [
+              'calendar-grid__day-number',
+              !day.isCurrentMonth ? 'calendar-grid__day-number--muted' : '',
+              day.isToday ? 'calendar-grid__day-number--today' : ''
+            ].filter(Boolean).join(' ');
+
+            return (
+              <div
+                key={index}
+                className={dayClasses}
+                onClick={() => setShowCreateEvent(true)}
+              >
+                <div className="calendar-grid__day-header">
+                  <span className={dayNumberClasses}>{day.dayNumber}</span>
+                  {day.isToday && <div className="calendar-grid__day-indicator" />}
+                </div>
+
+                <div className="calendar-grid__events">
+                  {day.events.slice(0, 3).map(event => (
+                    <div
+                      key={event.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedEvent(event);
+                      }}
+                      className="calendar-grid__event"
+                      style={{ backgroundColor: getCalendarColor(event.calendarId) }}
+                    >
+                      {event.title}
+                    </div>
+                  ))}
+                  {day.events.length > 3 && (
+                    <div className="calendar-grid__more">
+                      +{day.events.length - 3} más
+                    </div>
+                  )}
+                </div>
               </div>
-              
-              {/* Eventos del día */}
-              <div className="space-y-1">
-                {day.events.slice(0, 3).map(event => (
-                  <div
-                    key={event.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedEvent(event);
-                    }}
-                    className="px-2 py-1 rounded text-xs font-medium text-white truncate cursor-pointer hover:opacity-80 transition-opacity"
-                    style={{ backgroundColor: getCalendarColor(event.calendarId) }}
-                  >
-                    {event.title}
-          </div>
-                ))}
-                {day.events.length > 3 && (
-                  <div className="text-xs text-gray-500 px-2">
-                    +{day.events.length - 3} más
-              </div>
-            )}
-          </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -617,21 +615,23 @@ export const Bookings: React.FC = () => {
                 <Plus className="w-4 h-4" />
                 <span>Evento</span>
               </button>
+            </div>
           </div>
         </div>
-      </div>
 
         {/* Área del calendario */}
-        <div className="flex-1 p-6 overflow-auto">
-          {calendarState.view === 'month' ? (
-            <CalendarGrid />
-          ) : (
-            <div className="bg-white rounded-xl p-8 text-center">
-              <p className="text-gray-500">Vista semanal en desarrollo...</p>
-                  </div>
-          )}
-                  </div>
-                  
+        <div className="calendar-main">
+          <div className="calendar-main__content">
+            {calendarState.view === 'month' ? (
+              <CalendarGrid />
+            ) : (
+              <div className="bg-white rounded-xl p-8 text-center">
+                <p className="text-gray-500">Vista semanal en desarrollo...</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Estadísticas rápidas */}
         {stats && (
           <div className="bg-white border-t border-gray-200 px-6 py-4">

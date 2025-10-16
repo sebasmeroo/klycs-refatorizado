@@ -99,10 +99,12 @@ const DashboardClients: React.FC = () => {
   };
 
   return (
-    <div className="ios-main-content ios-smooth-transition bg-white">
-      <div className="max-w-7xl mx-auto space-y-6 animate-fadeIn">
-        {/* Header */}
-        <div className="rounded-2xl p-5 border border-black/5 shadow-sm bg-white">
+    <div className="ios-main-content ios-smooth-transition bg-white flex h-full">
+      {/* Main Content */}
+      <div className={`flex-1 transition-all duration-300 ${showDetailsSidebar ? 'mr-[700px]' : ''}`}>
+        <div className="max-w-7xl mx-auto space-y-6 animate-fadeIn">
+          {/* Header */}
+          <div className="rounded-2xl p-5 border border-black/5 shadow-sm bg-white">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="ios-app-icon !w-12 !h-12">
@@ -212,29 +214,30 @@ const DashboardClients: React.FC = () => {
             )}
           </div>
         )}
+        </div>
+
+        {/* Create Client Modal */}
+        {showCreateModal && (
+          <CreateClientModal
+            onClose={() => setShowCreateModal(false)}
+            onSubmit={handleCreateClient}
+            isSubmitting={createClient.isPending}
+          />
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && selectedClient && (
+          <DeleteClientModal
+            client={selectedClient}
+            onClose={() => {
+              setShowDeleteModal(false);
+              setSelectedClient(null);
+            }}
+            onConfirm={() => handleDeleteClient(selectedClient.id)}
+            isDeleting={deleteClient.isPending}
+          />
+        )}
       </div>
-
-      {/* Create Client Modal */}
-      {showCreateModal && (
-        <CreateClientModal
-          onClose={() => setShowCreateModal(false)}
-          onSubmit={handleCreateClient}
-          isSubmitting={createClient.isPending}
-        />
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && selectedClient && (
-        <DeleteClientModal
-          client={selectedClient}
-          onClose={() => {
-            setShowDeleteModal(false);
-            setSelectedClient(null);
-          }}
-          onConfirm={() => handleDeleteClient(selectedClient.id)}
-          isDeleting={deleteClient.isPending}
-        />
-      )}
 
       {/* Client Details Sidebar */}
       {showDetailsSidebar && selectedClient && (
@@ -662,15 +665,7 @@ const ClientDetailsSidebar: React.FC<{
   };
 
   return (
-    <>
-      {/* Overlay */}
-      <div
-        className="fixed inset-0 bg-black/50 z-40 animate-fadeIn"
-        onClick={onClose}
-      />
-
-      {/* Sidebar */}
-      <div className="fixed right-0 top-0 bottom-0 w-full md:w-[600px] lg:w-[700px] bg-white shadow-2xl z-50 overflow-y-auto animate-slideInRight">
+    <div className="fixed right-0 top-0 bottom-0 w-[700px] bg-white shadow-2xl z-40 overflow-y-auto border-l border-black/10">
         <div className="sticky top-0 z-10 bg-white border-b border-black/10 p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xl font-semibold text-[#1d1d1f]">Detalles del Cliente</h2>
@@ -890,39 +885,137 @@ const ClientDetailsSidebar: React.FC<{
             )}
           </div>
         </div>
+
+        {/* Edit Modal */}
+        {showEditModal && (
+          <EditClientModal
+            client={client}
+            onClose={() => setShowEditModal(false)}
+            onSubmit={async (data) => {
+              if (!user?.uid) return;
+              await updateClient.mutateAsync({
+                clientId: client.id,
+                data,
+                userId: user.uid
+              });
+              setShowEditModal(false);
+            }}
+            isSubmitting={updateClient.isPending}
+          />
+        )}
+
+        {/* Cancel Service Modal */}
+        {showCancelModal && selectedService && (
+          <CancelServiceModal
+            service={selectedService}
+            onClose={() => {
+              setShowCancelModal(false);
+              setSelectedService(null);
+            }}
+            onConfirm={handleCancelService}
+            isCancelling={cancelService.isPending}
+          />
+        )}
       </div>
+    );
+  };
 
-      {/* Edit Modal */}
-      {showEditModal && (
-        <EditClientModal
-          client={client}
-          onClose={() => setShowEditModal(false)}
-          onSubmit={async (data) => {
-            if (!user?.uid) return;
-            await updateClient.mutateAsync({
-              clientId: client.id,
-              data,
-              userId: user.uid
-            });
-            setShowEditModal(false);
-          }}
-          isSubmitting={updateClient.isPending}
-        />
-      )}
+// Edit Client Modal
+const EditClientModal: React.FC<{
+  client: ExternalClient;
+  onClose: () => void;
+  onSubmit: (data: any) => void;
+  isSubmitting: boolean;
+}> = ({ client, onClose, onSubmit, isSubmitting }) => {
+  const [formData, setFormData] = useState({
+    name: client.name,
+    email: client.email || '',
+    phone: client.phone || '',
+    company: client.company || '',
+    currency: client.currency
+  });
 
-      {/* Cancel Service Modal */}
-      {showCancelModal && selectedService && (
-        <CancelServiceModal
-          service={selectedService}
-          onClose={() => {
-            setShowCancelModal(false);
-            setSelectedService(null);
-          }}
-          onConfirm={handleCancelService}
-          isCancelling={cancelService.isPending}
-        />
-      )}
-    </>
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit(formData);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+      <div className="rounded-2xl bg-white shadow-xl max-w-md w-full p-6 animate-fadeIn">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="ios-app-icon !w-10 !h-10">
+            <Edit2 className="text-white" size={18} />
+          </div>
+          <h2 className="text-xl font-semibold text-[#1d1d1f]">Editar Cliente</h2>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-[#1d1d1f] mb-1">Nombre *</label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-black/10 focus:border-[var(--ios-accent)] focus:ring-2 focus:ring-[var(--ios-accent)]/20 outline-none transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-[#1d1d1f] mb-1">Empresa</label>
+            <input
+              type="text"
+              value={formData.company}
+              onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-black/10 focus:border-[var(--ios-accent)] focus:ring-2 focus:ring-[var(--ios-accent)]/20 outline-none transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-[#1d1d1f] mb-1">Email</label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-black/10 focus:border-[var(--ios-accent)] focus:ring-2 focus:ring-[var(--ios-accent)]/20 outline-none transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-[#1d1d1f] mb-1">Teléfono</label>
+            <input
+              type="tel"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-black/10 focus:border-[var(--ios-accent)] focus:ring-2 focus:ring-[var(--ios-accent)]/20 outline-none transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-[#1d1d1f] mb-1">Moneda</label>
+            <select
+              value={formData.currency}
+              onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-black/10 focus:border-[var(--ios-accent)] focus:ring-2 focus:ring-[var(--ios-accent)]/20 outline-none transition-all"
+            >
+              <option value="EUR">EUR €</option>
+              <option value="USD">USD $</option>
+              <option value="GBP">GBP £</option>
+            </select>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} disabled={isSubmitting} className="flex-1 ios-clear-button">
+              Cancelar
+            </button>
+            <button type="submit" disabled={isSubmitting} className="flex-1 ios-cta-button">
+              {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 };
 

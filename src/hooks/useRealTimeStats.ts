@@ -252,7 +252,7 @@ export const useRealTimeStats = () => {
     },
     enabled: !!user?.id,
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
-    cacheTime: 10 * 60 * 1000,
+    gcTime: 10 * 60 * 1000, // React Query v5: gcTime en lugar de cacheTime
     refetchOnWindowFocus: false,
     refetchInterval: 5 * 60 * 1000 // Auto-refetch cada 5 minutos
   });

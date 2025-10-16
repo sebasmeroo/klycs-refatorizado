@@ -32,7 +32,7 @@ export const useUserBookings = (
       return result;
     },
     staleTime: 5 * 60 * 1000, // 5 minutos
-    cacheTime: 10 * 60 * 1000, // 10 minutos
+    gcTime: 10 * 60 * 1000, // React Query v5: gcTime en lugar de cacheTime
     enabled: !!userId, // Solo ejecutar si hay userId
     refetchOnWindowFocus: false,
   });
@@ -51,7 +51,7 @@ export const useBookingStats = (userId: string | undefined) => {
       return await BookingsService.getBookingStats(userId);
     },
     staleTime: 5 * 60 * 1000,
-    cacheTime: 10 * 60 * 1000,
+    gcTime: 10 * 60 * 1000, // React Query v5: gcTime en lugar de cacheTime
     enabled: !!userId,
     refetchOnWindowFocus: false,
   });

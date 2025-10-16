@@ -69,9 +69,33 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
   );
 
   const existingAvailabilities = existingData?.availabilities || [];
-  const myAvailabilities = existingAvailabilities.filter(
-    a => a.professionalId === professionalId
-  );
+
+  // Filtrar y deduplicar disponibilidades recurrentes
+  // Para recurrencias, solo mostrar la instancia base (no mostrar cada expansión)
+  const myAvailabilities = useMemo(() => {
+    const filtered = existingAvailabilities.filter(
+      a => a.professionalId === professionalId
+    );
+
+    // Deduplicar por ID base de recurrencia
+    // Las instancias expandidas comparten el mismo ID base antes del sufijo -YYYYMMDD
+    const seen = new Set<string>();
+    const deduplicated: typeof filtered = [];
+
+    for (const availability of filtered) {
+      // Si es recurrente, usar el ID base (sin sufijo de fecha)
+      const baseId = availability.recurrence !== 'once'
+        ? availability.id.split('-').slice(0, -1).join('-') || availability.id
+        : availability.id;
+
+      if (!seen.has(baseId)) {
+        seen.add(baseId);
+        deduplicated.push(availability);
+      }
+    }
+
+    return deduplicated;
+  }, [existingAvailabilities, professionalId]);
 
   const deleteAvailability = useDeleteAvailability();
 
@@ -140,12 +164,13 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
     }
   };
 
-  const getRecurrenceLabel = (rec: AvailabilityRecurrence) => {
+  const getRecurrenceLabel = (rec: AvailabilityRecurrence): string => {
     switch (rec) {
       case 'once': return 'Solo un día';
       case 'daily': return 'Diario';
       case 'weekly': return 'Semanal';
       case 'monthly': return 'Mensual';
+      default: return 'Solo un día';
     }
   };
 
@@ -368,10 +393,21 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
                         )}
                       </div>
                       <p className="text-sm font-medium text-slate-900">{availability.title}</p>
-                      <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        {format(availability.date, "d 'de' MMMM, yyyy", { locale: es })}
-                      </p>
+                      {availability.recurrence === 'once' ? (
+                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {format(availability.date, "d 'de' MMMM, yyyy", { locale: es })}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                          <Repeat className="w-3 h-3" />
+                          Se repite {getRecurrenceLabel(availability.recurrence).toLowerCase()} desde el{' '}
+                          {format(availability.date, "d 'de' MMMM", { locale: es })}
+                          {availability.recurrenceEndDate && (
+                            <> hasta el {format(availability.recurrenceEndDate, "d 'de' MMMM", { locale: es })}</>
+                          )}
+                        </p>
+                      )}
                       <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {availability.startTime} - {availability.endTime}
