@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import '@/styles/calendar.css';
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -2381,54 +2382,40 @@ const DashboardBookings: React.FC = () => {
     const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
     return (
-      <div style={{
-        backgroundColor: 'white',
-        borderRadius: '0.75rem',
-        boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
-        border: '1px solid rgb(229 231 235)',
-        overflow: 'hidden',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column'
-      }}>
-        <div className="grid grid-cols-7 border-b border-gray-200" style={{ flexShrink: 0 }}>
+      <div className="calendar-container">
+        <div className="calendar-header">
           {weekDays.map(day => (
-            <div key={day} className="p-3 text-center">
-              <span className="text-sm font-medium text-gray-600">{day}</span>
+            <div key={day} className="calendar-header-day">
+              <span className="calendar-header-day-text">{day}</span>
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7" style={{
-          flex: 1,
-          gridAutoRows: '1fr',
-          minHeight: 0
-        }}>
+        <div className="calendar-grid">
           {days.map((day, index) => (
             <div
               key={index}
-              className={`relative p-2 border-r border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
-                !day.isCurrentMonth ? 'bg-gray-50/50' : ''
-              } ${day.isToday ? 'bg-blue-50' : ''}`}
-              style={{ minHeight: 0, display: 'flex', flexDirection: 'column' }}
+              className={`calendar-day-cell ${
+                !day.isCurrentMonth ? 'calendar-day-cell--other-month' : ''
+              } ${day.isToday ? 'calendar-day-cell--today' : ''}`}
               onClick={() => {
                 if (day.isCurrentMonth && selectedProfessional) {
                   openCreateEventPanel(day.date, selectedProfessional);
                 }
               }}
             >
-              <div className="flex items-center justify-between mb-1" style={{ flexShrink: 0 }}>
-                <span className={`text-sm font-medium ${
+              <div className="calendar-day-header">
+                <span className={`calendar-day-number ${
                   day.isCurrentMonth
                     ? day.isToday
-                      ? 'text-blue-600'
-                      : 'text-gray-900'
-                    : 'text-gray-400'
+                      ? 'calendar-day-number--today'
+                      : 'calendar-day-number--current-month'
+                    : 'calendar-day-number--other-month'
                 }`}>
                   {day.dayNumber}
                 </span>
-                {day.isToday && <div className="w-2 h-2 bg-blue-500 rounded-full" />}
+                {day.isToday && <div className="calendar-today-dot" />}
               </div>
-              <div className="space-y-1" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              <div className="calendar-events-container">
                 {day.events.slice(0, 2).map(event => (
                   <div
                     key={event.id}
@@ -2463,23 +2450,21 @@ const DashboardBookings: React.FC = () => {
                       }
                       setHoveredEvent(null);
                     }}
-                    className="px-2 py-1 rounded text-xs font-medium text-white truncate cursor-pointer hover:opacity-80 transition-opacity"
+                    className={`calendar-event ${event.customFieldsData?._isAvailability ? 'calendar-event--availability' : ''}`}
                     style={{
-                      backgroundColor: getCalendarColor(event.calendarId),
-                      border: event.customFieldsData?._isAvailability ? '2px solid #F59E0B' : undefined,
-                      boxShadow: event.customFieldsData?._isAvailability ? '0 0 0 1px rgba(245, 158, 11, 0.2)' : undefined
+                      backgroundColor: getCalendarColor(event.calendarId)
                     }}
                   >
-                    {event.title}
+                    {event.customFieldsData?._isAvailability ? '📝 ' : ''}{event.title}
                   </div>
                 ))}
                 {day.events.length > 2 && (
-                  <div 
+                  <div
                     onClick={(e) => {
                       e.stopPropagation();
                       openDayEventsPanel(day.date, day.events);
                     }}
-                    className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 cursor-pointer hover:underline"
+                    className="calendar-more-events"
                   >
                     +{day.events.length - 2} más
                   </div>
