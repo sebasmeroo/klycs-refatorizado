@@ -13,7 +13,11 @@ export const useExternalInvoices = (userId: string | undefined) => {
       if (!userId) return [];
       costMonitoring.trackFirestoreRead(1);
       return FinancialIncomeService.getExternalInvoices(userId);
-    }
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutos - datos de facturas no cambian con frecuencia
+    gcTime: 10 * 60 * 1000, // 10 minutos en memoria
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData
   });
 };
 

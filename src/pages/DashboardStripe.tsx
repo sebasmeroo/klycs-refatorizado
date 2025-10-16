@@ -26,7 +26,8 @@ import {
   ChevronDown,
   Filter,
   Search,
-  X
+  X,
+  BarChart3
 } from 'lucide-react';
 import '@/styles/payments-dashboard.css';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
@@ -1806,6 +1807,125 @@ const DashboardStripe: React.FC = () => {
     }
   }, [statsForDisplay, isProfessionalPending, calendarMap, periodKey, pendingServices]);
 
+  const exportWithdrawalsToCSV = useCallback(() => {
+    if (!withdrawals.length) {
+      toast.info('No hay retiros para exportar');
+      return;
+    }
+
+    try {
+      const headers = ['Fecha', 'Importe Bruto', 'Comisión', 'Importe Neto', 'Notas'];
+      const rows = withdrawals.map(w => [
+        new Date(w.date).toLocaleDateString('es-ES'),
+        w.grossAmount,
+        w.commission,
+        w.netAmount,
+        `"${w.note || ''}"`
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `retiros-plataforma-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast.success('Retiros exportados correctamente');
+    } catch (error) {
+      console.error('Error exportando retiros:', error);
+      toast.error('No pudimos exportar los retiros');
+    }
+  }, [withdrawals]);
+
+  const exportInvoicesToCSV = useCallback(() => {
+    if (!invoices.length) {
+      toast.info('No hay facturas para exportar');
+      return;
+    }
+
+    try {
+      const headers = ['Cliente', 'Referencia', 'Importe', 'Moneda', 'Estado', 'Fecha Emisión', 'Fecha Vencimiento', 'Notas'];
+      const rows = invoices.map(inv => [
+        `"${inv.clientName}"`,
+        `"${inv.reference || ''}"`,
+        inv.amount,
+        inv.currency,
+        inv.status.toUpperCase(),
+        new Date(inv.issueDate).toLocaleDateString('es-ES'),
+        inv.dueDate ? new Date(inv.dueDate).toLocaleDateString('es-ES') : '',
+        `"${inv.notes || ''}"`
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `facturas-externas-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast.success('Facturas exportadas correctamente');
+    } catch (error) {
+      console.error('Error exportando facturas:', error);
+      toast.error('No pudimos exportar las facturas');
+    }
+  }, [invoices]);
+
+  const exportDetailedReport = useCallback(() => {
+    if (!stats.length) {
+      toast.info('No hay información que exportar todavía');
+      return;
+    }
+
+    try {
+      const headers = ['Profesional', 'Moneda', 'Mes', 'Importe', 'Horas', 'Eventos', 'Tarifa/Hora'];
+      const rows: string[] = [];
+
+      stats.forEach(stat => {
+        stat.monthlyBreakdown.forEach(month => {
+          rows.push([
+            `"${stat.professionalName}"`,
+            stat.currency,
+            MONTH_LABELS[month.month - 1] || month.month,
+            month.amount,
+            month.hours,
+            month.events,
+            stat.hourlyRate
+          ].join(','));
+        });
+      });
+
+      const csvContent = [
+        headers.join(','),
+        ...rows
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `reporte-detallado-${selectedYear}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast.success('Reporte detallado exportado correctamente');
+    } catch (error) {
+      console.error('Error exportando reporte:', error);
+      toast.error('No pudimos exportar el reporte');
+    }
+  }, [selectedYear, stats]);
+
   if (planLoading || loadingCalendars) {
     return (
       <div className="payments-page">
@@ -2877,13 +2997,130 @@ const DashboardStripe: React.FC = () => {
         )}
 
         {activeTab === 'export' && (
-          <section className="payments-card payments-card--placeholder">
+          <section className="payments-card">
             <div className="payments-card__section-header">
               <div>
                 <h3 className="payments-card__section-title">Exportaciones</h3>
                 <p className="payments-card__subtitle">
-                  Próximamente podrás descargar reportes completos y automatizar copias de seguridad desde esta sección.
+                  Descarga reportes completos de tus pagos, ingresos y transacciones
                 </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+              {/* Exportar Pagos a Profesionales */}
+              <div className="payments-booking-card">
+                <div className="p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="ios-app-icon !w-10 !h-10" style={{ background: '#007aff' }}>
+                      <Users size={18} className="text-white" />
+                    </div>
+                    <h4 className="text-lg font-semibold text-[#1d1d1f]">Pagos a Profesionales</h4>
+                  </div>
+                  <p className="text-sm text-[#8e8e93] mb-4">
+                    Exporta el resumen completo de pagos pendientes y realizados a profesionales del año {selectedYear}
+                  </p>
+                  <div className="space-y-2">
+                    <button
+                      onClick={exportToCSV}
+                      disabled={!stats.length}
+                      className="w-full payments-button payments-button--primary payments-button--with-icon"
+                    >
+                      <Download size={16} />
+                      Exportar resumen general ({selectedYear})
+                    </button>
+                    <button
+                      onClick={exportPendingToCSV}
+                      disabled={!statsForDisplay.some(({ base }) => isProfessionalPending(base.professionalId))}
+                      className="w-full payments-button payments-button--ghost payments-button--with-icon"
+                    >
+                      <Download size={16} />
+                      Exportar solo pendientes
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Exportar Ingresos de Plataforma */}
+              <div className="payments-booking-card">
+                <div className="p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="ios-app-icon !w-10 !h-10" style={{ background: '#34c759' }}>
+                      <DollarSign size={18} className="text-white" />
+                    </div>
+                    <h4 className="text-lg font-semibold text-[#1d1d1f]">Ingresos de Plataforma</h4>
+                  </div>
+                  <p className="text-sm text-[#8e8e93] mb-4">
+                    Exporta el historial de retiros realizados desde la plataforma
+                  </p>
+                  <button
+                    onClick={exportWithdrawalsToCSV}
+                    disabled={!withdrawals.length}
+                    className="w-full payments-button payments-button--primary payments-button--with-icon"
+                  >
+                    <Download size={16} />
+                    Exportar retiros ({withdrawals.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Exportar Facturas Externas */}
+              <div className="payments-booking-card">
+                <div className="p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="ios-app-icon !w-10 !h-10" style={{ background: '#ff9500' }}>
+                      <FileText size={18} className="text-white" />
+                    </div>
+                    <h4 className="text-lg font-semibold text-[#1d1d1f]">Facturas Externas</h4>
+                  </div>
+                  <p className="text-sm text-[#8e8e93] mb-4">
+                    Exporta tu registro de facturas emitidas a clientes externos
+                  </p>
+                  <button
+                    onClick={exportInvoicesToCSV}
+                    disabled={!invoices.length}
+                    className="w-full payments-button payments-button--primary payments-button--with-icon"
+                  >
+                    <Download size={16} />
+                    Exportar facturas ({invoices.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Exportar Reporte Detallado */}
+              <div className="payments-booking-card">
+                <div className="p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="ios-app-icon !w-10 !h-10" style={{ background: '#5856d6' }}>
+                      <BarChart3 size={18} className="text-white" />
+                    </div>
+                    <h4 className="text-lg font-semibold text-[#1d1d1f]">Reporte Detallado</h4>
+                  </div>
+                  <p className="text-sm text-[#8e8e93] mb-4">
+                    Exporta un reporte completo con desglose mensual por profesional
+                  </p>
+                  <button
+                    onClick={exportDetailedReport}
+                    disabled={!stats.length}
+                    className="w-full payments-button payments-button--primary payments-button--with-icon"
+                  >
+                    <Download size={16} />
+                    Exportar reporte completo
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-semibold text-blue-900 mb-1">Información sobre exportaciones</h4>
+                  <p className="text-sm text-blue-700">
+                    Los archivos se exportan en formato CSV compatible con Excel, Google Sheets y software contable.
+                    Todos los datos respetan la configuración de moneda y formato de fecha regional.
+                  </p>
+                </div>
               </div>
             </div>
           </section>

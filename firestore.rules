@@ -530,6 +530,24 @@ service cloud.firestore {
                    isOwner(resource.data.userId);
     }
 
+    // === REGLAS PARA DISPONIBILIDAD PROFESIONAL ===
+    match /professional_availability/{availabilityId} {
+      // Lectura: cualquier usuario autenticado
+      allow read, list: if isAuthenticated();
+
+      // Crear solicitud: cualquier usuario autenticado (validaciones básicas)
+      allow create: if isAuthenticated() &&
+                   request.resource.data.status == 'pending' &&
+                   isValidDocSize();
+
+      // Actualizar: cualquier usuario autenticado
+      allow update: if isAuthenticated() &&
+                   isValidDocSize();
+
+      // Eliminar: cualquier usuario autenticado
+      allow delete: if isAuthenticated();
+    }
+
     // === BLOQUEAR TODO LO DEMÁS ===
     match /{document=**} {
       allow read, write: if false;

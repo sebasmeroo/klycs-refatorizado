@@ -36,7 +36,8 @@ import {
   Camera,
   User,
   CheckCircle2,
-  Loader2
+  Loader2,
+  Inbox
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
@@ -72,6 +73,9 @@ import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useExternalClients } from '@/hooks/useExternalClients';
 import { Link } from 'react-router-dom';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { AvailabilityInbox } from '@/components/calendar/AvailabilityInbox';
+import { usePendingCount, useApprovedAvailabilities } from '@/hooks/useProfessionalAvailability';
+import { ProfessionalAvailability } from '@/types/calendar';
 
 const GENERAL_CALENDAR_ID = 'general-calendar';
 const PROFESSIONAL_COLOR_PALETTE = [
@@ -268,6 +272,13 @@ const DashboardBookings: React.FC = () => {
   const updateEventMutation = useUpdateEvent();
   const deleteEventMutation = useDeleteEvent();
 
+  // ===== DISPONIBILIDADES APROBADAS =====
+  const { data: approvedAvailabilities } = useApprovedAvailabilities(
+    calendarIds.length > 0 ? calendarIds : undefined,
+    visibleRange.startDate,
+    visibleRange.endDate
+  );
+
   // ===== CLIENTES EXTERNOS =====
   const { data: externalClients } = useExternalClients(user?.uid);
 
@@ -298,6 +309,10 @@ const DashboardBookings: React.FC = () => {
   const tooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [newComment, setNewComment] = useState('');
+  const [showInbox, setShowInbox] = useState(false);
+
+  // Inbox - Obtener conteo de solicitudes pendientes
+  const { data: pendingCount } = usePendingCount(calendarIds);
   
   // Estados para crear eventos
   const [selectedProfessional, setSelectedProfessional] = useState<SharedCalendar | null>(null);
@@ -533,37 +548,83 @@ const DashboardBookings: React.FC = () => {
   }, []);
 
   // ===== FUNCIONES AUXILIARES =====
-  
-  const generateCalendarDays = (): CalendarDay[] => {
+
+  // Convierte una disponibilidad aprobada a un pseudo-evento para el calendario
+  const availabilityToEvent = useCallback((availability: ProfessionalAvailability): CalendarEvent => {
+    const startDate = new Date(availability.date);
+    const [startHour, startMinute] = availability.startTime.split(':').map(Number);
+    startDate.setHours(startHour, startMinute, 0, 0);
+
+    const endDate = new Date(availability.date);
+    const [endHour, endMinute] = availability.endTime.split(':').map(Number);
+    endDate.setHours(endHour, endMinute, 0, 0);
+
+    return {
+      id: `availability-${availability.id}`,
+      calendarId: availability.calendarId,
+      title: `📝 ${availability.title}`,
+      description: availability.note,
+      startDate,
+      endDate,
+      isAllDay: false,
+      hasEndTime: true,
+      color: availability.professionalColor,
+      createdBy: availability.professionalId,
+      attendees: [],
+      comments: [],
+      attachments: [],
+      status: 'confirmed' as const,
+      visibility: 'public' as const,
+      reminders: [],
+      createdAt: availability.createdAt,
+      updatedAt: availability.updatedAt,
+      // Marcador especial para identificar que es una disponibilidad
+      customFieldsData: {
+        _isAvailability: true,
+        _availabilityId: availability.id,
+        _professionalName: availability.professionalName,
+      },
+    };
+  }, []);
+
+  const generateCalendarDays = useCallback((): CalendarDay[] => {
     const currentDate = calendarState.currentDate;
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const visibleCalendarIds = getVisibleCalendarIds();
-    
+
     // Primer día del mes
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    
+
     // Calcular días a mostrar (empezar el lunes)
     const firstWeekday = firstDay.getDay();
     const startDate = new Date(firstDay);
     startDate.setDate(startDate.getDate() - (firstWeekday === 0 ? 6 : firstWeekday - 1));
-    
+
     const days: CalendarDay[] = [];
     const today = new Date();
-    
+
+    // Convertir disponibilidades aprobadas a pseudo-eventos
+    const availabilityEvents = (approvedAvailabilities || [])
+      .filter(av => visibleCalendarIds.includes(av.calendarId))
+      .map(availabilityToEvent);
+
+    // Combinar eventos reales con disponibilidades
+    const allEvents = [...events, ...availabilityEvents];
+
     for (let i = 0; i < 42; i++) { // 6 semanas x 7 días
       const date = new Date(startDate);
       date.setDate(startDate.getDate() + i);
-      
-      const dayEvents = events.filter(event => {
+
+      const dayEvents = allEvents.filter(event => {
         if (!visibleCalendarIds.includes(event.calendarId)) {
           return false;
         }
         const eventDate = new Date(event.startDate);
         return eventDate.toDateString() === date.toDateString();
       });
-      
+
       days.push({
         date: new Date(date),
         isCurrentMonth: date.getMonth() === month,
@@ -572,9 +633,9 @@ const DashboardBookings: React.FC = () => {
         dayNumber: date.getDate()
       });
     }
-    
+
     return days;
-  };
+  }, [calendarState.currentDate, events, approvedAvailabilities, availabilityToEvent]);
   
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCalendarState(prev => {
@@ -2285,7 +2346,11 @@ const DashboardBookings: React.FC = () => {
                                   setHoveredEvent(null);
                                 }}
                                 className="w-full text-left bg-blue-500/90 hover:bg-blue-600 text-white rounded-lg px-2 py-1 transition-colors shadow-sm"
-                                style={{ backgroundColor: getCalendarColor(event.calendarId) }}
+                                style={{
+                                  backgroundColor: getCalendarColor(event.calendarId),
+                                  border: event.customFieldsData?._isAvailability ? '2px solid #F59E0B' : undefined,
+                                  boxShadow: event.customFieldsData?._isAvailability ? '0 0 0 1px rgba(245, 158, 11, 0.2)' : undefined
+                                }}
                               >
                                 <div className="text-xs font-semibold truncate">{event.title}</div>
                                 <div className="text-[10px] text-white/80">
@@ -2385,7 +2450,11 @@ const DashboardBookings: React.FC = () => {
                       setHoveredEvent(null);
                     }}
                     className="px-2 py-1 rounded text-xs font-medium text-white truncate cursor-pointer hover:opacity-80 transition-opacity"
-                    style={{ backgroundColor: getCalendarColor(event.calendarId) }}
+                    style={{
+                      backgroundColor: getCalendarColor(event.calendarId),
+                      border: event.customFieldsData?._isAvailability ? '2px solid #F59E0B' : undefined,
+                      boxShadow: event.customFieldsData?._isAvailability ? '0 0 0 1px rgba(245, 158, 11, 0.2)' : undefined
+                    }}
                   >
                     {event.title}
                   </div>
@@ -3119,9 +3188,11 @@ const DashboardBookings: React.FC = () => {
     <div className="h-screen bg-gray-50 flex overflow-hidden">
       {/* Sidebar de calendarios */}
       {calendarSidebar}
-      
+
       {/* Contenido principal */}
-      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+      <div className={`flex-1 flex flex-col overflow-hidden min-h-0 transition-all duration-300 ${
+        showInbox ? 'mr-0' : ''
+      }`}>
         {/* Header estilo TimeTree */}
         <div className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -3163,9 +3234,23 @@ const DashboardBookings: React.FC = () => {
                       
             {/* Controles superiores */}
             <div className="flex items-center space-x-3">
+              {/* Botón Inbox con badge */}
+              <button
+                onClick={() => setShowInbox(true)}
+                className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Solicitudes pendientes"
+              >
+                <Inbox className="w-5 h-5 text-gray-600" />
+                {pendingCount && pendingCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                    {pendingCount > 9 ? '9+' : pendingCount}
+                  </span>
+                )}
+              </button>
+
               {/* Toggle mensual/semanal */}
               <div className="bg-gray-100 rounded-lg p-1 flex">
-                          <button 
+                          <button
                   onClick={() => setCalendarState(prev => ({ ...prev, view: 'month' }))}
                   className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
                     calendarState.view === 'month'
@@ -3175,7 +3260,7 @@ const DashboardBookings: React.FC = () => {
                 >
                   Mensual
                           </button>
-                          <button 
+                          <button
                   onClick={() => setCalendarState(prev => ({ ...prev, view: 'week' }))}
                   className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
                     calendarState.view === 'week'
@@ -3186,7 +3271,7 @@ const DashboardBookings: React.FC = () => {
                   Semanal
                           </button>
                         </div>
-                        
+
                       <button 
                 onClick={() => {
                   if (selectedProfessional) {
@@ -3386,22 +3471,33 @@ const DashboardBookings: React.FC = () => {
                   className="w-3 h-3 rounded-full"
                   style={{ backgroundColor: calendarColor }}
                 />
-                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Detalles de la Reserva</p>
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                  {event.customFieldsData?._isAvailability ? 'Nota del Profesional' : 'Detalles de la Reserva'}
+                </p>
               </div>
 
             {/* Contenido del evento */}
             <div className="space-y-3">
               {event.title && (
                 <div>
-                  <p className="text-xs font-medium text-gray-500 mb-1">Servicio:</p>
+                  <p className="text-xs font-medium text-gray-500 mb-1">
+                    {event.customFieldsData?._isAvailability ? 'Título:' : 'Servicio:'}
+                  </p>
                   <p className="text-sm font-semibold text-gray-900">{event.title}</p>
                 </div>
               )}
 
-              {professionalName && (
+              {professionalName && !event.customFieldsData?._isAvailability && (
                 <div>
                   <p className="text-xs font-medium text-gray-500 mb-1">Profesional:</p>
                   <p className="text-sm text-gray-900">{professionalName}</p>
+                </div>
+              )}
+
+              {event.customFieldsData?._isAvailability && event.customFieldsData._professionalName && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Profesional:</p>
+                  <p className="text-sm text-gray-900">{event.customFieldsData._professionalName}</p>
                 </div>
               )}
 
@@ -4772,6 +4868,17 @@ const DashboardBookings: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Inbox Sidebar (empuja contenido) */}
+      {showInbox && user?.uid && (
+        <div className="h-full flex-shrink-0">
+          <AvailabilityInbox
+            ownerId={user.uid}
+            calendarIds={calendarIds}
+            onClose={() => setShowInbox(false)}
+          />
+        </div>
+      )}
 
     </div>
   );

@@ -272,6 +272,55 @@ export interface UserCalendarSettings {
   updatedAt: Date;
 }
 
+// ===== DISPONIBILIDAD DE PROFESIONALES =====
+
+export type AvailabilityType = 'note'; // Simplificado: solo notas
+export type AvailabilityStatus = 'pending' | 'approved' | 'rejected';
+export type AvailabilityRecurrence = 'once' | 'daily' | 'weekly' | 'monthly';
+
+export interface ProfessionalAvailability {
+  id: string;
+  calendarId: string;
+  professionalId: string; // userId del profesional
+  professionalName: string;
+  professionalEmail: string;
+  professionalColor: string; // Color del calendario del profesional
+
+  type: AvailabilityType; // Siempre 'note'
+
+  // Fecha y horario
+  date: Date; // Fecha seleccionada en el calendario
+  startTime: string; // "09:00" - Desde hora (REQUERIDO)
+  endTime: string; // "17:00" - Hasta hora (REQUERIDO)
+
+  // Recurrencia
+  recurrence: AvailabilityRecurrence; // 'once' (predeterminado), 'daily', 'weekly', 'monthly'
+  recurrenceEndDate?: Date; // Si es recurrente, hasta cuándo
+
+  title: string; // Título de la nota
+  note?: string; // Detalles adicionales
+
+  // Sistema de aprobación
+  status: AvailabilityStatus;
+  requestedAt: Date;
+  reviewedAt?: Date;
+  reviewedBy?: string; // userId del dueño que aprobó/rechazó
+  rejectionReason?: string; // Motivo del rechazo (opcional)
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Versión Firestore
+export interface ProfessionalAvailabilityFirestore extends Omit<ProfessionalAvailability, 'date' | 'requestedAt' | 'reviewedAt' | 'recurrenceEndDate' | 'createdAt' | 'updatedAt'> {
+  date: Timestamp;
+  requestedAt: Timestamp;
+  reviewedAt?: Timestamp;
+  recurrenceEndDate?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 // ===== ESTADÍSTICAS =====
 
 export interface CalendarStats {
@@ -283,6 +332,7 @@ export interface CalendarStats {
   eventsThisWeek: number;
   mostActiveCalendar: string;
   collaborators: number;
+  pendingAvailabilityRequests?: number; // Nuevas solicitudes pendientes
 }
 
 // ===== DATOS PARA FIRESTORE =====

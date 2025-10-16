@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useExternalClients, useCreateClient, useDeleteClient } from '@/hooks/useExternalClients';
-import { ExternalClient } from '@/types/externalClient';
+import { useExternalClients, useCreateClient, useDeleteClient, useClientServices, useClientStats, useUpdateClient, useCancelService } from '@/hooks/useExternalClients';
+import { ExternalClient, ExternalClientService } from '@/types/externalClient';
 import '@/styles/ios-dashboard.css';
 import {
   Users,
@@ -18,9 +18,15 @@ import {
   Edit2,
   Trash2,
   Eye,
-  AlertCircle
+  AlertCircle,
+  X,
+  Download,
+  FileText,
+  BarChart3,
+  Filter,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 
 interface ClientFormData {
   name: string;
@@ -41,6 +47,7 @@ const DashboardClients: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ExternalClient | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showDetailsSidebar, setShowDetailsSidebar] = useState(false);
 
   // Filtrar clientes según búsqueda
   const filteredClients = clients?.filter(client =>
@@ -174,6 +181,10 @@ const DashboardClients: React.FC = () => {
                   setSelectedClient(client);
                   setShowDeleteModal(true);
                 }}
+                onViewDetails={() => {
+                  setSelectedClient(client);
+                  setShowDetailsSidebar(true);
+                }}
               />
             ))}
           </div>
@@ -224,6 +235,17 @@ const DashboardClients: React.FC = () => {
           isDeleting={deleteClient.isPending}
         />
       )}
+
+      {/* Client Details Sidebar */}
+      {showDetailsSidebar && selectedClient && (
+        <ClientDetailsSidebar
+          client={selectedClient}
+          onClose={() => {
+            setShowDetailsSidebar(false);
+            setSelectedClient(null);
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -252,7 +274,8 @@ const StatCard: React.FC<{
 const ClientCard: React.FC<{
   client: ExternalClient;
   onDelete: () => void;
-}> = ({ client, onDelete }) => {
+  onViewDetails: () => void;
+}> = ({ client, onDelete, onViewDetails }) => {
   const [showMenu, setShowMenu] = useState(false);
 
   const lastServiceDate = client.lastServiceDate
@@ -286,16 +309,19 @@ const ClientCard: React.FC<{
         </button>
         {showMenu && (
           <div className="absolute right-0 mt-1 w-48 rounded-xl border border-black/10 shadow-lg bg-white py-1 z-10">
-            <Link
-              to={`/dashboard/clientes/${client.id}`}
-              className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-black/5 transition-colors"
+            <button
+              onClick={() => {
+                setShowMenu(false);
+                onViewDetails();
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-black/5 transition-colors w-full text-left"
             >
               <Eye size={16} />
               Ver Detalles
-            </Link>
+            </button>
             <button
               onClick={onDelete}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-[#ff3b30] hover:bg-[#ff3b30]/5 transition-colors w-full"
+              className="flex items-center gap-2 px-4 py-2 text-sm text-[#ff3b30] hover:bg-[#ff3b30]/5 transition-colors w-full text-left"
             >
               <Trash2 size={16} />
               Eliminar
@@ -354,14 +380,14 @@ const ClientCard: React.FC<{
         <span>Último servicio: {formatDate(lastServiceDate)}</span>
       </div>
 
-      {/* View Details Link */}
-      <Link
-        to={`/dashboard/clientes/${client.id}`}
+      {/* View Details Button */}
+      <button
+        onClick={onViewDetails}
         className="mt-4 ios-cta-button w-full flex items-center justify-center gap-2"
       >
         <Eye size={16} />
         Ver Detalles
-      </Link>
+      </button>
     </div>
   );
 };
@@ -547,6 +573,395 @@ const DeleteClientModal: React.FC<{
           className="flex-1 ios-clear-button !text-[#ff3b30]"
         >
           {isDeleting ? 'Eliminando...' : 'Eliminar'}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+// Client Details Sidebar Component
+const ClientDetailsSidebar: React.FC<{
+  client: ExternalClient;
+  onClose: () => void;
+}> = ({ client, onClose }) => {
+  const { user } = useAuth();
+  const { data: services, isLoading: servicesLoading } = useClientServices(client.id);
+  const { data: stats } = useClientStats(client.id);
+  const updateClient = useUpdateClient();
+  const cancelService = useCancelService();
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d' | '90d'>('all');
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [selectedService, setSelectedService] = useState<ExternalClientService | null>(null);
+
+  // Filtrar servicios por fecha
+  const filteredServices = React.useMemo(() => {
+    if (!services || dateFilter === 'all') return services;
+
+    const now = new Date();
+    const filterDate = new Date();
+
+    switch (dateFilter) {
+      case '7d':
+        filterDate.setDate(now.getDate() - 7);
+        break;
+      case '30d':
+        filterDate.setDate(now.getDate() - 30);
+        break;
+      case '90d':
+        filterDate.setDate(now.getDate() - 90);
+        break;
+    }
+
+    return services.filter(service => {
+      const serviceDate = service.date instanceof Date ? service.date : service.date.toDate();
+      return serviceDate >= filterDate;
+    });
+  }, [services, dateFilter]);
+
+  const handleCancelService = async () => {
+    if (!selectedService) return;
+
+    try {
+      await cancelService.mutateAsync({
+        clientId: client.id,
+        serviceId: selectedService.id
+      });
+      setShowCancelModal(false);
+      setSelectedService(null);
+    } catch (error) {
+      console.error('Error canceling service:', error);
+    }
+  };
+
+  const exportToCSV = () => {
+    if (!filteredServices) return;
+
+    const headers = ['Fecha', 'Título', 'Profesional', 'Horas', 'Tarifa', 'Importe', 'Estado'];
+    const rows = filteredServices.map(service => [
+      (service.date instanceof Date ? service.date : service.date.toDate()).toLocaleDateString('es-ES'),
+      service.title,
+      service.professionalName,
+      service.hours,
+      service.professionalRate,
+      service.amount,
+      service.status === 'completed' ? 'Completado' : 'Cancelado'
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${client.name.replace(/\s+/g, '_')}_servicios.csv`;
+    link.click();
+  };
+
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 bg-black/50 z-40 animate-fadeIn"
+        onClick={onClose}
+      />
+
+      {/* Sidebar */}
+      <div className="fixed right-0 top-0 bottom-0 w-full md:w-[600px] lg:w-[700px] bg-white shadow-2xl z-50 overflow-y-auto animate-slideInRight">
+        <div className="sticky top-0 z-10 bg-white border-b border-black/10 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-semibold text-[#1d1d1f]">Detalles del Cliente</h2>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-black/5 transition-colors"
+            >
+              <X size={20} className="text-[#8e8e93]" />
+            </button>
+          </div>
+
+          {/* Client Info Header */}
+          <div className="flex items-start gap-4">
+            <div className="ios-app-icon !w-14 !h-14">
+              <Users className="text-white" size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-[#1d1d1f] mb-2">{client.name}</h3>
+              <div className="space-y-1">
+                {client.company && (
+                  <div className="flex items-center gap-2 text-sm text-[#8e8e93]">
+                    <Building2 size={14} />
+                    {client.company}
+                  </div>
+                )}
+                {client.email && (
+                  <div className="flex items-center gap-2 text-sm text-[#8e8e93]">
+                    <Mail size={14} />
+                    {client.email}
+                  </div>
+                )}
+                {client.phone && (
+                  <div className="flex items-center gap-2 text-sm text-[#8e8e93]">
+                    <Phone size={14} />
+                    {client.phone}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={exportToCSV}
+                className="ios-link-button flex items-center gap-2"
+              >
+                <Download size={16} />
+                CSV
+              </button>
+              <button
+                onClick={() => setShowEditModal(true)}
+                className="ios-cta-button flex items-center gap-2"
+              >
+                <Edit2 size={16} />
+                Editar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-6">
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl p-4 bg-blue-50 border border-blue-100">
+              <div className="flex items-center gap-2 mb-1">
+                <Calendar size={16} className="text-blue-600" />
+                <span className="text-xs text-blue-600">Servicios</span>
+              </div>
+              <p className="text-2xl font-semibold text-blue-900">{stats?.serviceCount || 0}</p>
+            </div>
+            <div className="rounded-xl p-4 bg-green-50 border border-green-100">
+              <div className="flex items-center gap-2 mb-1">
+                <Clock size={16} className="text-green-600" />
+                <span className="text-xs text-green-600">Horas</span>
+              </div>
+              <p className="text-2xl font-semibold text-green-900">{stats?.totalHours || 0}h</p>
+            </div>
+            <div className="rounded-xl p-4 bg-orange-50 border border-orange-100">
+              <div className="flex items-center gap-2 mb-1">
+                <Euro size={16} className="text-orange-600" />
+                <span className="text-xs text-orange-600">Total</span>
+              </div>
+              <p className="text-2xl font-semibold text-orange-900">
+                {client.currency === 'EUR' ? '€' : client.currency === 'USD' ? '$' : ''}
+                {(stats?.totalAmount || 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-xl p-4 bg-purple-50 border border-purple-100">
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp size={16} className="text-purple-600" />
+                <span className="text-xs text-purple-600">Último</span>
+              </div>
+              <p className="text-sm font-semibold text-purple-900">
+                {stats?.lastServiceDate
+                  ? stats.lastServiceDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+                  : 'N/A'}
+              </p>
+            </div>
+          </div>
+
+          {/* Professional Breakdown */}
+          {stats?.professionalBreakdown && stats.professionalBreakdown.length > 0 && (
+            <div className="rounded-xl p-4 border border-black/10 bg-white">
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart3 size={18} className="text-[#007aff]" />
+                <h4 className="font-semibold text-[#1d1d1f]">Desglose por Profesional</h4>
+              </div>
+              <div className="space-y-2">
+                {stats.professionalBreakdown.map((prof) => (
+                  <div key={prof.professionalId} className="rounded-lg p-3 bg-black/5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-[#1d1d1f]">{prof.professionalName}</span>
+                      <span className="text-xs text-[#8e8e93]">{prof.serviceCount} servicios</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-[#8e8e93]">{prof.hours}h</span>
+                      <span className="font-semibold text-[#1d1d1f]">
+                        {client.currency === 'EUR' ? '€' : client.currency === 'USD' ? '$' : ''}
+                        {prof.amount.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Services History */}
+          <div className="rounded-xl p-4 border border-black/10 bg-white">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <FileText size={18} className="text-[#007aff]" />
+                <h4 className="font-semibold text-[#1d1d1f]">Historial de Servicios</h4>
+              </div>
+              <div className="flex items-center gap-2">
+                <Filter size={14} className="text-[#8e8e93]" />
+                <select
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value as any)}
+                  className="px-2 py-1 rounded-lg border border-black/10 text-xs focus:border-[var(--ios-accent)] focus:ring-2 focus:ring-[var(--ios-accent)]/20 outline-none"
+                >
+                  <option value="all">Todos</option>
+                  <option value="7d">7 días</option>
+                  <option value="30d">30 días</option>
+                  <option value="90d">90 días</option>
+                </select>
+              </div>
+            </div>
+
+            {servicesLoading ? (
+              <div className="text-center py-6">
+                <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--ios-accent)]"></div>
+              </div>
+            ) : filteredServices && filteredServices.length > 0 ? (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {filteredServices.map((service) => {
+                  const serviceDate = service.date instanceof Date ? service.date : service.date.toDate();
+                  const isCancelled = service.status === 'cancelled';
+
+                  return (
+                    <div
+                      key={service.id}
+                      className={`rounded-lg p-3 border transition-all ${
+                        isCancelled
+                          ? 'bg-red-50 border-red-100 opacity-60'
+                          : 'bg-green-50 border-green-100'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-[#1d1d1f]">{service.title}</span>
+                            {isCancelled ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs">
+                                <XCircle size={10} />
+                                Cancelado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">
+                                <CheckCircle size={10} />
+                                Completado
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#8e8e93]">{service.professionalName}</p>
+                          <p className="text-xs text-[#8e8e93]">
+                            {serviceDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-[#1d1d1f]">
+                            {client.currency === 'EUR' ? '€' : client.currency === 'USD' ? '$' : ''}
+                            {service.amount.toLocaleString()}
+                          </p>
+                          <p className="text-xs text-[#8e8e93]">{service.hours}h</p>
+                          {!isCancelled && (
+                            <button
+                              onClick={() => {
+                                setSelectedService(service);
+                                setShowCancelModal(true);
+                              }}
+                              className="text-xs text-red-600 hover:opacity-80 transition-opacity mt-1"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-center py-6 text-[#8e8e93] text-sm">
+                {dateFilter === 'all'
+                  ? 'No hay servicios registrados'
+                  : 'No hay servicios en el período seleccionado'}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Edit Modal */}
+      {showEditModal && (
+        <EditClientModal
+          client={client}
+          onClose={() => setShowEditModal(false)}
+          onSubmit={async (data) => {
+            if (!user?.uid) return;
+            await updateClient.mutateAsync({
+              clientId: client.id,
+              data,
+              userId: user.uid
+            });
+            setShowEditModal(false);
+          }}
+          isSubmitting={updateClient.isPending}
+        />
+      )}
+
+      {/* Cancel Service Modal */}
+      {showCancelModal && selectedService && (
+        <CancelServiceModal
+          service={selectedService}
+          onClose={() => {
+            setShowCancelModal(false);
+            setSelectedService(null);
+          }}
+          onConfirm={handleCancelService}
+          isCancelling={cancelService.isPending}
+        />
+      )}
+    </>
+  );
+};
+
+// Cancel Service Modal
+const CancelServiceModal: React.FC<{
+  service: ExternalClientService;
+  onClose: () => void;
+  onConfirm: () => void;
+  isCancelling: boolean;
+}> = ({ service, onClose, onConfirm, isCancelling }) => (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+    <div className="rounded-2xl bg-white shadow-xl max-w-md w-full p-6 animate-fadeIn">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="ios-app-icon !w-10 !h-10 !bg-[#ff3b30]">
+          <AlertCircle className="text-white" size={18} />
+        </div>
+        <h2 className="text-xl font-semibold text-[#1d1d1f]">Cancelar Servicio</h2>
+      </div>
+
+      <p className="text-[#8e8e93] mb-4">
+        ¿Estás seguro de que deseas cancelar el servicio <strong>{service.title}</strong>?
+      </p>
+
+      <div className="rounded-lg bg-[#ff3b30]/10 p-3 mb-4">
+        <p className="text-sm text-[#ff3b30]">
+          ⚠️ Se restarán {service.hours}h y {service.amount} del total del cliente.
+        </p>
+      </div>
+
+      <div className="flex gap-3">
+        <button onClick={onClose} disabled={isCancelling} className="flex-1 ios-cta-button">
+          Volver
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={isCancelling}
+          className="flex-1 ios-clear-button !text-[#ff3b30]"
+        >
+          {isCancelling ? 'Cancelando...' : 'Confirmar'}
         </button>
       </div>
     </div>

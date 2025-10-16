@@ -36,6 +36,7 @@ import {
 import { es } from 'date-fns/locale';
 import { useCalendar, useCalendarEvents } from '@/hooks/useCalendar';
 import { getCurrentPaymentPeriod } from '@/utils/paymentPeriods';
+import { AvailabilityPanel } from '@/components/calendar/AvailabilityPanel';
 
 const weekdayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
@@ -538,6 +539,22 @@ export const ProfessionalCalendar: React.FC = () => {
                 ))}
               </div>
             </div>
+
+            {/* Panel de disponibilidad del profesional */}
+            {calendar && professionalMember && (
+              <div className="bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden">
+                <div className="p-5">
+                  <AvailabilityPanel
+                    calendar={calendar}
+                    professionalId={professionalMember.id}
+                    professionalName={professionalMember.name}
+                    professionalEmail={professionalMember.email}
+                    selectedDate={selectedDate}
+                  />
+                </div>
+              </div>
+            )}
+
             <details className="bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden [&_summary]:list-none">
               <summary className="flex items-center justify-between p-5 cursor-pointer select-none">
                 <div>

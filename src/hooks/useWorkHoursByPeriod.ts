@@ -139,11 +139,11 @@ export const useWorkHoursByPeriod = (
       return results;
     },
     staleTime: 2 * 60 * 1000, // 2 minutos - más corto para datos en tiempo real
-    gcTime: 5 * 60 * 1000, // 5 minutos en memoria
+    gcTime: 5 * 60 * 1000, // 5 minutos en memoria (React Query v5)
     enabled: !!calendars && calendars.length > 0 && !calendarsLoading && !!userId,
     refetchOnWindowFocus: false,
     refetchOnMount: true, // Siempre recargar al montar (datos en tiempo real)
-    keepPreviousData: true
+    placeholderData: (previousData) => previousData // React Query v5: Mantener datos anteriores
   });
 };
 

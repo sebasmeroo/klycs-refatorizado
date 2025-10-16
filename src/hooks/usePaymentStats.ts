@@ -63,10 +63,10 @@ export const usePaymentStats = (
       return stats;
     },
     staleTime: 5 * 60 * 1000, // 5 minutos - React Query cache
-    cacheTime: 10 * 60 * 1000, // 10 minutos en memoria
+    gcTime: 10 * 60 * 1000, // 10 minutos en memoria (React Query v5)
     enabled: !!calendars && calendars.length > 0 && !calendarsLoading,
     refetchOnWindowFocus: false,
-    keepPreviousData: true, // Mantener datos anteriores mientras carga los nuevos
+    placeholderData: (previousData) => previousData, // React Query v5: Mantener datos anteriores
   });
 };
 
@@ -140,10 +140,10 @@ export const usePaymentPendingServices = (
       return pendingMap;
     },
     staleTime: 3 * 60 * 1000, // 3 minutos - React Query cache
-    cacheTime: 10 * 60 * 1000, // 10 minutos en memoria
+    gcTime: 10 * 60 * 1000, // 10 minutos en memoria (React Query v5)
     enabled: enabled && !!calendarIds && calendarIds.length > 0,
     refetchOnWindowFocus: false,
-    keepPreviousData: true,
+    placeholderData: (previousData) => previousData, // React Query v5: Mantener datos anteriores
   });
 };
 
