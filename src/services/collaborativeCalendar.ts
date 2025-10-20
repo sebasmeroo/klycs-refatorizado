@@ -39,6 +39,7 @@ import { logger } from '@/utils/logger';
 import { subscriptionsService } from '@/services/subscriptions';
 import { generateRecurringInstances } from '@/utils/recurrence';
 import { ExternalClientsService } from '@/services/externalClientsService';
+import { ProfessionalAvailabilityService } from '@/services/professionalAvailability';
 
 const normalizeRecurringStatuses = (
   raw?: CalendarEventFirestore['recurringInstancesStatus']
@@ -857,12 +858,34 @@ export class CalendarEventService {
     parentEventId?: string
   ): Promise<string> {
     // Calcular duración en minutos si hay endDate
+    let computedEndDate = eventData.endDate ? new Date(eventData.endDate) : undefined;
+    let hasEndTime = typeof eventData.hasEndTime === 'boolean'
+      ? eventData.hasEndTime
+      : !!computedEndDate;
     let duration = 0;
-    let hasEndTime = !!eventData.endDate;
     
-    if (eventData.endDate && !eventData.isAllDay) {
-      duration = Math.round((eventData.endDate.getTime() - eventData.startDate.getTime()) / (1000 * 60));
+    if (computedEndDate && !eventData.isAllDay) {
+      duration = Math.max(
+        0,
+        Math.round((computedEndDate.getTime() - eventData.startDate.getTime()) / (1000 * 60))
+      );
+    } else if (!computedEndDate && typeof eventData.duration === 'number' && eventData.duration > 0) {
+      duration = eventData.duration;
+      computedEndDate = new Date(eventData.startDate.getTime() + duration * 60 * 1000);
+      hasEndTime = true;
     }
+
+    if (!computedEndDate && hasEndTime && !eventData.isAllDay) {
+      computedEndDate = new Date(eventData.startDate.getTime() + 5 * 60 * 1000);
+    }
+
+    await this.ensureAvailabilityIsNotBlocked(calendarId, {
+      startDate: eventData.startDate,
+      endDate: computedEndDate,
+      isAllDay: eventData.isAllDay,
+      hasEndTime,
+      duration
+    });
     
     // ✅ Guardar la fecha exactamente como está, sin conversiones de zona horaria
     // No usar Date.UTC porque ya tenemos la hora local correcta
@@ -1156,6 +1179,87 @@ export class CalendarEventService {
     }
   }
 
+  private static async ensureAvailabilityIsNotBlocked(
+    calendarId: string,
+    params: {
+      startDate: Date;
+      endDate?: Date;
+      isAllDay?: boolean;
+      hasEndTime?: boolean;
+      duration?: number;
+    }
+  ): Promise<void> {
+    try {
+      if (!calendarId || !params.startDate) {
+        return;
+      }
+
+      let eventRangeStart = new Date(params.startDate);
+      let eventRangeEnd: Date;
+
+      if (params.isAllDay) {
+        const dayStart = new Date(eventRangeStart);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setHours(23, 59, 59, 999);
+        eventRangeStart = dayStart;
+        eventRangeEnd = dayEnd;
+      } else if (params.endDate) {
+        eventRangeEnd = new Date(params.endDate);
+      } else if (params.duration && params.duration > 0) {
+        eventRangeEnd = new Date(eventRangeStart.getTime() + params.duration * 60 * 1000);
+      } else {
+        eventRangeEnd = new Date(eventRangeStart.getTime() + 5 * 60 * 1000);
+      }
+
+      const blockingAvailabilities = await ProfessionalAvailabilityService.getApprovedAvailabilitiesForRange(
+        calendarId,
+        eventRangeStart,
+        eventRangeEnd
+      );
+
+      const conflicts = blockingAvailabilities.filter((availability) => {
+        const availabilityStart = this.combineDateAndTime(availability.date, availability.startTime);
+        const availabilityEndRaw = this.combineDateAndTime(availability.date, availability.endTime);
+        const availabilityEnd = availabilityEndRaw <= availabilityStart
+          ? new Date(availabilityStart.getTime() + 5 * 60 * 1000)
+          : availabilityEndRaw;
+
+        return eventRangeStart < availabilityEnd && eventRangeEnd > availabilityStart;
+      });
+
+      if (conflicts.length > 0) {
+        const first = conflicts[0];
+        const dateLabel = first.date.toLocaleDateString('es-ES');
+        const timeLabel = `${first.startTime} - ${first.endTime}`;
+        throw new Error(`El horario ${timeLabel} del ${dateLabel} está bloqueado por un permiso o nota aprobada.`);
+      }
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  private static combineDateAndTime(date: Date, time?: string): Date {
+    const result = new Date(date);
+    if (!time) {
+      result.setHours(0, 0, 0, 0);
+      return result;
+    }
+
+    const [hoursStr, minutesStr] = time.split(':');
+    const hours = Number.parseInt(hoursStr ?? '0', 10);
+    const minutes = Number.parseInt(minutesStr ?? '0', 10);
+
+    result.setHours(
+      Number.isFinite(hours) ? hours : 0,
+      Number.isFinite(minutes) ? minutes : 0,
+      0,
+      0
+    );
+
+    return result;
+  }
+
   // Obtener eventos de calendarios
   static async getCalendarEvents(
     calendarIds: string[],
@@ -1341,6 +1445,42 @@ export class CalendarEventService {
     updates: Partial<Omit<CalendarEvent, 'id' | 'createdAt'>>
   ): Promise<void> {
     try {
+      const docRef = doc(db, 'calendar_events', eventId);
+      const snapshot = await getDoc(docRef);
+
+      if (!snapshot.exists()) {
+        throw new Error('Evento no encontrado');
+      }
+
+      const currentData = snapshot.data() as CalendarEventFirestore;
+      const currentStart = currentData.startDate.toDate();
+      const currentEnd = currentData.endDate?.toDate();
+      const currentIsAllDay = currentData.isAllDay;
+      const currentHasEndTime = currentData.hasEndTime;
+      const currentDuration = currentData.duration;
+
+      const nextStart = updates.startDate ?? currentStart;
+      const nextEnd = updates.endDate ?? currentEnd;
+      const nextIsAllDay = typeof updates.isAllDay === 'boolean' ? updates.isAllDay : currentIsAllDay;
+      const nextHasEndTime = typeof updates.hasEndTime === 'boolean' ? updates.hasEndTime : currentHasEndTime;
+      const nextDuration = typeof updates.duration === 'number' ? updates.duration : currentDuration;
+
+      const startChanged = nextStart.getTime() !== currentStart.getTime();
+      const endChanged = (nextEnd?.getTime() ?? null) !== (currentEnd?.getTime() ?? null);
+      const isAllDayChanged = nextIsAllDay !== currentIsAllDay;
+      const hasEndTimeChanged = nextHasEndTime !== currentHasEndTime;
+      const durationChanged = (nextDuration ?? null) !== (currentDuration ?? null);
+
+      if (startChanged || endChanged || isAllDayChanged || hasEndTimeChanged || durationChanged) {
+        await this.ensureAvailabilityIsNotBlocked(currentData.calendarId, {
+          startDate: nextStart,
+          endDate: nextEnd ?? undefined,
+          isAllDay: nextIsAllDay,
+          hasEndTime: nextHasEndTime,
+          duration: nextDuration ?? undefined
+        });
+      }
+
       const updateData: any = {
         ...updates,
         updatedAt: Timestamp.now()
@@ -1356,7 +1496,7 @@ export class CalendarEventService {
         updateData.completedAt = Timestamp.fromDate(updates.completedAt);
       }
 
-      await updateDoc(doc(db, 'calendar_events', eventId), updateData);
+      await updateDoc(docRef, updateData);
 
     } catch (error) {
       logger.error('Error al actualizar evento', error as Error, { eventId });

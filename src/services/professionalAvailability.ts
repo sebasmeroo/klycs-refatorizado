@@ -50,6 +50,8 @@ export class ProfessionalAvailabilityService {
       date: data.date.toDate(),
       startTime: data.startTime,
       endTime: data.endTime,
+      recurrence: data.recurrence || 'once',
+      recurrenceEndDate: data.recurrenceEndDate?.toDate(),
       title: data.title,
       note: data.note,
       status: data.status,
@@ -386,5 +388,112 @@ export class ProfessionalAvailabilityService {
       console.error('Error getting pending count:', error);
       return 0;
     }
+  }
+
+  /**
+   * Obtener disponibilidades aprobadas para un rango específico (expande recurrencias)
+   */
+  static async getApprovedAvailabilitiesForRange(
+    calendarId: string,
+    rangeStart: Date,
+    rangeEnd: Date
+  ): Promise<ProfessionalAvailability[]> {
+    try {
+      const normalizedStart = new Date(rangeStart);
+      normalizedStart.setHours(0, 0, 0, 0);
+
+      const normalizedEnd = new Date(rangeEnd);
+      normalizedEnd.setHours(23, 59, 59, 999);
+
+      // Traer disponibilidades dentro del rango (se incluye buffer de 1 año para cubrir recurrencias)
+      const queryStart = new Date(normalizedStart);
+      queryStart.setFullYear(queryStart.getFullYear() - 1);
+
+      const q = query(
+        collection(db, COLLECTION_NAME),
+        where('calendarId', '==', calendarId),
+        where('status', '==', 'approved'),
+        where('date', '>=', Timestamp.fromDate(queryStart)),
+        where('date', '<=', Timestamp.fromDate(normalizedEnd)),
+        orderBy('date', 'asc')
+      );
+
+      const snapshot = await getDocs(q);
+      const availabilities = snapshot.docs.map(this.firestoreToAvailability);
+
+      const expanded: ProfessionalAvailability[] = [];
+      for (const availability of availabilities) {
+        expanded.push(
+          ...this.expandAvailabilityInstances(availability, normalizedStart, normalizedEnd)
+        );
+      }
+
+      return expanded;
+    } catch (error) {
+      console.error('Error getting approved availabilities for range:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Expande instancias de una disponibilidad considerando recurrencia
+   */
+  private static expandAvailabilityInstances(
+    availability: ProfessionalAvailability,
+    rangeStart: Date,
+    rangeEnd: Date
+  ): ProfessionalAvailability[] {
+    const recurrence = availability.recurrence || 'once';
+    const instances: ProfessionalAvailability[] = [];
+    const baseDate = new Date(availability.date);
+
+    if (recurrence === 'once') {
+      if (baseDate >= rangeStart && baseDate <= rangeEnd) {
+        instances.push(availability);
+      }
+      return instances;
+    }
+
+    const limitDate = availability.recurrenceEndDate
+      ? new Date(Math.min(availability.recurrenceEndDate.getTime(), rangeEnd.getTime()))
+      : rangeEnd;
+
+    let currentDate = new Date(baseDate);
+    let count = 0;
+    const MAX_INSTANCES = 365;
+
+    while (currentDate <= limitDate && count < MAX_INSTANCES) {
+      if (currentDate >= rangeStart && currentDate <= rangeEnd) {
+        instances.push({
+          ...availability,
+          date: new Date(currentDate)
+        });
+      }
+
+      switch (recurrence) {
+        case 'daily':
+          currentDate.setDate(currentDate.getDate() + 1);
+          break;
+        case 'weekly':
+          currentDate.setDate(currentDate.getDate() + 7);
+          break;
+        case 'monthly': {
+          const day = currentDate.getDate();
+          currentDate.setMonth(currentDate.getMonth() + 1);
+
+          // Ajustar cuando el mes no tiene el mismo número de días
+          if (currentDate.getDate() !== day) {
+            currentDate.setDate(0); // último día del mes anterior
+          }
+          break;
+        }
+        default:
+          return instances;
+      }
+
+      count++;
+    }
+
+    return instances;
   }
 }

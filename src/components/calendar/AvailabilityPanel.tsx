@@ -8,12 +8,11 @@ import {
   Check,
   AlertCircle,
   Loader2,
-  Info,
-  Repeat
+  Info
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { SharedCalendar, AvailabilityRecurrence } from '@/types/calendar';
+import { SharedCalendar } from '@/types/calendar';
 import {
   useCreateAvailability,
   useAvailabilityByDateRange,
@@ -43,8 +42,6 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
   const [note, setNote] = useState('');
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
-  const [recurrence, setRecurrence] = useState<AvailabilityRecurrence>('once');
-  const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
   const [customDate, setCustomDate] = useState(format(selectedDate, 'yyyy-MM-dd'));
 
   const createAvailability = useCreateAvailability();
@@ -121,8 +118,7 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
         endTime,
         title: title.trim(),
         note: note.trim() || undefined,
-        recurrence,
-        recurrenceEndDate: recurrence !== 'once' && recurrenceEndDate ? new Date(recurrenceEndDate) : undefined,
+        recurrence: 'once',
       });
 
       // Reset form
@@ -130,8 +126,6 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
       setNote('');
       setStartTime('09:00');
       setEndTime('17:00');
-      setRecurrence('once');
-      setRecurrenceEndDate('');
       setCustomDate(format(selectedDate, 'yyyy-MM-dd'));
       setIsOpen(false);
     } catch (error) {
@@ -161,18 +155,11 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
         return { label: 'Aprobado', color: 'bg-green-100 text-green-700' };
       case 'rejected':
         return { label: 'Rechazado', color: 'bg-red-100 text-red-700' };
+      default:
+        return { label: 'Pendiente', color: 'bg-yellow-100 text-yellow-700' };
     }
   };
 
-  const getRecurrenceLabel = (rec: AvailabilityRecurrence): string => {
-    switch (rec) {
-      case 'once': return 'Solo un día';
-      case 'daily': return 'Diario';
-      case 'weekly': return 'Semanal';
-      case 'monthly': return 'Mensual';
-      default: return 'Solo un día';
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -251,45 +238,6 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
                 </div>
               </div>
 
-              {/* Recurrencia */}
-              <div>
-                <label className="text-xs font-medium text-slate-700 uppercase mb-2 flex items-center gap-2">
-                  <Repeat className="w-4 h-4" />
-                  Repetición
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['once', 'daily', 'weekly', 'monthly'] as AvailabilityRecurrence[]).map((rec) => (
-                    <button
-                      key={rec}
-                      type="button"
-                      onClick={() => setRecurrence(rec)}
-                      className={`px-3 py-2 rounded-xl text-xs font-medium border-2 transition ${
-                        recurrence === rec
-                          ? 'bg-indigo-100 text-indigo-700 border-indigo-200'
-                          : 'bg-white text-slate-600 border-slate-200'
-                      }`}
-                    >
-                      {getRecurrenceLabel(rec)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Fecha fin de recurrencia (si no es 'once') */}
-              {recurrence !== 'once' && (
-                <div>
-                  <label className="text-xs font-medium text-slate-700 uppercase mb-1 block">
-                    Repetir hasta (opcional)
-                  </label>
-                  <input
-                    type="date"
-                    value={recurrenceEndDate}
-                    onChange={(e) => setRecurrenceEndDate(e.target.value)}
-                    min={customDate}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-              )}
 
               {/* Título */}
               <div>
@@ -385,29 +333,12 @@ export const AvailabilityPanel: React.FC<AvailabilityPanelProps> = ({
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusInfo.color}`}>
                           {statusInfo.label}
                         </span>
-                        {availability.recurrence !== 'once' && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-700 flex items-center gap-1">
-                            <Repeat className="w-3 h-3" />
-                            {getRecurrenceLabel(availability.recurrence)}
-                          </span>
-                        )}
                       </div>
                       <p className="text-sm font-medium text-slate-900">{availability.title}</p>
-                      {availability.recurrence === 'once' ? (
-                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {format(availability.date, "d 'de' MMMM, yyyy", { locale: es })}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                          <Repeat className="w-3 h-3" />
-                          Se repite {getRecurrenceLabel(availability.recurrence).toLowerCase()} desde el{' '}
-                          {format(availability.date, "d 'de' MMMM", { locale: es })}
-                          {availability.recurrenceEndDate && (
-                            <> hasta el {format(availability.recurrenceEndDate, "d 'de' MMMM", { locale: es })}</>
-                          )}
-                        </p>
-                      )}
+                      <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        {format(availability.date, "d 'de' MMMM, yyyy", { locale: es })}
+                      </p>
                       <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {availability.startTime} - {availability.endTime}
