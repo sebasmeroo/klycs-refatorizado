@@ -123,11 +123,14 @@ type PayoutDraft = {
 
 type PayoutRecordDraft = {
   status: 'pending' | 'paid';
-  lastPaymentDate?: string;
+  actualPaymentDate?: string;      // Cuándo se pagó realmente
+  scheduledPaymentDate?: string;   // Cuándo debería haberse pagado
+  lastPaymentDate?: string;        // Mantener para compatibilidad
   lastPaymentBy?: string;
   note?: string;
   paymentMethod?: PaymentMethod;
   amountPaid?: number;
+  earlyPaymentDays?: number;       // Cuántos días antes se pagó
 };
 
 const getPaymentTypeLabel = (type?: PaymentFrequency) => {
@@ -542,7 +545,8 @@ const DashboardStripe: React.FC = () => {
       new Date(),
       paymentType,
       paymentDay,
-      latestRecord?.lastPaymentDate
+      latestRecord?.lastPaymentDate,
+      latestRecord?.scheduledPaymentDate // Usar fecha programada si existe
     );
     const preferredMethod: PaymentMethod = details?.paymentMethod ?? 'transfer';
     const periodStats = statsByPeriodMap.get(calendarId);
@@ -930,6 +934,81 @@ const DashboardStripe: React.FC = () => {
     });
   }, [calendarMap, getCalendarPaymentContext, periodKey]);
 
+  /**
+   * Calcula la fecha programada para el próximo pago basada en la frecuencia y el día de pago
+   */
+  const calculateScheduledPaymentDate = useCallback((
+    paymentType: PaymentFrequency,
+    paymentDay: number | null | undefined,
+    fromDate: Date = new Date()
+  ): string => {
+    const date = new Date(fromDate);
+    date.setHours(0, 0, 0, 0);
+
+    switch (paymentType) {
+      case 'daily':
+        return date.toISOString().split('T')[0];
+
+      case 'weekly': {
+        const normalizedDay = paymentDay ?? 5; // Viernes por defecto
+        const dayOfWeek = date.getDay();
+        const daysUntilPayday = (normalizedDay - dayOfWeek + 7) % 7;
+        const paymentDate = new Date(date);
+        paymentDate.setDate(paymentDate.getDate() + (daysUntilPayday === 0 ? 7 : daysUntilPayday));
+        return paymentDate.toISOString().split('T')[0];
+      }
+
+      case 'biweekly': {
+        const normalizedDay = paymentDay ?? 1;
+        const currentDay = date.getDate();
+        let paymentDate: Date;
+
+        if (normalizedDay <= 15) {
+          // Primera quincena
+          if (currentDay < normalizedDay) {
+            paymentDate = new Date(date.getFullYear(), date.getMonth(), normalizedDay);
+          } else if (currentDay <= 15) {
+            paymentDate = new Date(date.getFullYear(), date.getMonth(), 16);
+          } else {
+            const nextMonth = date.getMonth() + 1;
+            const nextYear = nextMonth > 11 ? date.getFullYear() + 1 : date.getFullYear();
+            paymentDate = new Date(nextYear, nextMonth > 11 ? 0 : nextMonth, normalizedDay);
+          }
+        } else {
+          // Segunda quincena
+          if (currentDay < 16) {
+            paymentDate = new Date(date.getFullYear(), date.getMonth(), 16);
+          } else if (currentDay <= normalizedDay) {
+            const nextMonth = date.getMonth() + 1;
+            const nextYear = nextMonth > 11 ? date.getFullYear() + 1 : date.getFullYear();
+            paymentDate = new Date(nextYear, nextMonth > 11 ? 0 : nextMonth, 16);
+          } else {
+            const nextMonth = date.getMonth() + 1;
+            const nextYear = nextMonth > 11 ? date.getFullYear() + 1 : date.getFullYear();
+            paymentDate = new Date(nextYear, nextMonth > 11 ? 0 : nextMonth, normalizedDay);
+          }
+        }
+
+        return paymentDate.toISOString().split('T')[0];
+      }
+
+      case 'monthly':
+      default: {
+        const normalizedDay = paymentDay ?? 1;
+        const currentDay = date.getDate();
+
+        if (currentDay < normalizedDay) {
+          return new Date(date.getFullYear(), date.getMonth(), normalizedDay).toISOString().split('T')[0];
+        } else {
+          const nextMonth = date.getMonth() + 1;
+          const nextYear = nextMonth > 11 ? date.getFullYear() + 1 : date.getFullYear();
+          const adjustedMonth = nextMonth > 11 ? 0 : nextMonth;
+          return new Date(nextYear, adjustedMonth, normalizedDay).toISOString().split('T')[0];
+        }
+      }
+    }
+  }, []);
+
   const handleQuickMarkAsPaid = useCallback(async (
     calendarId: string,
     options?: { amount?: number; paymentMethod?: PaymentMethod }
@@ -960,16 +1039,30 @@ const DashboardStripe: React.FC = () => {
         ? draftRecord.amountPaid
         : existingRecord?.amountPaid;
 
+    const details = (calendar as any)?.payoutDetails ?? {};
+    const paymentType: PaymentFrequency = details?.paymentType ?? 'monthly';
+    const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
+
+    // Calcular la fecha programada para el siguiente pago
+    const scheduledDate = calculateScheduledPaymentDate(paymentType, paymentDay);
+
+    // Calcular cuántos días antes de la programación se realizó el pago
+    const scheduledDateObj = new Date(scheduledDate);
+    const todayObj = new Date(today);
+    const earlyPaymentDays = Math.floor((scheduledDateObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
+
     const normalizedRecord: PayoutRecordDraft = {
       status: 'paid',
-      lastPaymentDate: today,
+      actualPaymentDate: today,        // Cuándo se pagó realmente
+      scheduledPaymentDate: scheduledDate, // Cuándo debería haberse pagado
+      lastPaymentDate: today,          // Mantener para compatibilidad
       lastPaymentBy: user?.displayName || user?.email || 'Equipo',
       note: draftRecord?.note ?? existingRecord?.note,
       paymentMethod,
-      amountPaid: typeof normalizedAmount === 'number' ? normalizedAmount : undefined
+      amountPaid: typeof normalizedAmount === 'number' ? normalizedAmount : undefined,
+      earlyPaymentDays: earlyPaymentDays > 0 ? earlyPaymentDays : undefined // Solo si se pagó antes
     };
 
-    const details = (calendar as any)?.payoutDetails ?? {};
     const normalizedDetails = {
       iban: (draftDetails?.iban ?? details?.iban) || undefined,
       bank: (draftDetails?.bank ?? details?.bank) || undefined,
@@ -1277,6 +1370,56 @@ const DashboardStripe: React.FC = () => {
     }
   }, [calendarMap, getCalendarPaymentContext, payoutDrafts, payoutRecordDrafts, periodKey, updatePayoutMutation]);
 
+  /**
+   * Cancelar un pago registrado - vuelve el estado a "pendiente"
+   * Elimina todas las fechas de pago y vuelve a estado "pending"
+   */
+  const handleCancelPayment = useCallback(async (calendarId: string, periodKey: string) => {
+    const calendar = calendarMap.get(calendarId);
+    if (!calendar) {
+      toast.error('No encontramos el profesional');
+      return;
+    }
+
+    const currentRecord = calendar.payoutRecords?.[periodKey];
+
+    // Confirmar acción
+    if (!window.confirm(`¿Estás seguro de que quieres cancelar este pago?\n\nSe eliminará el registro y volvará al estado "Pendiente".\nEsto afectará también a los cálculos de períodos futuros.`)) {
+      return;
+    }
+
+    try {
+      setMarkingPayout(prev => ({ ...prev, [calendarId]: true }));
+
+      // Crear un registro vacío (pending) - elimina toda la info del pago
+      const cancelledRecord = {
+        status: 'pending' as const,
+        // NO incluir: actualPaymentDate, scheduledPaymentDate, lastPaymentDate, amountPaid, etc.
+        // Esto efectivamente "borra" el registro de pago anterior
+      };
+
+      await updatePayoutMutation.mutateAsync({
+        calendarId,
+        periodKey,
+        payoutDetails: (calendar as any)?.payoutDetails || {},
+        payoutRecord: cancelledRecord
+      });
+
+      // Limpiar todos los drafts relacionados
+      setPayoutRecordDrafts(prev => {
+        const { [calendarId]: _discarded, ...rest } = prev;
+        return rest;
+      });
+
+      toast.success('Pago cancelado ✓. Estado vuelto a "Pendiente"');
+    } catch (error) {
+      console.error('Error cancelando pago', error);
+      toast.error('No pudimos cancelar el pago. Intenta de nuevo.');
+    } finally {
+      setMarkingPayout(prev => ({ ...prev, [calendarId]: false }));
+    }
+  }, [calendarMap, updatePayoutMutation]);
+
   const renderProfessionalDetail = useCallback((statContainer: typeof statsForDisplay[number]) => {
     const { base: stat, filteredMonths, filteredAmount, filteredHours, filteredEvents, paymentPeriod } = statContainer as typeof statsForDisplay[number] & { paymentPeriod?: any };
     const relatedCalendar = calendarMap.get(stat.professionalId);
@@ -1510,15 +1653,13 @@ const DashboardStripe: React.FC = () => {
           </div>
           <div className="payments-professional-card__metrics">
             <div className="payments-metric">
-              <span>Pendiente período
-                {period === 'year' ? ' (año)' : period === 'quarter' ? ' (trimestre)' : period === 'month' ? ' (mes)' : ' (pago)'}
-              </span>
-              <strong>{formatCurrency(pendingAmount, stat.currency || 'EUR')}</strong>
+              <span>Estado período de pago</span>
+              <strong>{recordStatus === 'paid' ? '✓ Pagado' : '⏳ Pendiente'}</strong>
               <small>
                 {recordStatus === 'paid'
-                  ? 'Período liquidado'
+                  ? `Pagado ${lastPaymentAmountLabel ? `con ${lastPaymentAmountLabel}` : ''} el ${displayRecord?.lastPaymentDate ? new Date(displayRecord.lastPaymentDate).toLocaleDateString('es-ES') : 'fecha no registrada'}`
                   : periodRangeLabel
-                    ? `Falta pagar del ${periodRangeLabel}`
+                    ? `${periodRangeLabel}${paymentContext?.paymentType ? ` (${getPaymentTypeLabel(paymentContext.paymentType)})` : ''}`
                     : 'Sin período activo'}
               </small>
             </div>
@@ -1861,13 +2002,41 @@ const DashboardStripe: React.FC = () => {
             <h5>Historial de pagos</h5>
             {recentPayments.length ? (
               <ul>
-                {recentPayments.map(item => (
-                  <li key={`${stat.professionalId}-recent-${item.periodKey}`}>
-                    <span>{formatDisplayDate(item.lastPaymentDate)}</span>
-                    <span>{item.amountPaid ? formatCurrency(item.amountPaid, stat.currency || 'EUR') : 'Monto no registrado'}</span>
-                    <span>{item.paymentMethod ? getPaymentMethodLabel(item.paymentMethod) : 'Método no registrado'}</span>
-                  </li>
-                ))}
+                {recentPayments.map(item => {
+                  // Buscar el período key en los registros para obtener datos completos
+                  const fullRecord = relatedCalendar?.payoutRecords?.[item.periodKey];
+                  const isEarlyPayment = fullRecord?.earlyPaymentDays && fullRecord.earlyPaymentDays > 0;
+
+                  return (
+                    <li key={`${stat.professionalId}-recent-${item.periodKey}`} className={isEarlyPayment ? 'payments-history-item--early' : ''}>
+                      <div className="payments-history-item__info">
+                        <span className="payments-history-item__date">
+                          {formatDisplayDate(item.lastPaymentDate)}
+                          {isEarlyPayment && (
+                            <small className="payments-history-item__badge">
+                              ⏰ {fullRecord.earlyPaymentDays} día{fullRecord.earlyPaymentDays > 1 ? 's' : ''} anticipado
+                            </small>
+                          )}
+                        </span>
+                        <span className="payments-history-item__amount">
+                          {item.amountPaid ? formatCurrency(item.amountPaid, stat.currency || 'EUR') : 'Monto no registrado'}
+                        </span>
+                        <span className="payments-history-item__method">
+                          {item.paymentMethod ? getPaymentMethodLabel(item.paymentMethod) : 'Método no registrado'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="payments-history-item__cancel-btn"
+                        onClick={() => handleCancelPayment(stat.professionalId, item.periodKey)}
+                        title="Cancelar este pago y volver a estado Pendiente"
+                        aria-label="Cancelar pago"
+                      >
+                        <X size={16} />
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <p className="payments-history__empty">Aún no hay pagos registrados.</p>

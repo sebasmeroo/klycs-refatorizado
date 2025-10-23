@@ -35,15 +35,19 @@ const clampDayOfMonth = (day: number, year: number, month: number): number => {
  * @param referenceDate - Fecha de referencia (normalmente hoy)
  * @param paymentType - Tipo de frecuencia de pago
  * @param paymentDay - Día de pago configurado
- * @param lastPaymentDate - Última fecha de pago registrada (opcional)
+ * @param lastPaymentDate - Última fecha de pago registrada (opcional) - DEPRECATED
+ * @param scheduledPaymentDate - Fecha programada del último pago (usa esto en lugar de lastPaymentDate)
  * @returns Periodo de pago actual { start, end, label, periodKey }
  */
 export const getCurrentPaymentPeriod = (
   referenceDate: Date,
   paymentType: PaymentFrequency,
   paymentDay: number | null | undefined,
-  lastPaymentDate?: string
+  lastPaymentDate?: string,
+  scheduledPaymentDate?: string
 ): PaymentPeriod => {
+  // Usar scheduledPaymentDate si existe, sino lastPaymentDate (para compatibilidad)
+  const effectiveLastPaymentDate = scheduledPaymentDate || lastPaymentDate;
   const now = new Date(referenceDate);
   now.setHours(0, 0, 0, 0);
 
@@ -74,8 +78,8 @@ export const getCurrentPaymentPeriod = (
       // Si hoy es el día de pago y aún no se ha pagado, considerar el periodo actual
       if (daysSincePayday === 0) {
         // Verificar si ya se pagó hoy
-        if (lastPaymentDate) {
-          const lastPaid = new Date(lastPaymentDate);
+        if (effectiveLastPaymentDate) {
+          const lastPaid = new Date(effectiveLastPaymentDate);
           lastPaid.setHours(0, 0, 0, 0);
           if (lastPaid.getTime() === now.getTime()) {
             // Ya se pagó hoy, iniciar nuevo periodo

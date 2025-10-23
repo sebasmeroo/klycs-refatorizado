@@ -44,11 +44,16 @@ export interface SharedCalendar {
   };
   payoutRecords?: Record<string, {
     status: 'pending' | 'paid';
-    lastPaymentDate?: string;
+    // Fechas de pago
+    scheduledPaymentDate?: string; // Cuándo DEBERÍA pagarse (basado en frecuencia)
+    actualPaymentDate?: string;    // Cuándo SE PAGÓ REALMENTE
+    lastPaymentDate?: string;      // Mantener para compatibilidad retroactiva
+    // Metadata del pago
     lastPaymentBy?: string;
     note?: string;
     paymentMethod?: PaymentMethod;
     amountPaid?: number;
+    earlyPaymentDays?: number;     // Cuántos días antes se pagó (si aplica)
   }>;
 }
 

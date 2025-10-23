@@ -1230,9 +1230,88 @@
 .payments-payment-history li {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 10px;
   font-size: 13px;
   color: #6e6e73;
+  padding: 10px;
+  border-radius: 8px;
+  background: white;
+  transition: background-color 0.2s;
+}
+
+.payments-payment-history li:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.payments-payment-history li.payments-history-item--early {
+  border-left: 3px solid #ff9500;
+  padding-left: 8px;
+}
+
+.payments-history-item__info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.payments-history-item__date {
+  color: #1d1d1f;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.payments-history-item__badge {
+  display: inline-block;
+  background-color: #fff3cd;
+  color: #856404;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.payments-history-item__amount {
+  color: #0a8047;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.payments-history-item__method {
+  color: #6e6e73;
+  font-size: 12px;
+}
+
+.payments-history-item__cancel-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background-color: rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.payments-history-item__cancel-btn:hover {
+  background-color: rgba(255, 59, 48, 0.2);
+  transform: scale(1.05);
+}
+
+.payments-history-item__cancel-btn:active {
+  background-color: rgba(255, 59, 48, 0.3);
+  transform: scale(0.95);
 }
 
 .payments-payment-history li span:first-child {
