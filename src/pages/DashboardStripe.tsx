@@ -1654,7 +1654,11 @@ const DashboardStripe: React.FC = () => {
           <div className="payments-professional-card__metrics">
             <div className="payments-metric">
               <span>Estado período de pago</span>
-              <strong>{recordStatus === 'paid' ? '✓ Pagado' : '⏳ Pendiente'}</strong>
+              <strong>
+                {recordStatus === 'paid'
+                  ? '✓ Pagado'
+                  : `⏳ Pendiente${pendingAmount > 0 ? ` ${formatCurrency(pendingAmount, stat.currency || 'EUR')}` : ''}`}
+              </strong>
               <small>
                 {recordStatus === 'paid'
                   ? `Pagado ${lastPaymentAmountLabel ? `con ${lastPaymentAmountLabel}` : ''} el ${displayRecord?.lastPaymentDate ? new Date(displayRecord.lastPaymentDate).toLocaleDateString('es-ES') : 'fecha no registrada'}`
