@@ -1650,6 +1650,40 @@ const DashboardStripe: React.FC = () => {
                     📅 {paymentContext?.currentPeriod?.label ?? paymentPeriod.label}
                   </span>
                 )}
+                {/* Próximos pagos - badges compactos */}
+                {upcomingPaymentPeriods.slice(0, 3).map((period, index) => {
+                  const relatedRecord = relatedCalendar?.payoutRecords?.[
+                    Object.keys(relatedCalendar?.payoutRecords || {}).find(key => {
+                      const record = relatedCalendar?.payoutRecords?.[key];
+                      if (!record?.scheduledPaymentDate) return false;
+                      const recordDate = new Date(record.scheduledPaymentDate);
+                      return recordDate.toDateString() === period.date.toDateString();
+                    }) ?? ''
+                  ];
+                  const isPaid = relatedRecord?.status === 'paid';
+                  const isCurrentPeriod = index === 0;
+
+                  let bgColor = '#f3f4f6'; // gris por defecto
+                  let textColor = '#6e6e73';
+
+                  if (isPaid) {
+                    bgColor = '#0a8047'; // verde
+                    textColor = 'white';
+                  } else if (isCurrentPeriod) {
+                    bgColor = '#007aff'; // azul actual
+                    textColor = 'white';
+                  }
+
+                  return (
+                    <span
+                      key={`next-${period.label}`}
+                      className="payments-payment-badge"
+                      style={{ backgroundColor: bgColor, color: textColor }}
+                    >
+                      {isPaid ? '✓' : ''} {period.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1724,49 +1758,6 @@ const DashboardStripe: React.FC = () => {
               <span>Horas trabajadas</span>
               <strong>{WorkHoursAnalyticsService.formatHours(filteredHours || 0)}</strong>
               <small>Incluye servicios completados y en curso según filtros</small>
-            </div>
-          </div>
-
-          {/* Próximos períodos de pago */}
-          <div className="payments-upcoming-periods">
-            <h5>Próximos períodos de pago</h5>
-            <div className="payments-periods-grid">
-              {upcomingPaymentPeriods.map((period, index) => {
-                const isCurrentPeriod = index === 0;
-                const relatedRecord = relatedCalendar?.payoutRecords?.[
-                  Object.keys(relatedCalendar?.payoutRecords || {}).find(key => {
-                    const record = relatedCalendar?.payoutRecords?.[key];
-                    if (!record?.scheduledPaymentDate) return false;
-                    const recordDate = new Date(record.scheduledPaymentDate);
-                    return recordDate.toDateString() === period.date.toDateString();
-                  }) ?? ''
-                ];
-                const isPaid = relatedRecord?.status === 'paid';
-
-                return (
-                  <div
-                    key={`period-${period.label}`}
-                    className={`payments-period-item ${isCurrentPeriod ? 'payments-period-item--current' : ''} ${isPaid ? 'payments-period-item--paid' : 'payments-period-item--pending'}`}
-                  >
-                    <div className="payments-period-item__date">
-                      {period.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
-                    </div>
-                    <div className="payments-period-item__status">
-                      {isPaid ? (
-                        <>
-                          <span className="payments-period-item__badge payments-period-item__badge--paid">✓</span>
-                          <small>Pagado</small>
-                        </>
-                      ) : (
-                        <>
-                          <span className="payments-period-item__badge payments-period-item__badge--pending">◦</span>
-                          <small>{isCurrentPeriod ? 'Actual' : 'Próximo'}</small>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           </div>
 
