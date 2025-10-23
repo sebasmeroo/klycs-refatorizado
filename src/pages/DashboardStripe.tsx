@@ -745,7 +745,14 @@ const DashboardStripe: React.FC = () => {
         const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
         const preferredMethod: PaymentMethod = details?.paymentMethod ?? 'transfer';
         const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
-        const nextDate = getNextPaymentDate(new Date(now), paymentType, paymentDay, latestRecord?.lastPaymentDate);
+        // ⚠️ CRÍTICO: pasar scheduledPaymentDate para cálculos correctos
+        const nextDate = getNextPaymentDate(
+          new Date(now),
+          paymentType,
+          paymentDay,
+          latestRecord?.lastPaymentDate,
+          latestRecord?.scheduledPaymentDate // IMPORTANTE: usar fecha programada
+        );
         if (!nextDate) return null;
         const context = getCalendarPaymentContext(stat.professionalId);
         const currentPeriod = context?.currentPeriod;
@@ -2780,7 +2787,14 @@ const DashboardStripe: React.FC = () => {
                         const paymentType = payoutDetails.paymentType ?? 'monthly';
                         const paymentDay = typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null;
                         const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
-                        const nextPaymentDate = getNextPaymentDate(new Date(), paymentType, paymentDay, latestRecord?.lastPaymentDate);
+                        // ⚠️ CRÍTICO: pasar scheduledPaymentDate para cálculos correctos
+                        const nextPaymentDate = getNextPaymentDate(
+                          new Date(),
+                          paymentType,
+                          paymentDay,
+                          latestRecord?.lastPaymentDate,
+                          latestRecord?.scheduledPaymentDate // IMPORTANTE
+                        );
                         const periodRangeLabel = currentPeriod
                           ? formatPeriodRange(currentPeriod)
                           : paymentPeriod?.label ?? null;
@@ -3770,7 +3784,8 @@ const DashboardStripe: React.FC = () => {
                       new Date(),
                       paymentType,
                       paymentDay,
-                      latestRecord?.lastPaymentDate
+                      latestRecord?.lastPaymentDate,
+                      latestRecord?.scheduledPaymentDate // IMPORTANTE: usar fecha programada
                     );
                     const nextPaymentLabel = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programar';
                     const currency = (base.currency || 'EUR').toUpperCase();
