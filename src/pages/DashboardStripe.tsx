@@ -238,74 +238,96 @@ const getNextPaymentDate = (
   paymentType: PaymentFrequency,
   paymentDay: number | null | undefined,
   latestPaymentDate?: string,
-  scheduledPaymentDate?: string // NUEVO: usar fecha programada si existe
+  scheduledPaymentDate?: string // IMPORTANTE: usar SIEMPRE para calcular siguiente ciclo
 ) => {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
 
-  // Usar scheduledPaymentDate si existe, sino latestPaymentDate
-  const effectiveLatestDate = scheduledPaymentDate || latestPaymentDate;
-  const latestDate = effectiveLatestDate ? new Date(effectiveLatestDate) : null;
-  if (latestDate) {
-    latestDate.setHours(0, 0, 0, 0);
+  // CRÍTICO: Si hay scheduledPaymentDate, SIEMPRE usarla para cálculos de siguiente ciclo
+  // Esto asegura que pagos anticipados (ej: 23) no rompan el ciclo (ej: deberían estar en 24)
+  const referenceDate = scheduledPaymentDate ? new Date(scheduledPaymentDate) : null;
+  if (referenceDate) {
+    referenceDate.setHours(0, 0, 0, 0);
   }
 
   if (paymentType === 'daily') {
-    if (latestDate && latestDate.getTime() === today.getTime()) {
-      const nextDay = new Date(today);
-      nextDay.setDate(today.getDate() + 1);
+    if (referenceDate && referenceDate.getTime() <= today.getTime()) {
+      const nextDay = new Date(referenceDate);
+      nextDay.setDate(nextDay.getDate() + 1);
       return nextDay;
     }
-    return today;
+    return referenceDate || today;
   }
 
   if (paymentType === 'weekly') {
     const targetWeekday = typeof paymentDay === 'number' ? paymentDay : 5; // default Friday
-    const currentWeekday = today.getDay();
-    let delta = targetWeekday - currentWeekday;
-    if (delta < 0) delta += 7;
-    const candidate = new Date(today);
-    candidate.setDate(today.getDate() + delta);
-    if (latestDate && latestDate.getTime() === candidate.getTime()) {
-      candidate.setDate(candidate.getDate() + 7);
+    let candidate: Date;
+
+    if (referenceDate) {
+      // Si tenemos fecha de referencia, calcular desde ahí
+      candidate = new Date(referenceDate);
+      if (candidate.getTime() <= today.getTime()) {
+        candidate.setDate(candidate.getDate() + 7);
+      }
+    } else {
+      // Sin referencia, calcular desde hoy
+      const currentWeekday = today.getDay();
+      let delta = targetWeekday - currentWeekday;
+      if (delta < 0) delta += 7;
+      if (delta === 0) delta = 7; // Si es hoy, ir a la próxima semana
+      candidate = new Date(today);
+      candidate.setDate(today.getDate() + delta);
     }
     return candidate;
   }
 
   const baseDay = normalizePaymentDay(paymentDay, 1);
   if (paymentType === 'monthly') {
-    const candidate = new Date(today.getFullYear(), today.getMonth(), clampDayOfMonth(baseDay, today));
-    if (candidate.getTime() < today.getTime()) {
-      candidate.setMonth(candidate.getMonth() + 1);
-      candidate.setDate(clampDayOfMonth(baseDay, candidate));
-    }
-    if (latestDate && latestDate.getTime() === candidate.getTime()) {
-      candidate.setMonth(candidate.getMonth() + 1);
-      candidate.setDate(clampDayOfMonth(baseDay, candidate));
+    let candidate: Date;
+
+    if (referenceDate) {
+      // Si tenemos fecha de referencia, calcular desde ahí
+      candidate = new Date(referenceDate);
+      if (candidate.getTime() <= today.getTime()) {
+        candidate.setMonth(candidate.getMonth() + 1);
+        candidate.setDate(clampDayOfMonth(baseDay, candidate));
+      }
+    } else {
+      // Sin referencia, calcular desde hoy
+      candidate = new Date(today.getFullYear(), today.getMonth(), clampDayOfMonth(baseDay, today));
+      if (candidate.getTime() < today.getTime()) {
+        candidate.setMonth(candidate.getMonth() + 1);
+        candidate.setDate(clampDayOfMonth(baseDay, candidate));
+      }
     }
     return candidate;
   }
 
   // biweekly
-  const candidate = new Date(today.getFullYear(), today.getMonth(), clampDayOfMonth(baseDay, today));
-  const secondCandidate = new Date(candidate);
-  secondCandidate.setDate(candidate.getDate() + 14);
+  let candidate: Date;
 
-  let nextCandidate = candidate;
-  if (nextCandidate.getTime() < today.getTime()) {
-    if (secondCandidate.getTime() >= today.getTime()) {
-      nextCandidate = secondCandidate;
-    } else {
-      // move to next month
-      nextCandidate = new Date(today.getFullYear(), today.getMonth() + 1, clampDayOfMonth(baseDay, new Date(today.getFullYear(), today.getMonth() + 1, 1)));
+  if (referenceDate) {
+    // Si tenemos fecha de referencia, calcular desde ahí
+    candidate = new Date(referenceDate);
+    if (candidate.getTime() <= today.getTime()) {
+      candidate.setDate(candidate.getDate() + 14);
+    }
+  } else {
+    // Sin referencia, calcular desde hoy
+    candidate = new Date(today.getFullYear(), today.getMonth(), clampDayOfMonth(baseDay, today));
+    const secondCandidate = new Date(candidate);
+    secondCandidate.setDate(candidate.getDate() + 14);
+
+    if (candidate.getTime() < today.getTime()) {
+      if (secondCandidate.getTime() >= today.getTime()) {
+        candidate = secondCandidate;
+      } else {
+        candidate = new Date(today.getFullYear(), today.getMonth() + 1, clampDayOfMonth(baseDay, new Date(today.getFullYear(), today.getMonth() + 1, 1)));
+      }
     }
   }
 
-  if (latestDate && latestDate.getTime() === nextCandidate.getTime()) {
-    nextCandidate = new Date(nextCandidate.getFullYear(), nextCandidate.getMonth(), nextCandidate.getDate() + 14);
-  }
-
-  return nextCandidate;
+  return candidate;
 };
 
 const formatDisplayDate = (value?: string) => {
@@ -327,31 +349,32 @@ const formatPeriodRange = (period?: { start: Date; end: Date }) => {
 
 /**
  * Genera una lista de próximos períodos de pago
- * Útil para mostrar un calendario de pagos futuros
+ * Basada en scheduledPaymentDate para mantener ciclos consistentes
  */
 const getUpcomingPaymentPeriods = (
   paymentType: PaymentFrequency,
   paymentDay: number | null | undefined,
   scheduledPaymentDate?: string,
-  count: number = 4
+  count: number = 3
 ): Array<{ date: Date; label: string }> => {
   const periods: Array<{ date: Date; label: string }> = [];
-  let currentDate = new Date();
 
-  // Si hay una fecha programada, comenzar desde ella
-  if (scheduledPaymentDate) {
-    currentDate = new Date(scheduledPaymentDate);
-  }
+  // Comenzar desde la fecha programada (o hoy si no hay)
+  let referenceDate = scheduledPaymentDate ? new Date(scheduledPaymentDate) : new Date();
+  referenceDate.setHours(0, 0, 0, 0);
 
   for (let i = 0; i < count; i++) {
-    const nextDate = getNextPaymentDate(currentDate, paymentType, paymentDay);
+    // Obtener el siguiente pago desde esta referencia
+    const nextDate = getNextPaymentDate(referenceDate, paymentType, paymentDay, undefined, referenceDate.toISOString().split('T')[0]);
+
     periods.push({
       date: new Date(nextDate),
       label: nextDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
     });
-    // Avanzar al siguiente período
-    currentDate = new Date(nextDate);
-    currentDate.setDate(currentDate.getDate() + 1);
+
+    // Mover la referencia al siguiente período
+    referenceDate = new Date(nextDate);
+    referenceDate.setDate(referenceDate.getDate() + 1);
   }
 
   return periods;
