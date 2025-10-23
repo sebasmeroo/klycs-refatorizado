@@ -1750,7 +1750,7 @@ const DashboardStripe: React.FC = () => {
             )}
             {!editing && nextPaymentDate && (
               <span className="payments-status__meta payments-status__meta--next">
-                Próximo pago: {nextPaymentLabel}
+                Próximo pago: {nextPaymentLabel}{filteredAmount > 0 ? ` · ${formatCurrency(filteredAmount, stat.currency || 'EUR')}` : ''}
               </span>
             )}
             {!editing && recordStatus !== 'paid' && periodRangeLabel && (
@@ -2821,7 +2821,11 @@ const DashboardStripe: React.FC = () => {
                           const daysUntil = Math.ceil((nextPaymentDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
                           if (daysUntil >= 0 && daysUntil <= 7) {
                             alertIcon = '⚠️';
-                            alertText = `Próximo pago: ${daysUntil === 0 ? 'Hoy' : daysUntil === 1 ? 'Mañana' : `${daysUntil}d`}`;
+                            const relativeDate = daysUntil === 0 ? 'Hoy' : daysUntil === 1 ? 'Mañana' : `${daysUntil}d`;
+                            // Mostrar cantidad si hay datos disponibles
+                            const amountForNextPeriod = filteredAmount ?? 0;
+                            const amountText = amountForNextPeriod > 0 ? ` · ${formatCurrency(amountForNextPeriod, base.currency)}` : '';
+                            alertText = `Próximo pago: ${relativeDate}${amountText}`;
                             alertType = 'warning';
                           } else {
                             alertIcon = '✓';
@@ -3835,7 +3839,7 @@ const DashboardStripe: React.FC = () => {
                                 <span>{hoursValue.toFixed(2)} h</span>
                               </div>
                               <div className="payments-professionals-list__footer">
-                                <span>Próximo pago · {nextPaymentLabel}</span>
+                                <span>Próximo pago · {nextPaymentLabel}{filteredAmount > 0 ? ` · ${amountLabel}` : ''}</span>
                                 <span>{getPaymentMethodLabel(paymentMethod)}</span>
                               </div>
                             </div>
