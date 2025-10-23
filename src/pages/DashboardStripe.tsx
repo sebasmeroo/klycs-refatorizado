@@ -51,6 +51,7 @@ import { InvoiceStatus } from '@/types/income';
 import { useExternalClients } from '@/hooks/useExternalClients';
 import { convertPeriodKey, useMigrationCheck } from '@/utils/migratePayoutRecords';
 import { useWorkHoursByPeriod, useWorkHoursByPeriodTotals } from '@/hooks/useWorkHoursByPeriod';
+import { useWorkHoursStats } from '@/hooks/useWorkHoursStats';
 import { getCurrentPaymentPeriod } from '@/utils/paymentPeriods';
 
 type CurrencySummary = {
@@ -465,6 +466,14 @@ const DashboardStripe: React.FC = () => {
 
   // ✅ REACT QUERY: Reemplaza loadStats manual con hook optimizado
   const { data: stats = [], isLoading: statsLoading, dataUpdatedAt } = usePaymentStats(
+    user?.uid,
+    selectedYear,
+    onlyCompleted
+  );
+
+  // ✅ PARA EL GRÁFICO: Obtener datos anuales completos (12 meses)
+  // useWorkHoursStats siempre devuelve el año completo, ideal para gráficos
+  const { data: annualStats = [], isLoading: annualStatsLoading } = useWorkHoursStats(
     user?.uid,
     selectedYear,
     onlyCompleted
@@ -1605,12 +1614,35 @@ const DashboardStripe: React.FC = () => {
       paymentMethod?: PaymentMethod;
     };
 
+    // ✅ Construir serie de 12 meses para el gráfico
+    // IMPORTANTE: El gráfico necesita SIEMPRE los 12 meses del año
+    // Usar 'annualStats' (hook useWorkHoursStats) que SIEMPRE devuelve año completo
+    const chartData = annualStats && annualStats.length > 0
+      ? annualStats.find(s => s.professionalId === stat.professionalId)
+      : null;
+
+    console.log(`🔍 Chart Debug - ${stat.professionalName}:`, {
+      annualStatsAvailable: annualStats && annualStats.length > 0,
+      annualStatsCount: annualStats?.length,
+      chartDataFound: !!chartData,
+      monthlyBreakdownLength: chartData?.monthlyBreakdown?.length,
+      statMonthlyBreakdownLength: stat?.monthlyBreakdown?.length,
+      usingAnnualStats: !!chartData
+    });
+
+    // ✅ FALLBACK: Si annualStats aún no está cargado, usar stat.monthlyBreakdown
+    // (que ahora siempre tiene 12 meses tras nuestro fix)
+    const dataForChart = chartData || stat;
+
     const monthlySeries = Array.from({ length: 12 }, (_, index) => {
       const monthNumber = (index + 1).toString().padStart(2, '0');
       const key = `${selectedYear}-${monthNumber}`;
-      const entry = stat.monthlyBreakdown.find(item => item.month === key);
+
+      // Usar datos del chart (ya sea annualStats o fallback a stat)
+      const entry = dataForChart?.monthlyBreakdown?.find(item => item.month === key);
       const amount = entry?.amount ?? 0;
       const hours = entry?.hours ?? 0;
+
       return {
         label: MONTH_LABELS[index],
         monthKey: key,
@@ -1630,6 +1662,7 @@ const DashboardStripe: React.FC = () => {
     const quickPayDisabled = isMarking || isSaving;
 
     const maxValue = monthlySeries.reduce((max, month) => Math.max(max, month.valueForChart), 0);
+
     const lastMonth = monthlySeries[monthlySeries.length - 1];
     const lastRecordedMonth = [...monthlySeries]
       .reverse()
@@ -2345,7 +2378,7 @@ const DashboardStripe: React.FC = () => {
         </div>
       </article>
     );
-  }, [calendarMap, selectedYear, payoutDrafts, savingPayout, editingPayout, payoutRecordDrafts, handlePayoutRecordChange, pendingLoading, pendingServices, handlePayoutFieldChange, handleCopyValue, handleCancelPayoutEdit, handleSavePayout, handleTogglePayoutEdit, handleQuickMarkAsPaid, getCalendarPaymentContext, markingPayout, periodKey])
+  }, [calendarMap, selectedYear, payoutDrafts, savingPayout, editingPayout, payoutRecordDrafts, handlePayoutRecordChange, pendingLoading, pendingServices, handlePayoutFieldChange, handleCopyValue, handleCancelPayoutEdit, handleSavePayout, handleTogglePayoutEdit, handleQuickMarkAsPaid, getCalendarPaymentContext, markingPayout, periodKey, stats, annualStats])
 
   const exportToCSV = useCallback(() => {
     if (!stats.length) {

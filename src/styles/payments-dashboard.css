@@ -1770,9 +1770,12 @@
 }
 
 .payments-chart__column {
-  display: grid;
+  display: flex;
+  flex-direction: column-reverse;
   gap: 6px;
   justify-items: center;
+  align-items: center;
+  min-height: 100%;
 }
 
 .payments-chart__column--active .payments-chart__bar {
@@ -1785,6 +1788,7 @@
 
 .payments-chart__bar {
   width: 70%;
+  min-height: 4px;
   border-radius: 999px 999px 12px 12px;
   background: linear-gradient(180deg, #007aff 0%, #0051d5 100%);
   position: relative;

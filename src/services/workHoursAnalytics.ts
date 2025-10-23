@@ -332,19 +332,25 @@ export class WorkHoursAnalyticsService {
       }
 
       logger.log(`📊 Stats para ${professionalName} (${startYear}): ${totalFirebaseReads} lecturas totales de Firebase`);
+      logger.log(`✅ monthlyBreakdown tendrá ${12} meses (todos los del año, incluso vacíos)`);
 
-      // Convertir a array y ordenar por mes
-      const monthlyBreakdown = Object.entries(monthlyData)
-        .map(([month, data]) => ({
-          month,
-          hours: Math.round(data.hours * 100) / 100,
-          events: data.events,
-          amount: Math.round(data.amount * 100) / 100
-        }))
-        .sort((a, b) => a.month.localeCompare(b.month));
+      // ✅ Convertir a array con TODOS los 12 meses (incluidos los vacíos)
+      // Esto es importante para que los gráficos siempre tengan los 12 meses
+      const monthlyBreakdown = Array.from({ length: 12 }, (_, index) => {
+        const monthNum = index + 1;
+        const monthKey = `${startYear}-${String(monthNum).padStart(2, '0')}`;
+        const data = monthlyData[monthKey];
 
-      // Calcular promedio mensual en horas (mantenido para compatibilidad)
-      const monthsWithData = monthlyBreakdown.length;
+        return {
+          month: monthKey,
+          hours: data ? Math.round(data.hours * 100) / 100 : 0,
+          events: data ? data.events : 0,
+          amount: data ? Math.round(data.amount * 100) / 100 : 0
+        };
+      });
+
+      // Calcular promedio mensual en horas (contando solo meses con datos)
+      const monthsWithData = monthlyBreakdown.filter(m => m.hours > 0 || m.events > 0).length;
       const averagePerMonth = monthsWithData > 0
         ? Math.round((totalHours / monthsWithData) * 100) / 100
         : 0;
