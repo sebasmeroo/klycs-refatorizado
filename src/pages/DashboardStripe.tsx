@@ -171,20 +171,20 @@ const normalizePaymentDay = (paymentDay: number | null | undefined, fallback = 1
   return paymentDay;
 };
 
-const getLatestPaymentRecord = (payoutRecords?: Record<string, { lastPaymentDate?: string }>) => {
+const getLatestPaymentRecord = (payoutRecords?: Record<string, any>) => {
   if (!payoutRecords) return null;
-  let latest: { periodKey: string; lastPaymentDate: string } | null = null;
+  let latest: any = null;
   Object.entries(payoutRecords).forEach(([periodKey, record]) => {
     if (!record?.lastPaymentDate) return;
     const currentDate = new Date(record.lastPaymentDate);
     if (Number.isNaN(currentDate.getTime())) return;
     if (!latest) {
-      latest = { periodKey, lastPaymentDate: record.lastPaymentDate };
+      latest = { periodKey, ...record };
       return;
     }
     const latestDate = new Date(latest.lastPaymentDate);
     if (currentDate.getTime() > latestDate.getTime()) {
-      latest = { periodKey, lastPaymentDate: record.lastPaymentDate };
+      latest = { periodKey, ...record };
     }
   });
   return latest;
@@ -264,11 +264,11 @@ const getNextPaymentDate = (
     let candidate: Date;
 
     if (referenceDate) {
-      // Si tenemos fecha de referencia, calcular desde ahí
+      // Si tenemos fecha de referencia (scheduledPaymentDate), calcular desde ahí
+      // La referencia es la fecha de vencimiento del período actual que se está pagando
+      // El siguiente período vence 7 días después
       candidate = new Date(referenceDate);
-      if (candidate.getTime() <= today.getTime()) {
-        candidate.setDate(candidate.getDate() + 7);
-      }
+      candidate.setDate(candidate.getDate() + 7);
     } else {
       // Sin referencia, calcular desde hoy
       const currentWeekday = today.getDay();
@@ -286,12 +286,12 @@ const getNextPaymentDate = (
     let candidate: Date;
 
     if (referenceDate) {
-      // Si tenemos fecha de referencia, calcular desde ahí
+      // Si tenemos fecha de referencia (scheduledPaymentDate), calcular desde ahí
+      // La referencia es la fecha de vencimiento del período actual que se está pagando
+      // El siguiente período vence 1 mes después
       candidate = new Date(referenceDate);
-      if (candidate.getTime() <= today.getTime()) {
-        candidate.setMonth(candidate.getMonth() + 1);
-        candidate.setDate(clampDayOfMonth(baseDay, candidate));
-      }
+      candidate.setMonth(candidate.getMonth() + 1);
+      candidate.setDate(clampDayOfMonth(baseDay, candidate));
     } else {
       // Sin referencia, calcular desde hoy
       candidate = new Date(today.getFullYear(), today.getMonth(), clampDayOfMonth(baseDay, today));
@@ -307,11 +307,11 @@ const getNextPaymentDate = (
   let candidate: Date;
 
   if (referenceDate) {
-    // Si tenemos fecha de referencia, calcular desde ahí
+    // Si tenemos fecha de referencia (scheduledPaymentDate), calcular desde ahí
+    // La referencia es la fecha de vencimiento del período actual que se está pagando
+    // El siguiente período vence 14 días después
     candidate = new Date(referenceDate);
-    if (candidate.getTime() <= today.getTime()) {
-      candidate.setDate(candidate.getDate() + 14);
-    }
+    candidate.setDate(candidate.getDate() + 14);
   } else {
     // Sin referencia, calcular desde hoy
     candidate = new Date(today.getFullYear(), today.getMonth(), clampDayOfMonth(baseDay, today));
@@ -365,6 +365,8 @@ const getUpcomingPaymentPeriods = (
 
   for (let i = 0; i < count; i++) {
     // Obtener el siguiente pago desde esta referencia
+    // referenceDate es la fecha de vencimiento del período actual
+    // getNextPaymentDate sumará el intervalo (7, 14, 30 días, etc.)
     const nextDate = getNextPaymentDate(referenceDate, paymentType, paymentDay, undefined, referenceDate.toISOString().split('T')[0]);
 
     periods.push({
@@ -372,9 +374,9 @@ const getUpcomingPaymentPeriods = (
       label: nextDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
     });
 
-    // Mover la referencia al siguiente período
+    // Para la siguiente iteración, usar el nextDate como nueva referencia
+    // NO sumar 1 día, porque nextDate es directamente la fecha de vencimiento del siguiente período
     referenceDate = new Date(nextDate);
-    referenceDate.setDate(referenceDate.getDate() + 1);
   }
 
   return periods;
@@ -641,6 +643,56 @@ const DashboardStripe: React.FC = () => {
       hoursForPeriod: hoursForCurrentPeriod
     };
   }, [calendarMap, statsByPeriodMap]);
+
+  // ✅ NUEVO: Función para obtener el monto de horas del SIGUIENTE período de pago
+  // Si la persona pagó el período, muestra las horas reales acumuladas en el SIGUIENTE período
+  const getNextPaymentPeriodAmount = useCallback((calendarId: string): number | undefined => {
+    const context = getCalendarPaymentContext(calendarId);
+    if (!context) return undefined;
+
+    const { paymentType, paymentDay, latestRecord } = context;
+
+    // Si no hay registro de pago, no hay "siguiente"
+    if (!latestRecord?.scheduledPaymentDate) return undefined;
+
+    // Calcular la fecha de vencimiento del siguiente período
+    // scheduledPaymentDate es la fecha que se acaba de pagar
+    // El siguiente vence en (intervalo) días después
+    const scheduledDate = new Date(latestRecord.scheduledPaymentDate);
+    let nextPaymentDate = new Date(scheduledDate);
+
+    if (paymentType === 'weekly') {
+      nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
+    } else if (paymentType === 'biweekly') {
+      nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
+    } else if (paymentType === 'monthly') {
+      nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
+      // Mantener el mismo día del mes si es posible
+      const baseDay = paymentDay ?? 1;
+      const maxDay = new Date(nextPaymentDate.getFullYear(), nextPaymentDate.getMonth() + 1, 0).getDate();
+      nextPaymentDate.setDate(Math.min(baseDay, maxDay));
+    }
+
+    // Obtener el período que vence en nextPaymentDate
+    const nextPeriod = getCurrentPaymentPeriod(
+      nextPaymentDate,
+      paymentType,
+      paymentDay,
+      undefined,
+      nextPaymentDate.toISOString().split('T')[0]
+    );
+
+    const periodStats = statsByPeriodMap.get(calendarId);
+    if (!periodStats) return undefined;
+
+    // Buscar horas acumuladas en ese período
+    const allStatsData = Array.isArray(periodStats) ? periodStats : [periodStats];
+    const nextPeriodData = allStatsData.find(item => {
+      return item?.period?.periodKey === nextPeriod?.periodKey;
+    });
+
+    return nextPeriodData?.stats?.totalAmount ?? 0;
+  }, [getCalendarPaymentContext, statsByPeriodMap]);
 
   const totalsByCurrency = useMemo<CurrencySummary[]>(() => {
     const map = new Map<string, CurrencySummary>();
@@ -1584,13 +1636,46 @@ const DashboardStripe: React.FC = () => {
     const hasCustomRate = typeof payoutCustomRate === 'number';
 
     const latestPaymentRecord = paymentContext?.latestRecord ?? getLatestPaymentRecord(relatedCalendar?.payoutRecords);
-    const nextPaymentDate = getNextPaymentDate(
-      new Date(),
-      paymentType,
-      paymentDay,
-      latestPaymentRecord?.lastPaymentDate,
-      latestPaymentRecord?.scheduledPaymentDate // Usar fecha programada si existe
-    );
+
+    // Calcular próximo pago: si está PAGADO, usa la fecha real del pago
+    // Si es PENDIENTE, usa la fecha programada
+    let nextPaymentDate: Date | null = null;
+    if (latestPaymentRecord?.status === 'paid' && latestPaymentRecord?.lastPaymentDate) {
+      // Ya pagado: siguiente ciclo es desde la fecha real del pago
+      const paidDate = new Date(latestPaymentRecord.lastPaymentDate);
+      paidDate.setHours(0, 0, 0, 0);
+
+      if (paymentType === 'weekly') {
+        nextPaymentDate = new Date(paidDate);
+        nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
+      } else if (paymentType === 'biweekly') {
+        nextPaymentDate = new Date(paidDate);
+        nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
+      } else if (paymentType === 'monthly') {
+        nextPaymentDate = new Date(paidDate);
+        nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
+        const baseDay = paymentDay ?? 1;
+        const maxDay = new Date(nextPaymentDate.getFullYear(), nextPaymentDate.getMonth() + 1, 0).getDate();
+        nextPaymentDate.setDate(Math.min(baseDay, maxDay));
+      } else {
+        // daily
+        nextPaymentDate = new Date(paidDate);
+        nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
+      }
+    } else if (latestPaymentRecord?.scheduledPaymentDate) {
+      // Pendiente: usa la fecha programada
+      nextPaymentDate = new Date(latestPaymentRecord.scheduledPaymentDate);
+    } else {
+      // Sin registro: calcula desde hoy
+      nextPaymentDate = getNextPaymentDate(
+        new Date(),
+        paymentType,
+        paymentDay,
+        undefined,
+        undefined
+      );
+    }
+
     const nextPaymentLabel = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programar';
 
     // Obtener próximos períodos de pago para mostrar un calendario
@@ -1750,7 +1835,11 @@ const DashboardStripe: React.FC = () => {
             )}
             {!editing && nextPaymentDate && (
               <span className="payments-status__meta payments-status__meta--next">
-                Próximo pago: {nextPaymentLabel}{filteredAmount > 0 ? ` · ${formatCurrency(filteredAmount, stat.currency || 'EUR')}` : ''}
+                Próximo pago: {nextPaymentLabel}
+                {(() => {
+                  const nextAmount = getNextPaymentPeriodAmount(stat.professionalId) ?? 0;
+                  return nextAmount > 0 ? ` · ${formatCurrency(nextAmount, stat.currency || 'EUR')}` : '';
+                })()}
               </span>
             )}
             {!editing && recordStatus !== 'paid' && periodRangeLabel && (
@@ -2787,14 +2876,40 @@ const DashboardStripe: React.FC = () => {
                         const paymentType = payoutDetails.paymentType ?? 'monthly';
                         const paymentDay = typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null;
                         const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
-                        // ⚠️ CRÍTICO: pasar scheduledPaymentDate para cálculos correctos
-                        const nextPaymentDate = getNextPaymentDate(
-                          new Date(),
-                          paymentType,
-                          paymentDay,
-                          latestRecord?.lastPaymentDate,
-                          latestRecord?.scheduledPaymentDate // IMPORTANTE
-                        );
+                        // Calcular próximo pago: si está PAGADO, usa la fecha real del pago
+                        let nextPaymentDate: Date | null = null;
+                        if (latestRecord?.status === 'paid' && latestRecord?.lastPaymentDate) {
+                          // Ya pagado: siguiente ciclo es desde la fecha real del pago
+                          const paidDate = new Date(latestRecord.lastPaymentDate);
+                          paidDate.setHours(0, 0, 0, 0);
+
+                          if (paymentType === 'weekly') {
+                            nextPaymentDate = new Date(paidDate);
+                            nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
+                          } else if (paymentType === 'biweekly') {
+                            nextPaymentDate = new Date(paidDate);
+                            nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
+                          } else if (paymentType === 'monthly') {
+                            nextPaymentDate = new Date(paidDate);
+                            nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
+                            const baseDay = paymentDay ?? 1;
+                            const maxDay = new Date(nextPaymentDate.getFullYear(), nextPaymentDate.getMonth() + 1, 0).getDate();
+                            nextPaymentDate.setDate(Math.min(baseDay, maxDay));
+                          } else {
+                            nextPaymentDate = new Date(paidDate);
+                            nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
+                          }
+                        } else if (latestRecord?.scheduledPaymentDate) {
+                          nextPaymentDate = new Date(latestRecord.scheduledPaymentDate);
+                        } else {
+                          nextPaymentDate = getNextPaymentDate(
+                            new Date(),
+                            paymentType,
+                            paymentDay,
+                            undefined,
+                            undefined
+                          );
+                        }
                         const periodRangeLabel = currentPeriod
                           ? formatPeriodRange(currentPeriod)
                           : paymentPeriod?.label ?? null;
@@ -2822,9 +2937,9 @@ const DashboardStripe: React.FC = () => {
                           if (daysUntil >= 0 && daysUntil <= 7) {
                             alertIcon = '⚠️';
                             const relativeDate = daysUntil === 0 ? 'Hoy' : daysUntil === 1 ? 'Mañana' : `${daysUntil}d`;
-                            // Mostrar cantidad si hay datos disponibles
-                            const amountForNextPeriod = filteredAmount ?? 0;
-                            const amountText = amountForNextPeriod > 0 ? ` · ${formatCurrency(amountForNextPeriod, base.currency)}` : '';
+                            // Mostrar el monto del siguiente período de pago basado en períodos reales
+                            const nextPeriodAmount = getNextPaymentPeriodAmount(base.professionalId) ?? 0;
+                            const amountText = nextPeriodAmount > 0 ? ` · ${formatCurrency(nextPeriodAmount, base.currency)}` : '';
                             alertText = `Próximo pago: ${relativeDate}${amountText}`;
                             alertType = 'warning';
                           } else {
@@ -3784,13 +3899,40 @@ const DashboardStripe: React.FC = () => {
                     const paymentDay = typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null;
                     const paymentMethod: PaymentMethod = payoutDetails.paymentMethod ?? 'transfer';
                     const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
-                    const nextPaymentDate = getNextPaymentDate(
-                      new Date(),
-                      paymentType,
-                      paymentDay,
-                      latestRecord?.lastPaymentDate,
-                      latestRecord?.scheduledPaymentDate // IMPORTANTE: usar fecha programada
-                    );
+                    // Calcular próximo pago: si está PAGADO, usa la fecha real del pago
+                    let nextPaymentDate: Date | null = null;
+                    if (latestRecord?.status === 'paid' && latestRecord?.lastPaymentDate) {
+                      // Ya pagado: siguiente ciclo es desde la fecha real del pago
+                      const paidDate = new Date(latestRecord.lastPaymentDate);
+                      paidDate.setHours(0, 0, 0, 0);
+
+                      if (paymentType === 'weekly') {
+                        nextPaymentDate = new Date(paidDate);
+                        nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
+                      } else if (paymentType === 'biweekly') {
+                        nextPaymentDate = new Date(paidDate);
+                        nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
+                      } else if (paymentType === 'monthly') {
+                        nextPaymentDate = new Date(paidDate);
+                        nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
+                        const baseDay = paymentDay ?? 1;
+                        const maxDay = new Date(nextPaymentDate.getFullYear(), nextPaymentDate.getMonth() + 1, 0).getDate();
+                        nextPaymentDate.setDate(Math.min(baseDay, maxDay));
+                      } else {
+                        nextPaymentDate = new Date(paidDate);
+                        nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
+                      }
+                    } else if (latestRecord?.scheduledPaymentDate) {
+                      nextPaymentDate = new Date(latestRecord.scheduledPaymentDate);
+                    } else {
+                      nextPaymentDate = getNextPaymentDate(
+                        new Date(),
+                        paymentType,
+                        paymentDay,
+                        undefined,
+                        undefined
+                      );
+                    }
                     const nextPaymentLabel = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programar';
                     const currency = (base.currency || 'EUR').toUpperCase();
                     const amountLabel = formatCurrency(filteredAmount ?? 0, currency);
@@ -3839,7 +3981,13 @@ const DashboardStripe: React.FC = () => {
                                 <span>{hoursValue.toFixed(2)} h</span>
                               </div>
                               <div className="payments-professionals-list__footer">
-                                <span>Próximo pago · {nextPaymentLabel}{filteredAmount > 0 ? ` · ${amountLabel}` : ''}</span>
+                                <span>
+                                  Próximo pago · {nextPaymentLabel}
+                                  {(() => {
+                                    const nextAmount = getNextPaymentPeriodAmount(base.professionalId) ?? 0;
+                                    return nextAmount > 0 ? ` · ${formatCurrency(nextAmount, currency)}` : '';
+                                  })()}
+                                </span>
                                 <span>{getPaymentMethodLabel(paymentMethod)}</span>
                               </div>
                             </div>
