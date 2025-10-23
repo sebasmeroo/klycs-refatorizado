@@ -237,12 +237,15 @@ const getNextPaymentDate = (
   now: Date,
   paymentType: PaymentFrequency,
   paymentDay: number | null | undefined,
-  latestPaymentDate?: string
+  latestPaymentDate?: string,
+  scheduledPaymentDate?: string // NUEVO: usar fecha programada si existe
 ) => {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
 
-  const latestDate = latestPaymentDate ? new Date(latestPaymentDate) : null;
+  // Usar scheduledPaymentDate si existe, sino latestPaymentDate
+  const effectiveLatestDate = scheduledPaymentDate || latestPaymentDate;
+  const latestDate = effectiveLatestDate ? new Date(effectiveLatestDate) : null;
   if (latestDate) {
     latestDate.setHours(0, 0, 0, 0);
   }
@@ -320,6 +323,38 @@ const formatPeriodRange = (period?: { start: Date; end: Date }) => {
   if (!period) return '';
   const formatter = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short' });
   return `${formatter.format(period.start)} - ${formatter.format(period.end)}`;
+};
+
+/**
+ * Genera una lista de próximos períodos de pago
+ * Útil para mostrar un calendario de pagos futuros
+ */
+const getUpcomingPaymentPeriods = (
+  paymentType: PaymentFrequency,
+  paymentDay: number | null | undefined,
+  scheduledPaymentDate?: string,
+  count: number = 4
+): Array<{ date: Date; label: string }> => {
+  const periods: Array<{ date: Date; label: string }> = [];
+  let currentDate = new Date();
+
+  // Si hay una fecha programada, comenzar desde ella
+  if (scheduledPaymentDate) {
+    currentDate = new Date(scheduledPaymentDate);
+  }
+
+  for (let i = 0; i < count; i++) {
+    const nextDate = getNextPaymentDate(currentDate, paymentType, paymentDay);
+    periods.push({
+      date: new Date(nextDate),
+      label: nextDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+    });
+    // Avanzar al siguiente período
+    currentDate = new Date(nextDate);
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  return periods;
 };
 
 const DashboardStripe: React.FC = () => {
@@ -1519,8 +1554,17 @@ const DashboardStripe: React.FC = () => {
     const hasCustomRate = typeof payoutCustomRate === 'number';
 
     const latestPaymentRecord = paymentContext?.latestRecord ?? getLatestPaymentRecord(relatedCalendar?.payoutRecords);
-    const nextPaymentDate = getNextPaymentDate(new Date(), paymentType, paymentDay, latestPaymentRecord?.lastPaymentDate);
+    const nextPaymentDate = getNextPaymentDate(
+      new Date(),
+      paymentType,
+      paymentDay,
+      latestPaymentRecord?.lastPaymentDate,
+      latestPaymentRecord?.scheduledPaymentDate // Usar fecha programada si existe
+    );
     const nextPaymentLabel = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programar';
+
+    // Obtener próximos períodos de pago para mostrar un calendario
+    const upcomingPaymentPeriods = getUpcomingPaymentPeriods(paymentType, paymentDay, latestPaymentRecord?.scheduledPaymentDate, 4);
     const recentPaymentsFromCalendar = getRecentPayments(relatedCalendar?.payoutRecords);
 
     const paymentDayLabel = getPaymentDayDescription(paymentType, paymentDay);
@@ -1681,6 +1725,53 @@ const DashboardStripe: React.FC = () => {
               <strong>{WorkHoursAnalyticsService.formatHours(filteredHours || 0)}</strong>
               <small>Incluye servicios completados y en curso según filtros</small>
             </div>
+          </div>
+
+          {/* Próximos períodos de pago */}
+          <div className="payments-upcoming-periods">
+            <h5>Próximos períodos de pago</h5>
+            <div className="payments-periods-grid">
+              {upcomingPaymentPeriods.map((period, index) => {
+                const isCurrentPeriod = index === 0;
+                const relatedRecord = relatedCalendar?.payoutRecords?.[
+                  Object.keys(relatedCalendar?.payoutRecords || {}).find(key => {
+                    const record = relatedCalendar?.payoutRecords?.[key];
+                    if (!record?.scheduledPaymentDate) return false;
+                    const recordDate = new Date(record.scheduledPaymentDate);
+                    return recordDate.toDateString() === period.date.toDateString();
+                  }) ?? ''
+                ];
+                const isPaid = relatedRecord?.status === 'paid';
+
+                return (
+                  <div
+                    key={`period-${period.label}`}
+                    className={`payments-period-item ${isCurrentPeriod ? 'payments-period-item--current' : ''} ${isPaid ? 'payments-period-item--paid' : 'payments-period-item--pending'}`}
+                  >
+                    <div className="payments-period-item__date">
+                      {period.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                    </div>
+                    <div className="payments-period-item__status">
+                      {isPaid ? (
+                        <>
+                          <span className="payments-period-item__badge payments-period-item__badge--paid">✓</span>
+                          <small>Pagado</small>
+                        </>
+                      ) : (
+                        <>
+                          <span className="payments-period-item__badge payments-period-item__badge--pending">◦</span>
+                          <small>{isCurrentPeriod ? 'Actual' : 'Próximo'}</small>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Tarifa vigente - métrica adicional */}
+          <div className="payments-professional-card__metrics">
             <div className="payments-metric">
               <span>Tarifa vigente</span>
               <strong>
