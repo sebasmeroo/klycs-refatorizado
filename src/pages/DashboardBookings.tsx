@@ -1069,7 +1069,10 @@ const DashboardBookings: React.FC = () => {
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
-        queryClient.invalidateQueries({ queryKey: ['calendarEvents', targetEvent.calendarId] })
+        queryClient.invalidateQueries({ queryKey: ['calendarEvents', targetEvent.calendarId] }),
+        queryClient.invalidateQueries({ queryKey: ['workHoursByPeriod', user.uid, true] }),
+        queryClient.invalidateQueries({ queryKey: ['workHoursByPeriod', user.uid, false] }),
+        queryClient.invalidateQueries({ queryKey: ['paymentStats', user.uid] })
       ]);
 
       console.log(`✅ Servicio marcado como: ${status}`);

@@ -49,6 +49,7 @@ import {
 import { InvoiceStatus } from '@/types/income';
 import { useExternalClients } from '@/hooks/useExternalClients';
 import { useWorkHoursByPeriod, useWorkHoursByPeriodTotals } from '@/hooks/useWorkHoursByPeriod';
+import { getCurrentPaymentPeriod } from '@/utils/paymentPeriods';
 
 type CurrencySummary = {
   currency: string;
@@ -118,7 +119,6 @@ type PayoutDraft = {
   paymentType?: PaymentFrequency;
   paymentDay?: number | null;
   paymentMethod?: PaymentMethod;
-  customHourlyRate?: number | null;
 };
 
 type PayoutRecordDraft = {
@@ -313,6 +313,12 @@ const formatDisplayDate = (value?: string) => {
   });
 };
 
+const formatPeriodRange = (period?: { start: Date; end: Date }) => {
+  if (!period) return '';
+  const formatter = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short' });
+  return `${formatter.format(period.start)} - ${formatter.format(period.end)}`;
+};
+
 const DashboardStripe: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -332,6 +338,7 @@ const DashboardStripe: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
   const [payoutDrafts, setPayoutDrafts] = useState<Record<string, PayoutDraft>>({});
   const [savingPayout, setSavingPayout] = useState<Record<string, boolean>>({});
+  const [markingPayout, setMarkingPayout] = useState<Record<string, boolean>>({});
   const [editingPayout, setEditingPayout] = useState<Record<string, boolean>>({});
   const [payoutRecordDrafts, setPayoutRecordDrafts] = useState<Record<string, PayoutRecordDraft>>({});
   const [showPendingOnly, setShowPendingOnly] = useState(false);
@@ -403,6 +410,7 @@ const DashboardStripe: React.FC = () => {
   const createInvoice = useCreateExternalInvoice(user?.uid);
   const updateInvoiceStatus = useUpdateExternalInvoiceStatus(user?.uid);
   const deleteInvoice = useDeleteExternalInvoice(user?.uid);
+  const updatePayoutMutation = useUpdatePayoutComplete();
 
   // ✅ NUEVO: External Clients CRM
   const {
@@ -516,6 +524,62 @@ const DashboardStripe: React.FC = () => {
     });
   }, [stats, periodRange, period, statsByPeriod]);
 
+  const statsByPeriodMap = useMemo(() => {
+    const map = new Map<string, (typeof statsByPeriod)[number]>();
+    statsByPeriod.forEach(item => map.set(item.professionalId, item));
+    return map;
+  }, [statsByPeriod]);
+
+  const getCalendarPaymentContext = useCallback((calendarId: string) => {
+    const calendar = calendarMap.get(calendarId);
+    if (!calendar) return null;
+
+    const details = (calendar as any)?.payoutDetails ?? {};
+    const paymentType: PaymentFrequency = details?.paymentType ?? 'monthly';
+    const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
+    const latestRecord = getLatestPaymentRecord(calendar.payoutRecords);
+    const currentPeriod = getCurrentPaymentPeriod(
+      new Date(),
+      paymentType,
+      paymentDay,
+      latestRecord?.lastPaymentDate
+    );
+    const preferredMethod: PaymentMethod = details?.paymentMethod ?? 'transfer';
+    const periodStats = statsByPeriodMap.get(calendarId);
+
+    // Buscar los datos específicos del período actual
+    let amountForCurrentPeriod: number | undefined;
+    let hoursForCurrentPeriod: number | undefined;
+
+    if (periodStats) {
+      // Buscar si hay datos que coincidan con el período actual
+      const allStatsData = Array.isArray(periodStats) ? periodStats : [periodStats];
+      const currentPeriodData = allStatsData.find(item => {
+        return item?.period?.periodKey === currentPeriod?.periodKey;
+      });
+
+      if (currentPeriodData) {
+        amountForCurrentPeriod = currentPeriodData.stats?.totalAmount;
+        hoursForCurrentPeriod = currentPeriodData.stats?.totalHours;
+      } else {
+        // Fallback: si no hay datos específicos del período, usar el total
+        amountForCurrentPeriod = periodStats.stats?.totalAmount;
+        hoursForCurrentPeriod = periodStats.stats?.totalHours;
+      }
+    }
+
+    return {
+      calendar,
+      paymentType,
+      paymentDay,
+      preferredMethod,
+      currentPeriod,
+      latestRecord,
+      amountForPeriod: amountForCurrentPeriod,
+      hoursForPeriod: hoursForCurrentPeriod
+    };
+  }, [calendarMap, statsByPeriodMap]);
+
   const totalsByCurrency = useMemo<CurrencySummary[]>(() => {
     const map = new Map<string, CurrencySummary>();
 
@@ -590,11 +654,14 @@ const DashboardStripe: React.FC = () => {
   const isProfessionalPending = useCallback((professionalId: string) => {
     const pendingCount = pendingServices[professionalId]?.count ?? 0;
     const recordDraft = payoutRecordDrafts[professionalId];
+    const paymentContext = getCalendarPaymentContext(professionalId);
+    const periodKeyForRecord = paymentContext?.currentPeriod.periodKey ?? periodKey;
+    const calendarRecordStatus = paymentContext?.calendar?.payoutRecords?.[periodKeyForRecord]?.status;
     const recordStatus = recordDraft?.status
-      ?? calendarMap.get(professionalId)?.payoutRecords?.[periodKey]?.status
+      ?? calendarRecordStatus
       ?? 'pending';
     return pendingCount > 0 || recordStatus !== 'paid';
-  }, [pendingServices, payoutRecordDrafts, calendarMap, periodKey]);
+  }, [pendingServices, payoutRecordDrafts, getCalendarPaymentContext, periodKey]);
 
   const displayStats = useMemo(() => {
     if (!showPendingOnly) return statsForDisplay;
@@ -608,7 +675,7 @@ const DashboardStripe: React.FC = () => {
   const scheduledPayments = useMemo(() => {
     const now = new Date();
     return displayStats
-      .map(({ base: stat }) => {
+      .map(({ base: stat, filteredAmount, paymentPeriod }) => {
         const calendar = calendarMap.get(stat.professionalId);
         if (!calendar) return null;
         const details = (calendar as any)?.payoutDetails ?? {};
@@ -618,6 +685,22 @@ const DashboardStripe: React.FC = () => {
         const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
         const nextDate = getNextPaymentDate(new Date(now), paymentType, paymentDay, latestRecord?.lastPaymentDate);
         if (!nextDate) return null;
+        const context = getCalendarPaymentContext(stat.professionalId);
+        const currentPeriod = context?.currentPeriod;
+        const periodKeyForRecord = currentPeriod?.periodKey;
+        const recordStatus = periodKeyForRecord
+          ? context?.calendar?.payoutRecords?.[periodKeyForRecord]?.status ?? 'pending'
+          : 'pending';
+        const periodRangeLabel = currentPeriod
+          ? formatPeriodRange(currentPeriod)
+          : paymentPeriod?.label ?? null;
+        const pendingAmount = recordStatus === 'paid'
+          ? 0
+          : typeof context?.amountForPeriod === 'number'
+            ? context.amountForPeriod
+            : typeof filteredAmount === 'number'
+              ? filteredAmount
+              : 0;
 
         return {
           professionalId: stat.professionalId,
@@ -627,7 +710,12 @@ const DashboardStripe: React.FC = () => {
           paymentMethod: preferredMethod,
           nextDate,
           relativeLabel: formatRelativeDate(nextDate, now),
-          paymentDayLabel: getPaymentDayDescription(paymentType, paymentDay)
+          paymentDayLabel: getPaymentDayDescription(paymentType, paymentDay),
+          currency: (stat.currency || 'EUR') as string,
+          periodRangeLabel,
+          status: recordStatus as 'pending' | 'paid',
+          isPending: recordStatus !== 'paid',
+          pendingAmount
         };
       })
       .filter((item): item is {
@@ -639,9 +727,14 @@ const DashboardStripe: React.FC = () => {
         nextDate: Date;
         relativeLabel: string;
         paymentDayLabel: string;
+        currency: string;
+        periodRangeLabel: string | null;
+        status: 'pending' | 'paid';
+        isPending: boolean;
+        pendingAmount: number;
       } => Boolean(item))
       .sort((a, b) => a.nextDate.getTime() - b.nextDate.getTime());
-  }, [displayStats, calendarMap]);
+  }, [displayStats, calendarMap, getCalendarPaymentContext]);
 
   const withdrawalSummary = useMemo(() => {
     const totalGross = withdrawals.reduce((sum, item) => sum + item.grossAmount, 0);
@@ -748,20 +841,12 @@ const DashboardStripe: React.FC = () => {
         paypalEmail: details.paypalEmail || '',
         paymentType: details.paymentType,
         paymentDay: typeof details.paymentDay === 'number' ? details.paymentDay : null,
-        paymentMethod: details.paymentMethod,
-        customHourlyRate: typeof details.customHourlyRate === 'number' ? details.customHourlyRate : null
+        paymentMethod: details.paymentMethod
       };
 
       let nextValue: PayoutDraft[keyof PayoutDraft];
 
       if (field === 'paymentDay') {
-        if (value === null || value === '') {
-          nextValue = null;
-        } else {
-          const numeric = typeof value === 'number' ? value : Number(value);
-          nextValue = Number.isNaN(numeric) ? null : numeric;
-        }
-      } else if (field === 'customHourlyRate') {
         if (value === null || value === '') {
           nextValue = null;
         } else {
@@ -807,7 +892,9 @@ const DashboardStripe: React.FC = () => {
   ) => {
     setPayoutRecordDrafts(prev => {
       const calendar = calendarMap.get(calendarId);
-      const existingRecord = calendar?.payoutRecords?.[periodKey];
+      const context = getCalendarPaymentContext(calendarId);
+      const periodForRecord = context?.currentPeriod.periodKey ?? periodKey;
+      const existingRecord = calendar?.payoutRecords?.[periodForRecord];
       const currentRecord: PayoutRecordDraft = prev[calendarId] ?? {
         status: (existingRecord?.status ?? 'pending') as 'pending' | 'paid',
         lastPaymentDate: existingRecord?.lastPaymentDate || '',
@@ -841,16 +928,107 @@ const DashboardStripe: React.FC = () => {
         }
       };
     });
-  }, [calendarMap, periodKey]);
+  }, [calendarMap, getCalendarPaymentContext, periodKey]);
 
-  const handleQuickMarkAsPaid = useCallback((calendarId: string, defaultMethod: PaymentMethod) => {
-    const today = new Date();
-    const isoDate = today.toISOString().split('T')[0];
-    handlePayoutRecordChange(calendarId, 'status', 'paid');
-    handlePayoutRecordChange(calendarId, 'lastPaymentDate', isoDate);
-    handlePayoutRecordChange(calendarId, 'lastPaymentBy', user?.displayName || user?.email || 'Equipo');
-    handlePayoutRecordChange(calendarId, 'paymentMethod', defaultMethod);
-  }, [handlePayoutRecordChange, user?.displayName, user?.email]);
+  const handleQuickMarkAsPaid = useCallback(async (
+    calendarId: string,
+    options?: { amount?: number; paymentMethod?: PaymentMethod }
+  ) => {
+    const context = getCalendarPaymentContext(calendarId);
+    if (!context) {
+      toast.error('No encontramos el profesional a actualizar');
+      return;
+    }
+
+    const { calendar, currentPeriod, preferredMethod } = context;
+    const targetPeriodKey = currentPeriod.periodKey;
+    const existingRecord = calendar.payoutRecords?.[targetPeriodKey];
+    const today = new Date().toISOString().split('T')[0];
+
+    const draftRecord = payoutRecordDrafts[calendarId];
+    const draftDetails = payoutDrafts[calendarId];
+
+    const paymentMethod = options?.paymentMethod
+      ?? draftRecord?.paymentMethod
+      ?? existingRecord?.paymentMethod
+      ?? preferredMethod;
+    const amountValue = options?.amount;
+    const hasAmount = typeof amountValue === 'number' && !Number.isNaN(amountValue);
+    const normalizedAmount = hasAmount
+      ? Number(amountValue.toFixed(2))
+      : typeof draftRecord?.amountPaid === 'number'
+        ? draftRecord.amountPaid
+        : existingRecord?.amountPaid;
+
+    const normalizedRecord: PayoutRecordDraft = {
+      status: 'paid',
+      lastPaymentDate: today,
+      lastPaymentBy: user?.displayName || user?.email || 'Equipo',
+      note: draftRecord?.note ?? existingRecord?.note,
+      paymentMethod,
+      amountPaid: typeof normalizedAmount === 'number' ? normalizedAmount : undefined
+    };
+
+    const details = (calendar as any)?.payoutDetails ?? {};
+    const normalizedDetails = {
+      iban: (draftDetails?.iban ?? details?.iban) || undefined,
+      bank: (draftDetails?.bank ?? details?.bank) || undefined,
+      notes: (draftDetails?.notes ?? details?.notes) || undefined,
+      paypalEmail: (draftDetails?.paypalEmail ?? details?.paypalEmail) || undefined,
+      paymentType: draftDetails?.paymentType ?? details?.paymentType ?? undefined,
+      paymentDay: typeof draftDetails?.paymentDay === 'number'
+        ? draftDetails.paymentDay
+        : typeof details?.paymentDay === 'number'
+          ? details.paymentDay
+          : undefined,
+      paymentMethod: draftDetails?.paymentMethod ?? details?.paymentMethod ?? undefined
+    };
+
+    try {
+      setMarkingPayout(prev => ({ ...prev, [calendarId]: true }));
+
+      await updatePayoutMutation.mutateAsync({
+        calendarId,
+        periodKey: targetPeriodKey,
+        payoutDetails: normalizedDetails,
+        payoutRecord: normalizedRecord
+      });
+
+      toast.success('Pago registrado correctamente');
+      setPayoutRecordDrafts(prev => ({
+        ...prev,
+        [calendarId]: {
+          ...normalizedRecord
+        }
+      }));
+      const nextPaymentType = draftDetails?.paymentType ?? details?.paymentType ?? 'monthly';
+      const nextPaymentDayValue = typeof draftDetails?.paymentDay === 'number'
+        ? draftDetails.paymentDay
+        : typeof details?.paymentDay === 'number'
+          ? details.paymentDay
+          : null;
+      const nextPaymentMethod = draftDetails?.paymentMethod ?? details?.paymentMethod ?? preferredMethod;
+
+      setPayoutDrafts(prev => ({
+        ...prev,
+        [calendarId]: {
+          iban: normalizedDetails.iban || '',
+          bank: normalizedDetails.bank || '',
+          notes: normalizedDetails.notes || '',
+          paypalEmail: normalizedDetails.paypalEmail || '',
+          paymentType: nextPaymentType,
+          paymentDay: nextPaymentDayValue,
+          paymentMethod: nextPaymentMethod
+        }
+      }));
+      setEditingPayout(prev => ({ ...prev, [calendarId]: false }));
+    } catch (error) {
+      console.error('Error registrando pago', error);
+      toast.error('No pudimos registrar el pago');
+    } finally {
+      setMarkingPayout(prev => ({ ...prev, [calendarId]: false }));
+    }
+  }, [getCalendarPaymentContext, payoutRecordDrafts, payoutDrafts, updatePayoutMutation, user?.displayName, user?.email]);
 
   const handleCreateWithdrawal = useCallback(async (event: React.FormEvent) => {
     event.preventDefault();
@@ -970,14 +1148,15 @@ const DashboardStripe: React.FC = () => {
               paypalEmail: details?.paypalEmail || '',
               paymentType: details?.paymentType ?? 'monthly',
               paymentDay: typeof details?.paymentDay === 'number' ? details.paymentDay : null,
-              paymentMethod: details?.paymentMethod ?? 'transfer',
-              customHourlyRate: typeof details?.customHourlyRate === 'number' ? details.customHourlyRate : null
+              paymentMethod: details?.paymentMethod ?? 'transfer'
             }
           };
         });
         setPayoutRecordDrafts(drafts => {
           if (drafts[calendarId]) return drafts;
-          const record = calendarMap.get(calendarId)?.payoutRecords?.[periodKey];
+          const context = getCalendarPaymentContext(calendarId);
+          const periodForRecord = context?.currentPeriod.periodKey ?? periodKey;
+          const record = calendarMap.get(calendarId)?.payoutRecords?.[periodForRecord];
           return {
             ...drafts,
             [calendarId]: {
@@ -993,7 +1172,7 @@ const DashboardStripe: React.FC = () => {
       }
       return { ...prev, [calendarId]: next };
     });
-  }, [calendarMap, periodKey]);
+  }, [calendarMap, getCalendarPaymentContext, periodKey]);
 
   const handleCancelPayoutEdit = useCallback((calendarId: string) => {
     setEditingPayout(prev => ({ ...prev, [calendarId]: false }));
@@ -1020,16 +1199,15 @@ const DashboardStripe: React.FC = () => {
       toast.error(`No pudimos copiar el ${label.toLowerCase()}`);
     }
   }, []);
-
-  // ✅ REACT QUERY: Hook de mutación optimizado
-  const updatePayoutMutation = useUpdatePayoutComplete();
-
   const handleSavePayout = useCallback(async (calendarId: string) => {
     const calendar = calendarMap.get(calendarId);
     if (!calendar) {
       toast.error('No encontramos el profesional a actualizar');
       return;
     }
+
+    const context = getCalendarPaymentContext(calendarId);
+    const targetPeriodKey = context?.currentPeriod.periodKey ?? periodKey;
 
     const draft =
       payoutDrafts[calendarId] ?? {
@@ -1039,13 +1217,10 @@ const DashboardStripe: React.FC = () => {
         paypalEmail: calendar.payoutDetails?.paypalEmail || '',
         paymentType: calendar.payoutDetails?.paymentType ?? 'monthly',
         paymentDay: typeof calendar.payoutDetails?.paymentDay === 'number' ? calendar.payoutDetails.paymentDay : null,
-        paymentMethod: calendar.payoutDetails?.paymentMethod ?? 'transfer',
-        customHourlyRate: typeof calendar.payoutDetails?.customHourlyRate === 'number'
-          ? calendar.payoutDetails.customHourlyRate
-          : null
+        paymentMethod: calendar.payoutDetails?.paymentMethod ?? 'transfer'
       };
 
-    const existingRecord = calendar.payoutRecords?.[periodKey];
+    const existingRecord = calendar.payoutRecords?.[targetPeriodKey];
     const recordDraft = payoutRecordDrafts[calendarId] ?? {
       status: (existingRecord?.status ?? 'pending') as 'pending' | 'paid',
       lastPaymentDate: existingRecord?.lastPaymentDate || '',
@@ -1069,8 +1244,7 @@ const DashboardStripe: React.FC = () => {
       paypalEmail: draft.paypalEmail || undefined,
       paymentType: draft.paymentType || undefined,
       paymentDay: draft.paymentDay ?? undefined,
-      paymentMethod: draft.paymentMethod || undefined,
-      customHourlyRate: typeof draft.customHourlyRate === 'number' ? draft.customHourlyRate : undefined
+      paymentMethod: draft.paymentMethod || undefined
     };
 
     try {
@@ -1079,7 +1253,7 @@ const DashboardStripe: React.FC = () => {
       // ✅ Usar mutación de React Query (actualiza caché automáticamente)
       await updatePayoutMutation.mutateAsync({
         calendarId,
-        periodKey,
+        periodKey: targetPeriodKey,
         payoutDetails: normalizedDetails,
         payoutRecord: normalizedRecord
       });
@@ -1101,12 +1275,13 @@ const DashboardStripe: React.FC = () => {
     } finally {
       setSavingPayout(prev => ({ ...prev, [calendarId]: false }));
     }
-  }, [calendarMap, payoutDrafts, payoutRecordDrafts, periodKey, updatePayoutMutation]);
+  }, [calendarMap, getCalendarPaymentContext, payoutDrafts, payoutRecordDrafts, periodKey, updatePayoutMutation]);
 
   const renderProfessionalDetail = useCallback((statContainer: typeof statsForDisplay[number]) => {
     const { base: stat, filteredMonths, filteredAmount, filteredHours, filteredEvents, paymentPeriod } = statContainer as typeof statsForDisplay[number] & { paymentPeriod?: any };
     const relatedCalendar = calendarMap.get(stat.professionalId);
     const owner = relatedCalendar?.members?.find(member => member.role === 'owner') ?? relatedCalendar?.members?.[0];
+    const paymentContext = getCalendarPaymentContext(stat.professionalId);
 
     const payoutDetails = (() => {
       const calAny = relatedCalendar as any;
@@ -1119,7 +1294,6 @@ const DashboardStripe: React.FC = () => {
       paymentType?: PaymentFrequency;
       paymentDay?: number;
       paymentMethod?: PaymentMethod;
-      customHourlyRate?: number;
     };
 
     const monthlySeries = Array.from({ length: 12 }, (_, index) => {
@@ -1137,6 +1311,14 @@ const DashboardStripe: React.FC = () => {
         valueForChart: amount > 0 ? amount : hours
       };
     });
+
+    const periodKeyForRecord = paymentContext?.currentPeriod.periodKey ?? periodKey;
+    const amountForCurrentPeriod = typeof paymentContext?.amountForPeriod === 'number'
+      ? paymentContext.amountForPeriod
+      : undefined;
+    const isMarking = Boolean(markingPayout[stat.professionalId]);
+    const isSaving = savingPayout[stat.professionalId];
+    const quickPayDisabled = isMarking || isSaving;
 
     const maxValue = monthlySeries.reduce((max, month) => Math.max(max, month.valueForChart), 0);
     const lastMonth = monthlySeries[monthlySeries.length - 1];
@@ -1160,10 +1342,8 @@ const DashboardStripe: React.FC = () => {
         paypalEmail: payoutDetails.paypalEmail || '',
         paymentType: payoutDetails.paymentType ?? 'monthly',
         paymentDay: typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null,
-        paymentMethod: payoutDetails.paymentMethod ?? 'transfer',
-        customHourlyRate: typeof payoutDetails.customHourlyRate === 'number' ? payoutDetails.customHourlyRate : null
+        paymentMethod: payoutDetails.paymentMethod ?? 'transfer'
       };
-    const isSaving = savingPayout[stat.professionalId];
     const editing = editingPayout[stat.professionalId] ?? false;
     const formValues = editing
       ? draft
@@ -1180,33 +1360,78 @@ const DashboardStripe: React.FC = () => {
       : typeof payoutDetails.paymentDay === 'number'
         ? payoutDetails.paymentDay
         : null;
+    const payoutCustomRate = typeof (relatedCalendar as any)?.payoutDetails?.customHourlyRate === 'number'
+      ? (relatedCalendar as any).payoutDetails.customHourlyRate
+      : null;
     const preferredMethod: PaymentMethod = draft.paymentMethod
       ?? payoutDetails.paymentMethod
       ?? 'transfer';
-    const effectiveRate = draft.customHourlyRate
-      ?? payoutDetails.customHourlyRate
-      ?? (stat.hourlyRate > 0 ? stat.hourlyRate : null);
+    const effectiveRate = payoutCustomRate ?? (
+      stat.hourlyRate > 0
+        ? stat.hourlyRate
+        : typeof relatedCalendar?.hourlyRate === 'number'
+          ? relatedCalendar.hourlyRate
+          : null
+    );
+    const hasCustomRate = typeof payoutCustomRate === 'number';
 
-    const latestPaymentRecord = getLatestPaymentRecord(relatedCalendar?.payoutRecords);
+    const latestPaymentRecord = paymentContext?.latestRecord ?? getLatestPaymentRecord(relatedCalendar?.payoutRecords);
     const nextPaymentDate = getNextPaymentDate(new Date(), paymentType, paymentDay, latestPaymentRecord?.lastPaymentDate);
     const nextPaymentLabel = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programar';
-    const recentPayments = getRecentPayments(relatedCalendar?.payoutRecords);
+    const recentPaymentsFromCalendar = getRecentPayments(relatedCalendar?.payoutRecords);
 
     const paymentDayLabel = getPaymentDayDescription(paymentType, paymentDay);
 
-    const currentRecord = (relatedCalendar as any)?.payoutRecords?.[periodKey];
+    const currentRecord = (relatedCalendar as any)?.payoutRecords?.[periodKeyForRecord];
     const recordDraft = payoutRecordDrafts[stat.professionalId];
+    const defaultRecord: PayoutRecordDraft = {
+      status: (currentRecord?.status ?? 'pending') as 'pending' | 'paid',
+      lastPaymentDate: currentRecord?.lastPaymentDate || '',
+      lastPaymentBy: currentRecord?.lastPaymentBy || '',
+      note: currentRecord?.note || '',
+      paymentMethod: currentRecord?.paymentMethod,
+      amountPaid: typeof currentRecord?.amountPaid === 'number' ? currentRecord.amountPaid : undefined
+    };
     const displayRecord = editing
-      ? recordDraft ?? {
-          status: (currentRecord?.status ?? 'pending') as 'pending' | 'paid',
-          lastPaymentDate: currentRecord?.lastPaymentDate || '',
-          lastPaymentBy: currentRecord?.lastPaymentBy || '',
-          note: currentRecord?.note || '',
-          paymentMethod: currentRecord?.paymentMethod,
-          amountPaid: currentRecord?.amountPaid
-        }
-      : currentRecord ?? null;
-    const recordStatus = displayRecord?.status ?? 'pending';
+      ? recordDraft ?? defaultRecord
+      : recordDraft ?? currentRecord ?? null;
+    const recordStatus = displayRecord?.status ?? currentRecord?.status ?? 'pending';
+    const periodRangeLabel = paymentContext?.currentPeriod
+      ? formatPeriodRange(paymentContext.currentPeriod)
+      : paymentPeriod?.label ?? null;
+    const pendingAmount = recordStatus === 'paid'
+      ? 0
+      : typeof amountForCurrentPeriod === 'number'
+        ? amountForCurrentPeriod
+        : typeof filteredAmount === 'number'
+          ? filteredAmount
+          : 0;
+    const markAmount = pendingAmount > 0 ? pendingAmount : undefined;
+    const lastPaymentAmountLabel = typeof displayRecord?.amountPaid === 'number'
+      ? formatCurrency(displayRecord.amountPaid, stat.currency || 'EUR')
+      : null;
+    const lastPaymentMethodLabel = displayRecord?.paymentMethod
+      ? getPaymentMethodLabel(displayRecord.paymentMethod)
+      : null;
+
+    const recentPayments = (() => {
+      if (!displayRecord?.lastPaymentDate) {
+        return recentPaymentsFromCalendar;
+      }
+      const alreadyListed = recentPaymentsFromCalendar.some(item => item.periodKey === periodKeyForRecord);
+      if (alreadyListed) {
+        return recentPaymentsFromCalendar;
+      }
+      return [
+        {
+          periodKey: periodKeyForRecord,
+          lastPaymentDate: displayRecord.lastPaymentDate,
+          paymentMethod: displayRecord.paymentMethod,
+          amountPaid: displayRecord.amountPaid
+        },
+        ...recentPaymentsFromCalendar
+      ].slice(0, 3);
+    })();
 
     const activeMonthKeys = filteredMonths.length
       ? new Set(filteredMonths.map(month => month.month))
@@ -1233,9 +1458,9 @@ const DashboardStripe: React.FC = () => {
                 <span className="payments-payment-badge payments-payment-badge--method">
                   {getPaymentMethodLabel(preferredMethod)}
                 </span>
-                {paymentPeriod && (
+                {(paymentContext?.currentPeriod || paymentPeriod) && (
                   <span className="payments-payment-badge payments-payment-badge--period" style={{ backgroundColor: '#10b981', color: 'white' }}>
-                    📅 {paymentPeriod.label}
+                    📅 {paymentContext?.currentPeriod?.label ?? paymentPeriod.label}
                   </span>
                 )}
               </div>
@@ -1267,6 +1492,8 @@ const DashboardStripe: React.FC = () => {
             {!editing && displayRecord?.lastPaymentDate && (
               <span className="payments-status__meta">
                 Último pago: {formatDisplayDate(displayRecord.lastPaymentDate)}
+                {lastPaymentAmountLabel ? ` · ${lastPaymentAmountLabel}` : ''}
+                {lastPaymentMethodLabel ? ` · ${lastPaymentMethodLabel}` : ''}
                 {displayRecord?.lastPaymentBy ? ` · Responsable: ${displayRecord.lastPaymentBy}` : ''}
               </span>
             )}
@@ -1275,12 +1502,25 @@ const DashboardStripe: React.FC = () => {
                 Próximo pago: {nextPaymentLabel}
               </span>
             )}
+            {!editing && recordStatus !== 'paid' && periodRangeLabel && (
+              <span className="payments-status__meta">
+                Falta pago del {periodRangeLabel}
+              </span>
+            )}
           </div>
           <div className="payments-professional-card__metrics">
             <div className="payments-metric">
-              <span>Total a pagar</span>
-              <strong>{formatCurrency(filteredAmount || 0, stat.currency || 'EUR')}</strong>
-              <small>Total servicios registrados: {filteredEvents}</small>
+              <span>Pendiente período
+                {period === 'year' ? ' (año)' : period === 'quarter' ? ' (trimestre)' : period === 'month' ? ' (mes)' : ' (pago)'}
+              </span>
+              <strong>{formatCurrency(pendingAmount, stat.currency || 'EUR')}</strong>
+              <small>
+                {recordStatus === 'paid'
+                  ? 'Período liquidado'
+                  : periodRangeLabel
+                    ? `Falta pagar del ${periodRangeLabel}`
+                    : 'Sin período activo'}
+              </small>
             </div>
             <div className="payments-metric payments-metric--schedule">
               <span>Próximo pago</span>
@@ -1301,15 +1541,13 @@ const DashboardStripe: React.FC = () => {
               <strong>
                 {typeof effectiveRate === 'number'
                   ? `${formatCurrency(effectiveRate, stat.currency || 'EUR')}/h`
-                  : stat.hourlyRate > 0
-                    ? `${formatCurrency(stat.hourlyRate, stat.currency || 'EUR')}/h`
-                    : 'Tarifa no definida'}
+                  : 'Tarifa no definida'}
               </strong>
               <small>
-                {typeof effectiveRate === 'number'
+                {hasCustomRate
                   ? 'Tarifa personalizada para este profesional'
-                  : stat.hourlyRate > 0
-                    ? `Moneda: ${(stat.currency || 'EUR').toUpperCase()}`
+                  : typeof effectiveRate === 'number'
+                    ? `Configurada en el calendario (${(stat.currency || 'EUR').toUpperCase()})`
                     : 'Edita el calendario para asignar una tarifa'}
               </small>
             </div>
@@ -1457,22 +1695,15 @@ const DashboardStripe: React.FC = () => {
                   </select>
                 </div>
                 <div className="payments-payout-config__field">
-                  <label>Tarifa personalizada</label>
+                  <label>Tarifa vigente</label>
                   <input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    value={draft.customHourlyRate ?? ''}
-                    onChange={(event) => handlePayoutFieldChange(
-                      stat.professionalId,
-                      'customHourlyRate',
-                      event.target.value === '' ? null : Number(event.target.value)
-                    )}
-                    placeholder="Opcional"
+                    value={typeof effectiveRate === 'number'
+                      ? `${formatCurrency(effectiveRate, stat.currency || 'EUR')}/h`
+                      : 'Sin definir'}
+                    readOnly
+                    disabled
                   />
-                  <small>
-                    Si lo dejas vacío, usaremos la tarifa del calendario: {stat.hourlyRate > 0 ? `${formatCurrency(stat.hourlyRate, stat.currency || 'EUR')}/h` : 'no definida'}
-                  </small>
+                  <small>Gestiona la tarifa desde el perfil del profesional.</small>
                 </div>
               </div>
             ) : (
@@ -1494,9 +1725,7 @@ const DashboardStripe: React.FC = () => {
                   <strong>
                     {typeof effectiveRate === 'number'
                       ? `${formatCurrency(effectiveRate, stat.currency || 'EUR')}/h`
-                      : stat.hourlyRate > 0
-                        ? `${formatCurrency(stat.hourlyRate, stat.currency || 'EUR')}/h`
-                        : 'Sin definir'}
+                      : 'Sin definir'}
                   </strong>
                 </li>
               </ul>
@@ -1564,34 +1793,16 @@ const DashboardStripe: React.FC = () => {
             </div>
           </div>
           <div className="payments-payout-field">
-            <label htmlFor={`last-payment-date-${stat.professionalId}`}>Fecha último pago</label>
-            {editing ? (
-              <input
-                id={`last-payment-date-${stat.professionalId}`}
-                type="date"
-                value={(recordDraft?.lastPaymentDate ?? displayRecord?.lastPaymentDate ?? '')}
-                onChange={(event) => handlePayoutRecordChange(stat.professionalId, 'lastPaymentDate', event.target.value)}
-              />
-            ) : (
-              <p className="payments-readonly-value">
-                {displayRecord?.lastPaymentDate ? formatDisplayDate(displayRecord.lastPaymentDate) : 'Sin registrar'}
-              </p>
-            )}
+            <label>Fecha último pago</label>
+            <p className="payments-readonly-value">
+              {displayRecord?.lastPaymentDate ? formatDisplayDate(displayRecord.lastPaymentDate) : 'Sin registrar'}
+            </p>
           </div>
           <div className="payments-payout-field">
-            <label htmlFor={`last-payment-by-${stat.professionalId}`}>Responsable</label>
-            {editing ? (
-              <input
-                id={`last-payment-by-${stat.professionalId}`}
-                value={(recordDraft?.lastPaymentBy ?? displayRecord?.lastPaymentBy ?? '')}
-                onChange={(event) => handlePayoutRecordChange(stat.professionalId, 'lastPaymentBy', event.target.value)}
-                placeholder="Nombre de quien confirmó el pago"
-              />
-            ) : (
-              <p className="payments-readonly-value">
-                {displayRecord?.lastPaymentBy || 'Sin asignar'}
-              </p>
-            )}
+            <label>Responsable</label>
+            <p className="payments-readonly-value">
+              {displayRecord?.lastPaymentBy || 'Sin asignar'}
+            </p>
           </div>
           <div className="payments-payout-field">
             <label htmlFor={`payment-method-${stat.professionalId}`}>Método registrado</label>
@@ -1612,28 +1823,12 @@ const DashboardStripe: React.FC = () => {
             )}
           </div>
           <div className="payments-payout-field">
-            <label htmlFor={`amount-paid-${stat.professionalId}`}>Monto registrado</label>
-            {editing ? (
-              <input
-                id={`amount-paid-${stat.professionalId}`}
-                type="number"
-                step="0.01"
-                min={0}
-                value={recordDraft?.amountPaid ?? displayRecord?.amountPaid ?? ''}
-                onChange={(event) => handlePayoutRecordChange(
-                  stat.professionalId,
-                  'amountPaid',
-                  event.target.value
-                )}
-                placeholder="Ej: 250.00"
-              />
-            ) : (
-              <p className="payments-readonly-value">
-                {typeof displayRecord?.amountPaid === 'number'
-                  ? formatCurrency(displayRecord.amountPaid, stat.currency || 'EUR')
-                  : 'Sin registrar'}
-              </p>
-            )}
+            <label>Monto registrado</label>
+            <p className="payments-readonly-value">
+              {typeof displayRecord?.amountPaid === 'number'
+                ? formatCurrency(displayRecord.amountPaid, stat.currency || 'EUR')
+                : 'Sin registrar'}
+            </p>
           </div>
           <div className="payments-payout-field payments-payout-field--textarea">
             <label htmlFor={`notes-${stat.professionalId}`}>Notas internas</label>
@@ -1684,6 +1879,15 @@ const DashboardStripe: React.FC = () => {
             Estos datos se guardan en el calendario del profesional. Úsalos al procesar transferencias.
           </small>
           <div className="payments-professional-card__action-buttons">
+            <button
+              type="button"
+              className="payments-button payments-button--primary payments-button--with-icon payments-button--compact"
+              onClick={() => handleQuickMarkAsPaid(stat.professionalId, { amount: markAmount, paymentMethod: preferredMethod })}
+              disabled={quickPayDisabled}
+            >
+              <CheckCircle size={16} />
+              {isMarking ? 'Registrando...' : 'Pago realizado'}
+            </button>
             {editing ? (
               <>
                 <button
@@ -1697,15 +1901,6 @@ const DashboardStripe: React.FC = () => {
                 <button
                   type="button"
                   className="payments-button payments-button--ghost payments-button--with-icon payments-button--compact"
-                  onClick={() => handleQuickMarkAsPaid(stat.professionalId, preferredMethod)}
-                  disabled={isSaving}
-                >
-                  <CheckCircle size={16} />
-                  Pago realizado
-                </button>
-                <button
-                  type="button"
-                  className="payments-button payments-button--primary payments-button--with-icon payments-button--compact"
                   onClick={() => handleSavePayout(stat.professionalId)}
                   disabled={isSaving}
                 >
@@ -1727,7 +1922,7 @@ const DashboardStripe: React.FC = () => {
         </div>
       </article>
     );
-  }, [calendarMap, selectedYear, payoutDrafts, savingPayout, editingPayout, payoutRecordDrafts, handlePayoutRecordChange, pendingLoading, pendingServices, handlePayoutFieldChange, handleCopyValue, handleCancelPayoutEdit, handleSavePayout, handleTogglePayoutEdit, handleQuickMarkAsPaid])
+  }, [calendarMap, selectedYear, payoutDrafts, savingPayout, editingPayout, payoutRecordDrafts, handlePayoutRecordChange, pendingLoading, pendingServices, handlePayoutFieldChange, handleCopyValue, handleCancelPayoutEdit, handleSavePayout, handleTogglePayoutEdit, handleQuickMarkAsPaid, getCalendarPaymentContext, markingPayout, periodKey])
 
   const exportToCSV = useCallback(() => {
     if (!stats.length) {
@@ -2127,6 +2322,94 @@ const DashboardStripe: React.FC = () => {
                   )}
                 </header>
 
+                {/* Indicador de período actual */}
+                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                    <span className="font-bold">Período mostrado:</span>{' '}
+                    {period === 'year' && `Año ${selectedYear} (completo)`}
+                    {period === 'quarter' && `Q${selectedQuarter} ${selectedYear}`}
+                    {period === 'month' && `${MONTH_LABELS[selectedMonth]} ${selectedYear}`}
+                    {period === 'payment' && 'Período de pago actual'}
+                  </p>
+                </div>
+
+                {/* SECCIÓN CRÍTICA: PAGOS PENDIENTES (Rojo) */}
+                {displayStats.some(({ base }) => isProfessionalPending(base.professionalId)) && (
+                  <div className="mb-8 p-6 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-r-lg">
+                    <h3 className="payments-card__section-title flex items-center gap-2 text-red-700 dark:text-red-400">
+                      <AlertCircle size={20} />
+                      Pagos Pendientes - Acción Inmediata
+                    </h3>
+                    <div className="mt-4 space-y-3">
+                      {displayStats
+                        .filter(({ base }) => isProfessionalPending(base.professionalId))
+                        .slice(0, 5)
+                        .map(({ base: stat, filteredAmount }) => {
+                          const context = getCalendarPaymentContext(stat.professionalId);
+                          const periodKeyForRecord = context?.currentPeriod.periodKey ?? periodKey;
+                          const recordStatus = context?.calendar?.payoutRecords?.[periodKeyForRecord]?.status ?? 'pending';
+                          const isPending = recordStatus !== 'paid' && filteredAmount > 0;
+
+                          return isPending ? (
+                            <div key={stat.professionalId} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-lg">
+                              <div className="flex-1">
+                                <p className="font-semibold text-gray-900 dark:text-white">{stat.professionalName}</p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">Adeudado: {formatCurrency(filteredAmount, stat.currency || 'EUR')}</p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  const professional = displayStats.find(s => s.base.professionalId === stat.professionalId);
+                                  if (professional) setSelectedProfessional(professional);
+                                }}
+                                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                              >
+                                Procesar Pago
+                              </button>
+                            </div>
+                          ) : null;
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {/* SECCIÓN IMPORTANTE: PRÓXIMOS 7 DÍAS (Ámbar) */}
+                {scheduledPayments.filter(p => {
+                  const daysUntil = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                  return daysUntil <= 7 && daysUntil > 0;
+                }).length > 0 && (
+                  <div className="mb-8 p-6 bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 rounded-r-lg">
+                    <h3 className="payments-card__section-title flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                      <Clock size={20} />
+                      Próximos 7 días - Planificación
+                    </h3>
+                    <div className="mt-4 space-y-3">
+                      {scheduledPayments
+                        .filter(p => {
+                          const daysUntil = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          return daysUntil <= 7 && daysUntil > 0;
+                        })
+                        .slice(0, 5)
+                        .map(item => (
+                          <div key={item.professionalId} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-lg">
+                            <div className="flex-1">
+                              <p className="font-semibold text-gray-900 dark:text-white">{item.professionalName}</p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">
+                                {item.nextDate.toLocaleDateString('es-ES')} · {formatCurrency(item.pendingAmount, item.currency)} · {getPaymentMethodLabel(item.paymentMethod)}
+                              </p>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                              item.relativeLabel.includes('Hoy') ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
+                              item.relativeLabel.includes('Mañana') ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300' :
+                              'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                            }`}>
+                              {item.relativeLabel}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
                 <h3 className="payments-card__section-title">Resumen general</h3>
                 {!stats.length ? (
                   <div className="payments-empty">No hay horas registradas para {selectedYear}. Actualiza o cambia el filtro.</div>
@@ -2201,7 +2484,7 @@ const DashboardStripe: React.FC = () => {
                   <div className="payments-professional-kpis">
                     <h4 className="payments-professional-kpis__title">Vista por profesional</h4>
                     <div className="payments-professional-kpis__grid">
-                      {displayStats.slice(0, 12).map(({ base, filteredAmount, filteredHours, filteredEvents }) => {
+                      {displayStats.slice(0, 12).map(({ base, filteredAmount, filteredHours, filteredEvents, paymentPeriod }) => {
                         const calendar = calendarMap.get(base.professionalId);
                         const owner = calendar?.members?.find(m => m.role === 'owner') ?? calendar?.members?.[0];
                         const payoutDetails = ((calendar as any)?.payoutDetails ?? {}) as {
@@ -2210,21 +2493,38 @@ const DashboardStripe: React.FC = () => {
                           paymentMethod?: PaymentMethod;
                         };
                         const isPending = isProfessionalPending(base.professionalId);
-                        const recordStatus = calendar?.payoutRecords?.[periodKey]?.status ?? 'pending';
+                        const paymentContext = getCalendarPaymentContext(base.professionalId);
+                        const currentPeriod = paymentContext?.currentPeriod;
+                        const currentPeriodKey = currentPeriod?.periodKey;
+                        const recordStatus = currentPeriodKey
+                          ? paymentContext?.calendar?.payoutRecords?.[currentPeriodKey]?.status ?? 'pending'
+                          : calendar?.payoutRecords?.[periodKey]?.status ?? 'pending';
                         const paymentType = payoutDetails.paymentType ?? 'monthly';
                         const paymentDay = typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null;
                         const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
                         const nextPaymentDate = getNextPaymentDate(new Date(), paymentType, paymentDay, latestRecord?.lastPaymentDate);
+                        const periodRangeLabel = currentPeriod
+                          ? formatPeriodRange(currentPeriod)
+                          : paymentPeriod?.label ?? null;
+                        const pendingAmountKpi = recordStatus === 'paid'
+                          ? 0
+                          : typeof paymentContext?.amountForPeriod === 'number'
+                            ? paymentContext.amountForPeriod
+                            : filteredAmount;
 
                         // Determinar la alerta más importante
                         let alertIcon = '';
                         let alertText = '';
                         let alertType = '';
 
-                        if (recordStatus === 'pending' && filteredAmount > 0) {
+                        if (recordStatus === 'pending' && pendingAmountKpi > 0) {
                           alertIcon = '💰';
-                          alertText = `Pendiente: ${formatCurrency(filteredAmount, base.currency)}`;
+                          alertText = `Falta pagar ${formatCurrency(pendingAmountKpi, base.currency)}${periodRangeLabel ? ` · ${periodRangeLabel}` : ''}`;
                           alertType = 'error';
+                        } else if (recordStatus === 'pending') {
+                          alertIcon = '⏳';
+                          alertText = periodRangeLabel ? `Pendiente: ${periodRangeLabel}` : 'Pago pendiente';
+                          alertType = 'warning';
                         } else if (nextPaymentDate) {
                           const daysUntil = Math.ceil((nextPaymentDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
                           if (daysUntil >= 0 && daysUntil <= 7) {
@@ -2323,6 +2623,20 @@ const DashboardStripe: React.FC = () => {
                           <span>{item.relativeLabel}</span>
                           <span>{getPaymentMethodLabel(item.paymentMethod)}</span>
                         </div>
+                        <small
+                          style={{
+                            display: 'block',
+                            marginTop: '0.5rem',
+                            color: item.isPending ? '#dc2626' : '#059669',
+                            fontWeight: 500
+                          }}
+                        >
+                          {item.isPending
+                            ? item.periodRangeLabel
+                              ? `Falta pagar del ${item.periodRangeLabel}${item.pendingAmount > 0 ? ` · ${formatCurrency(item.pendingAmount, item.currency)}` : ''}`
+                              : 'Pago pendiente'
+                            : `Periodo liquidado${item.periodRangeLabel ? ` (${item.periodRangeLabel})` : ''}`}
+                        </small>
                       </article>
                     ))}
                   </div>

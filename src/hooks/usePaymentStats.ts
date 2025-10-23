@@ -222,6 +222,7 @@ export const useUpdatePayoutRecord = () => {
       queryClient.invalidateQueries({ queryKey: ['calendars'] });
       queryClient.invalidateQueries({ queryKey: ['calendar', variables.calendarId] });
       queryClient.invalidateQueries({ queryKey: ['paymentStats'] });
+      queryClient.invalidateQueries({ queryKey: ['workHoursByPeriod'] });
 
       // ✅ Invalidar caché de localStorage
       PersistentCache.invalidatePattern('paymentStats');

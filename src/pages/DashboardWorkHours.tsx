@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { WorkHoursAnalyticsService } from '@/services/workHoursAnalytics';
-import { Clock, TrendingUp, Calendar, Users, Download, Filter, CheckCircle2, DollarSign, RefreshCw } from 'lucide-react';
+import { Clock, TrendingUp, Calendar, Users, Download, Filter, CheckCircle2, DollarSign, RefreshCw, Wallet } from 'lucide-react';
 import { toast } from '@/utils/toast';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -218,20 +218,23 @@ export const DashboardWorkHours: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+          <Link
+            to="/dashboard/pagos"
+            className="group bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white hover:shadow-xl transition-shadow cursor-pointer"
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-purple-100 text-sm font-medium">Top Profesional</p>
-                <p className="text-lg font-bold mt-2 truncate">
-                  {topProfessional?.professionalName || 'N/A'}
+                <p className="text-purple-100 text-sm font-medium">Próximo Pago</p>
+                <p className="text-3xl font-bold mt-2 group-hover:text-purple-100 transition-colors">
+                  {WorkHoursAnalyticsService.formatCurrency(totalAmount, aggregateCurrency)}
                 </p>
-                <p className="text-sm text-purple-100">
-                  {topProfessional ? WorkHoursAnalyticsService.formatHours(topProfessional.totalHours) : '0h'}
+                <p className="text-xs text-purple-100 mt-1">
+                  Ver detalles en pagos →
                 </p>
               </div>
-              <TrendingUp className="w-12 h-12 text-purple-200" />
+              <Wallet className="w-12 h-12 text-purple-200 group-hover:scale-110 transition-transform" />
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Lista de profesionales */}

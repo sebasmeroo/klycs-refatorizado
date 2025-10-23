@@ -2,15 +2,19 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { WorkHoursAnalyticsService } from '@/services/workHoursAnalytics';
 import { WorkHoursStats } from '@/types/calendar';
-import { costMonitoring } from '@/utils/costMonitoring';
-import { PersistentCache } from '@/utils/persistentCache';
 import { useUserCalendars } from './useCalendar';
 import { logger } from '@/utils/logger';
 import { getCurrentPaymentPeriod, PaymentPeriod } from '@/utils/paymentPeriods';
 
+interface PeriodStats {
+  stats: WorkHoursStats;
+  period: PaymentPeriod;
+}
+
 interface WorkHoursByPeriod {
   stats: WorkHoursStats;
   period: PaymentPeriod;
+  history: PeriodStats[];
   professionalId: string;
   professionalName: string;
 }
@@ -52,26 +56,24 @@ export const useWorkHoursByPeriod = (
         return [];
       }
 
-      // ✅ LAYER 2: Intentar cache primero
-      const cacheKey = `workHoursByPeriod:${userId}:${onlyCompleted}` as const;
-      const cachedStats = PersistentCache.get<WorkHoursByPeriod[]>(cacheKey);
-
-      if (cachedStats) {
-        logger.log('✅ Estadísticas por periodo obtenidas de cache');
-        return cachedStats;
-      }
-
-      // ✅ LAYER 3: Cargar desde Firebase
-      logger.log('🔄 Calculando estadísticas por periodo de pago...');
+      logger.log('🔄 Calculando estadísticas por periodo de pago (lectura en vivo)...');
 
       const now = new Date();
       const results: WorkHoursByPeriod[] = [];
+
+      const MAX_HISTORY_PERIODS = 3;
 
       for (const calendar of calendars) {
         // Obtener configuración de pago del calendario
         const paymentType = calendar.payoutDetails?.paymentType || 'monthly';
         const paymentDay = calendar.payoutDetails?.paymentDay;
         const payoutRecords = calendar.payoutRecords || {};
+        const customHourlyRate = typeof calendar.payoutDetails?.customHourlyRate === 'number'
+          ? calendar.payoutDetails.customHourlyRate
+          : null;
+        const baseHourlyRate = typeof calendar.hourlyRate === 'number' ? calendar.hourlyRate : 0;
+        const effectiveHourlyRate = customHourlyRate ?? baseHourlyRate;
+        const currency = calendar.hourlyRateCurrency || 'EUR';
 
         // Encontrar el último pago registrado
         let lastPaymentDate: string | undefined;
@@ -92,54 +94,77 @@ export const useWorkHoursByPeriod = (
 
         logger.log(`📅 Periodo para ${calendar.name}: ${period.label} (${period.start.toISOString()} - ${period.end.toISOString()})`);
 
-        // Calcular horas trabajadas en ese periodo
-        costMonitoring.trackFirestoreRead(1);
+        const buildStatsForPeriod = async (targetPeriod: PaymentPeriod) => {
+          const { hours, events } = await WorkHoursAnalyticsService.calculateWorkHours(
+            calendar.id,
+            targetPeriod.start,
+            targetPeriod.end,
+            onlyCompleted
+          );
 
-        const hours = await WorkHoursAnalyticsService.calculateWorkHours(
-          calendar.id,
-          period.start,
-          period.end,
-          onlyCompleted
-        );
+          const roundedHours = Math.round(hours * 100) / 100;
+          const amount = Math.round((hours * effectiveHourlyRate) * 100) / 100;
 
-        const hourlyRate = typeof calendar.hourlyRate === 'number' ? calendar.hourlyRate : 0;
-        const amount = hours * hourlyRate;
-        const currency = calendar.hourlyRateCurrency || 'EUR';
+          const stats: WorkHoursStats = {
+            professionalId: calendar.id,
+            professionalName: calendar.name,
+            totalHours: roundedHours,
+            totalAmount: amount,
+            currency,
+            hourlyRate: effectiveHourlyRate,
+            monthlyBreakdown: [{
+              month: targetPeriod.periodKey,
+              hours: roundedHours,
+              events,
+              amount
+            }],
+            yearlyTotal: roundedHours,
+            averagePerMonth: roundedHours
+          };
 
-        // Construir estadísticas para este periodo
-        const stats: WorkHoursStats = {
-          professionalId: calendar.id,
-          professionalName: calendar.name,
-          totalHours: Math.round(hours * 100) / 100,
-          totalAmount: Math.round(amount * 100) / 100,
-          currency,
-          hourlyRate,
-          monthlyBreakdown: [{
-            month: period.periodKey,
-            hours: Math.round(hours * 100) / 100,
-            events: 0, // Se calculará si es necesario
-            amount: Math.round(amount * 100) / 100
-          }],
-          yearlyTotal: Math.round(hours * 100) / 100,
-          averagePerMonth: Math.round(hours * 100) / 100
+          return {
+            stats,
+            period: targetPeriod
+          };
         };
 
+        const current = await buildStatsForPeriod(period);
+
+        const history: PeriodStats[] = [];
+        const visited = new Set<string>([period.periodKey]);
+        let cursor = new Date(period.start.getTime());
+
+        for (let i = 0; i < MAX_HISTORY_PERIODS; i += 1) {
+          cursor.setDate(cursor.getDate() - 1);
+          const previousPeriod = getCurrentPaymentPeriod(cursor, paymentType, paymentDay);
+          if (visited.has(previousPeriod.periodKey)) {
+            // Evitar duplicados (especialmente para diarios)
+            break;
+          }
+          visited.add(previousPeriod.periodKey);
+
+          const previousStats = await buildStatsForPeriod(previousPeriod);
+          history.push(previousStats);
+
+          // Mover cursor al inicio del periodo anterior para seguir retrocediendo
+          cursor = new Date(previousPeriod.start.getTime());
+        }
+
+        // Construir estadísticas para este periodo
         results.push({
-          stats,
-          period,
+          stats: current.stats,
+          period: current.period,
+          history,
           professionalId: calendar.id,
           professionalName: calendar.name
         });
       }
 
-      // ✅ Guardar en cache (5 minutos - más corto porque los datos cambian con frecuencia)
-      PersistentCache.set(cacheKey, results, 5 * 60 * 1000);
-
       logger.log(`✅ Estadísticas por periodo calculadas: ${results.length} profesionales`);
       return results;
     },
-    staleTime: 2 * 60 * 1000, // 2 minutos - más corto para datos en tiempo real
-    gcTime: 5 * 60 * 1000, // 5 minutos en memoria (React Query v5)
+    staleTime: 0,
+    gcTime: 2 * 60 * 1000, // GC corto, recalculamos a menudo
     enabled: !!calendars && calendars.length > 0 && !calendarsLoading && !!userId,
     refetchOnWindowFocus: false,
     refetchOnMount: true, // Siempre recargar al montar (datos en tiempo real)

@@ -122,7 +122,7 @@ export class WorkHoursAnalyticsService {
     startDate: Date,
     endDate: Date,
     onlyCompleted: boolean = true
-  ): Promise<number> {
+  ): Promise<{ hours: number; events: number }> {
     try {
       // ✅ Track lectura de Firebase
       costMonitoring.trackFirestoreRead(1);
@@ -134,11 +134,14 @@ export class WorkHoursAnalyticsService {
       // ✅ Track eventos leídos
       costMonitoring.trackFirestoreRead(fetchedCount);
 
-      const totalMinutes = events.reduce((sum, event) => {
+      const filteredEvents = events.filter(event => {
         if (onlyCompleted && event.serviceStatus !== 'completed') {
-          return sum;
+          return false;
         }
+        return true;
+      });
 
+      const totalMinutes = filteredEvents.reduce((sum, event) => {
         if (event.duration && event.duration > 0) {
           return sum + event.duration;
         }
@@ -146,10 +149,16 @@ export class WorkHoursAnalyticsService {
         return sum;
       }, 0);
 
-      return totalMinutes / 60; // Convertir a horas
+      return {
+        hours: totalMinutes / 60, // Convertir a horas
+        events: filteredEvents.length
+      };
     } catch (error) {
       logger.error('Error al calcular horas trabajadas', error as Error);
-      return 0;
+      return {
+        hours: 0,
+        events: 0
+      };
     }
   }
 
