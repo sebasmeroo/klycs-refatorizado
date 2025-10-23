@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { logger } from '@/utils/logger';
 import { Link } from 'react-router-dom';
 import {
   Wallet,
@@ -48,6 +49,7 @@ import {
 } from '@/hooks/useExternalInvoices';
 import { InvoiceStatus } from '@/types/income';
 import { useExternalClients } from '@/hooks/useExternalClients';
+import { convertPeriodKey, useMigrationCheck } from '@/utils/migratePayoutRecords';
 import { useWorkHoursByPeriod, useWorkHoursByPeriodTotals } from '@/hooks/useWorkHoursByPeriod';
 import { getCurrentPaymentPeriod } from '@/utils/paymentPeriods';
 
@@ -382,6 +384,18 @@ const getUpcomingPaymentPeriods = (
   return periods;
 };
 
+/**
+ * ✅ FUNCIÓN CLAVE: Calcular periodKey INDIVIDUAL para cada calendario
+ * Esto reemplaza el periodKey global y permite pagos independientes por paymentType
+ */
+const calculatePeriodKeyForCalendar = (
+  calendar: any, // SharedCalendar type
+  today: Date = new Date()
+): string => {
+  const paymentType = calendar?.payoutDetails?.paymentType ?? 'monthly';
+  return convertPeriodKey(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, paymentType);
+};
+
 const DashboardStripe: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -391,6 +405,14 @@ const DashboardStripe: React.FC = () => {
 
   const normalizedPlan = (planName || 'FREE').toUpperCase();
   const paymentsEnabled = normalizedPlan === 'PRO' || normalizedPlan === 'BUSINESS';
+
+  // ✅ Ejecutar migración UNA SOLA VEZ por usuario
+  const { needsMigration, executeMigration } = useMigrationCheck(user?.uid);
+  useEffect(() => {
+    if (needsMigration && user?.uid) {
+      executeMigration().catch(err => logger.error('Error ejecutando migración', err as Error));
+    }
+  }, [needsMigration, user?.uid, executeMigration]);
 
   const [activeTab, setActiveTab] = useState<'calendar' | 'income' | 'stats' | 'alerts' | 'export'>('calendar');
   const [incomeTab, setIncomeTab] = useState<'platform' | 'external'>('platform');
@@ -1136,10 +1158,22 @@ const DashboardStripe: React.FC = () => {
       return;
     }
 
-    const { calendar, currentPeriod, preferredMethod } = context;
+    const { calendar, currentPeriod, preferredMethod, latestRecord } = context;
+    // ✅ CAMBIO CLAVE: Usar periodKey del contexto directamente (ya está bien calculado)
+    // currentPeriod.periodKey es el correcto: W42 para 17-23 oct
     const targetPeriodKey = currentPeriod.periodKey;
     const existingRecord = calendar.payoutRecords?.[targetPeriodKey];
     const today = new Date().toISOString().split('T')[0];
+
+    logger.log('💳 HANDLEQUICKMARKASPAID - Usando periodKey del contexto:', {
+      calendar: calendar.name,
+      paymentType: calendar.payoutDetails?.paymentType ?? 'monthly',
+      periodStart: currentPeriod.start.toISOString().split('T')[0],
+      periodLabel: currentPeriod.label,
+      periodKey: targetPeriodKey,
+      expectedKey: currentPeriod.periodKey,
+      match: '✅'
+    });
 
     const draftRecord = payoutRecordDrafts[calendarId];
     const draftDetails = payoutDrafts[calendarId];
@@ -1197,6 +1231,17 @@ const DashboardStripe: React.FC = () => {
     try {
       setMarkingPayout(prev => ({ ...prev, [calendarId]: true }));
 
+      logger.log('💳 INICIANDO FLUJO DE PAGO:', {
+        calendario: calendar.name,
+        calendarId,
+        periodKey: targetPeriodKey,
+        paymentType: normalizedDetails.paymentType,
+        amount: normalizedRecord.amountPaid,
+        status: normalizedRecord.status,
+        fechaPago: normalizedRecord.actualPaymentDate,
+        fechaProgramada: normalizedRecord.scheduledPaymentDate
+      });
+
       await updatePayoutMutation.mutateAsync({
         calendarId,
         periodKey: targetPeriodKey,
@@ -1204,6 +1249,7 @@ const DashboardStripe: React.FC = () => {
         payoutRecord: normalizedRecord
       });
 
+      logger.log('✅ PAGO GUARDADO EN FIRESTORE - Esperando invalidación de caché...');
       toast.success('Pago registrado correctamente');
       setPayoutRecordDrafts(prev => ({
         ...prev,
@@ -1364,9 +1410,11 @@ const DashboardStripe: React.FC = () => {
         });
         setPayoutRecordDrafts(drafts => {
           if (drafts[calendarId]) return drafts;
+          const calendar = calendarMap.get(calendarId);
+          // ✅ Obtener periodKey del contexto (ya está bien calculado)
           const context = getCalendarPaymentContext(calendarId);
-          const periodForRecord = context?.currentPeriod.periodKey ?? periodKey;
-          const record = calendarMap.get(calendarId)?.payoutRecords?.[periodForRecord];
+          const periodForRecord = context?.currentPeriod?.periodKey ?? 'unknown';
+          const record = calendar?.payoutRecords?.[periodForRecord];
           return {
             ...drafts,
             [calendarId]: {
@@ -1382,7 +1430,7 @@ const DashboardStripe: React.FC = () => {
       }
       return { ...prev, [calendarId]: next };
     });
-  }, [calendarMap, getCalendarPaymentContext, periodKey]);
+  }, [calendarMap]);
 
   const handleCancelPayoutEdit = useCallback((calendarId: string) => {
     setEditingPayout(prev => ({ ...prev, [calendarId]: false }));
@@ -1416,8 +1464,9 @@ const DashboardStripe: React.FC = () => {
       return;
     }
 
+    // ✅ Usar periodKey del contexto (ya está bien calculado en getCalendarPaymentContext)
     const context = getCalendarPaymentContext(calendarId);
-    const targetPeriodKey = context?.currentPeriod.periodKey ?? periodKey;
+    const targetPeriodKey = context?.currentPeriod?.periodKey ?? 'unknown';
 
     const draft =
       payoutDrafts[calendarId] ?? {
@@ -1791,7 +1840,7 @@ const DashboardStripe: React.FC = () => {
 
                   return (
                     <span
-                      key={`next-${period.label}`}
+                      key={`next-${stat.professionalId}-${period.date.toISOString().split('T')[0]}`}
                       className="payments-payment-badge"
                       style={{ backgroundColor: bgColor, color: textColor }}
                     >

@@ -122,10 +122,16 @@ export class WorkHoursAnalyticsService {
     startDate: Date,
     endDate: Date,
     onlyCompleted: boolean = true
-  ): Promise<{ hours: number; events: number }> {
+  ): Promise<{ hours: number; events: CalendarEvent[] }> {
     try {
       // ✅ Track lectura de Firebase
       costMonitoring.trackFirestoreRead(1);
+
+      logger.log(`🔎 calculateWorkHours - BUSCANDO EVENTOS:`, {
+        calendarId,
+        rango: `${startDate.toISOString().split('T')[0]} a ${endDate.toISOString().split('T')[0]}`,
+        onlyCompleted
+      });
 
       const { events, fetchedCount } = await CalendarEventService.getCalendarEvents([
         calendarId
@@ -134,11 +140,36 @@ export class WorkHoursAnalyticsService {
       // ✅ Track eventos leídos
       costMonitoring.trackFirestoreRead(fetchedCount);
 
+      logger.log(`📥 Eventos obtenidos de Firebase:`, {
+        total: events.length,
+        leido: fetchedCount,
+        eventos: events.map((e, i) => ({
+          idx: i,
+          titulo: e.title,
+          fecha: e.startDate ? new Date(e.startDate).toISOString().split('T')[0] : 'N/A',
+          duracion: e.duration,
+          status: e.serviceStatus ?? 'completed (undefined)',
+          fuera_rango: e.startDate && (new Date(e.startDate) < startDate || new Date(e.startDate) > endDate) ? '⚠️ FUERA' : '✅'
+        }))
+      });
+
       const filteredEvents = events.filter(event => {
-        if (onlyCompleted && event.serviceStatus !== 'completed') {
+        // ✅ Tratar undefined como 'completed' (para compatibilidad con eventos antiguos)
+        const serviceStatus = event.serviceStatus ?? 'completed';
+        if (onlyCompleted && serviceStatus !== 'completed') {
+          logger.log(`  ❌ SALTADO: "${event.title}" - status: ${serviceStatus}`);
           return false;
         }
         return true;
+      });
+
+      logger.log(`✅ Eventos filtrados (completados):`, {
+        total: filteredEvents.length,
+        eventos: filteredEvents.map(e => ({
+          titulo: e.title,
+          fecha: e.startDate ? new Date(e.startDate).toISOString().split('T')[0] : 'N/A',
+          duracion: e.duration
+        }))
       });
 
       const totalMinutes = filteredEvents.reduce((sum, event) => {
@@ -149,15 +180,22 @@ export class WorkHoursAnalyticsService {
         return sum;
       }, 0);
 
+      const totalHours = totalMinutes / 60;
+      logger.log(`📊 RESULTADO FINAL - calculateWorkHours:`, {
+        totalMinutos: totalMinutes,
+        totalHoras: totalHours,
+        eventosContados: filteredEvents.length
+      });
+
       return {
-        hours: totalMinutes / 60, // Convertir a horas
-        events: filteredEvents.length
+        hours: totalHours, // Convertir a horas
+        events: filteredEvents
       };
     } catch (error) {
       logger.error('Error al calcular horas trabajadas', error as Error);
       return {
         hours: 0,
-        events: 0
+        events: []
       };
     }
   }
@@ -245,8 +283,14 @@ export class WorkHoursAnalyticsService {
         costMonitoring.trackFirestoreRead(fetchedCount);
         totalFirebaseReads += (1 + fetchedCount);
 
-        if (isCurrentMonth) {
-          logger.log(`🔴 Calculando mes actual ${monthKey}: ${fetchedCount} eventos leídos`);
+        logger.log(`📅 Mes ${monthKey}: ${fetchedCount} eventos leídos (${monthStart.toLocaleDateString()} - ${monthEnd.toLocaleDateString()})`);
+        if (events.length > 0) {
+          logger.log(`   Eventos:`, events.map(e => ({
+            title: e.title,
+            duration: e.duration,
+            serviceStatus: e.serviceStatus,
+            startDate: e.startDate
+          })));
         }
 
         let monthHours = 0;
@@ -254,17 +298,26 @@ export class WorkHoursAnalyticsService {
         let monthAmount = 0;
 
         events.forEach(event => {
-          if (onlyCompleted && event.serviceStatus !== 'completed') {
+          // ✅ Tratar undefined como 'completed' (para compatibilidad con eventos antiguos sin serviceStatus)
+          // Los eventos antiguos se asumen como completados si tienen duration
+          const serviceStatus = event.serviceStatus ?? 'completed';
+
+          if (onlyCompleted && serviceStatus !== 'completed') {
+            logger.log(`⏭️  Saltando evento ${event.title} (status: ${serviceStatus}) - no completado`);
             return;
           }
 
-          if (event.duration && event.duration > 0) {
-            const hours = event.duration / 60;
-            const amount = hours * hourlyRate;
-            monthHours += hours;
-            monthAmount += amount;
-            monthEvents++;
+          if (!event.duration || event.duration <= 0) {
+            logger.log(`⏭️  Saltando evento ${event.title} (duration: ${event.duration}) - sin duración`);
+            return;
           }
+
+          logger.log(`✅ Contando evento ${event.title}: ${event.duration}min (${event.duration/60}h) × €${hourlyRate} = €${(event.duration/60)*hourlyRate}`);
+          const hours = event.duration / 60;
+          const amount = hours * hourlyRate;
+          monthHours += hours;
+          monthAmount += amount;
+          monthEvents++;
         });
 
         if (monthHours > 0 || monthEvents > 0) {

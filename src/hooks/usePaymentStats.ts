@@ -281,17 +281,29 @@ export const useUpdatePayoutComplete = () => {
       ]);
     },
     onSuccess: (_, variables) => {
-      // ✅ Invalidar caché de React Query
+      console.log('🔄 INICIANDO INVALIDACIÓN DE CACHÉ para calendarId:', variables.calendarId);
+      console.log('📋 PeriodKey actualizado:', variables.periodKey);
+
+      // ✅ Invalidar caché de React Query - TODAS las variaciones
+      console.log('🧹 Invalidando React Query...');
       queryClient.invalidateQueries({ queryKey: ['calendars'] });
       queryClient.invalidateQueries({ queryKey: ['calendar', variables.calendarId] });
-      queryClient.invalidateQueries({ queryKey: ['paymentStats'] });
+      queryClient.invalidateQueries({ queryKey: ['paymentStats'] }); // Invalida todas las variaciones
+      queryClient.invalidateQueries({ queryKey: ['workHoursByPeriod'] }); // ⚠️ CRÍTICO: horas por período
+      queryClient.invalidateQueries({ queryKey: ['workHoursStats'] }); // ⚠️ CRÍTICO: estadísticas de horas
+      queryClient.invalidateQueries({ queryKey: ['paymentPendingServices'] }); // Servicios pendientes
+      console.log('✅ React Query invalidado');
 
-      // ✅ Invalidar caché de localStorage
+      // ✅ Invalidar caché de localStorage - TODAS las variaciones
+      console.log('🧹 Invalidando localStorage...');
       PersistentCache.invalidatePattern('paymentStats');
       PersistentCache.invalidatePattern('pendingServices');
+      PersistentCache.invalidatePattern('workHoursByPeriod'); // ⚠️ NUEVO
+      PersistentCache.invalidatePattern('workHoursStats'); // ⚠️ NUEVO
       PersistentCache.invalidatePattern(`calendars:${variables.calendarId}`);
+      console.log('✅ localStorage invalidado');
 
-      console.log('✅ Caché invalidado después de actualizar pago completo');
+      console.log('✅ CACHÉ COMPLETAMENTE INVALIDADO - Dashboard debería recargarse ahora');
     },
   });
 };

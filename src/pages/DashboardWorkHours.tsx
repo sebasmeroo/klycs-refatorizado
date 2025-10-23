@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { WorkHoursAnalyticsService } from '@/services/workHoursAnalytics';
 import { Clock, TrendingUp, Calendar, Users, Download, Filter, CheckCircle2, DollarSign, RefreshCw, Wallet } from 'lucide-react';
@@ -7,7 +7,12 @@ import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Link } from 'react-router-dom';
 import { useWorkHoursStats, useWorkHoursTotals } from '@/hooks/useWorkHoursStats';
+import { useWorkHoursByPeriod } from '@/hooks/useWorkHoursByPeriod';
+import { useUserCalendars } from '@/hooks/useCalendar';
 import { logger } from '@/utils/logger';
+import { getCurrentPaymentPeriod } from '@/utils/paymentPeriods';
+import type { PaymentFrequency } from '@/types/calendar';
+import { PersistentCache } from '@/utils/persistentCache';
 
 export const DashboardWorkHours: React.FC = () => {
   const { user } = useAuth();
@@ -19,19 +24,99 @@ export const DashboardWorkHours: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [onlyCompleted, setOnlyCompleted] = useState(true);
 
-  // ✅ Hook optimizado con caché multi-capa
+  // ✅ Limpiar caché de workHoursStats al montar (para forzar recalcular desde Firebase)
+  useEffect(() => {
+    PersistentCache.invalidatePattern('workHoursStats');
+    logger.log('🧹 Caché de workHoursStats limpiado al montar DashboardWorkHours');
+  }, []);
+
+  // ✅ Obtener calendarios para acceder a información de pagos
+  const { data: calendarsData } = useUserCalendars(user?.uid);
+  const calendars = calendarsData || [];
+
+  // ✅ Hook optimizado: Obtener horas POR PERÍODO DE PAGO (no anual)
   const {
-    data: stats = [],
+    data: statsByPeriod = [],
     isLoading: loading,
     refetch
-  } = useWorkHoursStats(
+  } = useWorkHoursByPeriod(
     analyticsEnabled ? user?.uid : undefined,
-    selectedYear,
     onlyCompleted
   );
 
-  // ✅ Calcular totales automáticamente
-  const totals = useWorkHoursTotals(stats);
+  // ✅ Convertir datos de período a formato compatible con el resto del componente
+  const filteredStats = useMemo(() => {
+    if (!statsByPeriod.length) return [];
+
+    logger.log('📊 ============ DASHBOARDWORKHOURS PERÍODO STATS ============');
+    logger.log('📊 Total profesionales:', statsByPeriod.length);
+
+    // ✅ Convertir statsByPeriod al formato esperado por el componente
+    return statsByPeriod.map((periodStat, idx) => {
+      const stat = periodStat.stats;
+      const period = periodStat.period;
+
+      logger.log(`\n📋 Profesional ${idx + 1}: ${periodStat.professionalName}`);
+      logger.log('🔑 Período:', {
+        label: period.label,
+        periodKey: period.periodKey,
+        inicio: period.start.toISOString().split('T')[0],
+        fin: period.end.toISOString().split('T')[0]
+      });
+
+      logger.log('📊 Datos de estadísticas:', {
+        horasTotal: stat.totalHours,
+        montoTotal: stat.totalAmount,
+        montos: stat.monthlyBreakdown.length,
+        currency: stat.currency
+      });
+
+      // Mostrar desglose detallado de monthlyBreakdown
+      if (stat.monthlyBreakdown && stat.monthlyBreakdown.length > 0) {
+        logger.log('📈 Desglose por mes en monthlyBreakdown:');
+        stat.monthlyBreakdown.forEach((month, i) => {
+          logger.log(`  [${i}] Mes: ${month.month}`, {
+            horas: month.hours,
+            eventos: month.events,
+            monto: month.amount
+          });
+        });
+      } else {
+        logger.log('⚠️ monthlyBreakdown VACIO - No hay datos para este período');
+      }
+
+      // Obtener tipo de pago del período
+      const periodTypeLabel = period.periodKey.includes('-W') ? 'Semanal' :
+                              period.periodKey.includes('-Q') ? 'Quincenal' :
+                              period.periodKey.split('-').length === 3 ? 'Diario' :
+                              'Mensual';
+
+      logger.log('✅ Resultado final para pantalla:', {
+        profesional: periodStat.professionalName,
+        tipo: periodTypeLabel,
+        periodo: period.label,
+        horas: stat.totalHours,
+        eventos: stat.monthlyBreakdown.reduce((sum, m) => sum + m.events, 0),
+        monto: stat.totalAmount
+      });
+
+      return {
+        ...stat,
+        // Los datos ya están filtrados por período exacto
+        monthlyBreakdown: stat.monthlyBreakdown,
+        totalHours: stat.totalHours,
+        totalAmount: stat.totalAmount,
+        averagePerMonth: stat.totalHours,
+        // Agregar información del período
+        paymentPeriodLabel: `${periodTypeLabel} (${period.label})`,
+        paymentPeriodStart: period.start,
+        paymentPeriodEnd: period.end
+      };
+    });
+  }, [statsByPeriod]);
+
+  // ✅ Calcular totales automáticamente con datos filtrados
+  const totals = useWorkHoursTotals(filteredStats);
 
   if (planLoading) {
     return (
@@ -79,7 +164,7 @@ export const DashboardWorkHours: React.FC = () => {
     try {
       let csv = 'Profesional,Mes,Horas,Eventos,Importe,Moneda\n';
 
-      stats.forEach(stat => {
+      filteredStats.forEach(stat => {
         const totalEventsForProfessional = stat.monthlyBreakdown.reduce((sum, month) => sum + month.events, 0);
 
         stat.monthlyBreakdown.forEach(month => {
@@ -89,7 +174,7 @@ export const DashboardWorkHours: React.FC = () => {
         csv += `${stat.professionalName},Total ${selectedYear},${stat.totalHours},${totalEventsForProfessional},${stat.totalAmount},${stat.currency}\n`;
       });
 
-      if (stats.length > 1) {
+      if (filteredStats.length > 1) {
         const aggregateHours = Math.round(totalHours * 100) / 100;
         const aggregateEvents = totalEvents;
         const aggregateAmount = Math.round(totalAmount * 100) / 100;
@@ -137,7 +222,7 @@ export const DashboardWorkHours: React.FC = () => {
               </button>
               <button
                 onClick={exportToCSV}
-                disabled={stats.length === 0}
+                disabled={filteredStats.length === 0}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Download className="w-4 h-4" />
@@ -249,15 +334,15 @@ export const DashboardWorkHours: React.FC = () => {
               <div className="animate-spin inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
               <p className="mt-4 text-gray-600 dark:text-gray-400">Cargando estadísticas...</p>
             </div>
-          ) : stats.length === 0 ? (
+          ) : filteredStats.length === 0 ? (
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-12 text-center">
               <Clock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600 dark:text-gray-400">
-                No hay datos de horas trabajadas para este año
+                No hay datos de horas trabajadas para este período
               </p>
             </div>
           ) : (
-            stats.map((stat) => (
+            filteredStats.map((stat) => (
               <div
                 key={stat.professionalId}
                 className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6"
@@ -277,7 +362,7 @@ export const DashboardWorkHours: React.FC = () => {
                       {WorkHoursAnalyticsService.formatCurrency(stat.totalAmount, stat.currency)}
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Total {selectedYear}
+                      {(stat as any).paymentPeriodLabel || `Total ${selectedYear}`}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {WorkHoursAnalyticsService.formatHours(stat.totalHours)} • Tarifa {WorkHoursAnalyticsService.formatCurrency(stat.hourlyRate ?? 0, stat.currency)}/h

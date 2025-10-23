@@ -77,6 +77,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { AvailabilityInbox } from '@/components/calendar/AvailabilityInbox';
 import { usePendingCount, useApprovedAvailabilities } from '@/hooks/useProfessionalAvailability';
 import { ProfessionalAvailability } from '@/types/calendar';
+import { PersistentCache } from '@/utils/persistentCache';
 
 const GENERAL_CALENDAR_ID = 'general-calendar';
 const PROFESSIONAL_COLOR_PALETTE = [
@@ -1067,11 +1068,15 @@ const DashboardBookings: React.FC = () => {
         });
       }
 
+      // ✅ Limpiar caché de localStorage para workHoursStats (cualquier variante de año/onlyCompleted)
+      // El patrón es: klycs_cache_workHoursStats:${userId}:${year}:${onlyCompleted}
+      PersistentCache.invalidatePattern('workHoursStats');
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['multipleCalendarEvents'] }),
         queryClient.invalidateQueries({ queryKey: ['calendarEvents', targetEvent.calendarId] }),
-        queryClient.invalidateQueries({ queryKey: ['workHoursByPeriod', user.uid, true] }),
-        queryClient.invalidateQueries({ queryKey: ['workHoursByPeriod', user.uid, false] }),
+        // ✅ Invalidar con las claves correctas que usan los hooks
+        queryClient.invalidateQueries({ queryKey: ['workHoursStats'] }),  // useWorkHoursStats
         queryClient.invalidateQueries({ queryKey: ['paymentStats', user.uid] })
       ]);
 
@@ -1242,6 +1247,7 @@ const DashboardBookings: React.FC = () => {
         attachments: [],
         status: 'confirmed',
         visibility: 'public',
+        serviceStatus: 'pending',  // ✅ IMPORTANTE: Inicializar con 'pending'
         reminders: []
       };
       
@@ -1311,6 +1317,7 @@ const DashboardBookings: React.FC = () => {
         isRecurringInstance: false,
         status: eventDataToSend.status,
         visibility: eventDataToSend.visibility,
+        serviceStatus: 'pending',  // ✅ IMPORTANTE: Usar 'pending' por defecto
         reminders: [],
         customFieldsData: Object.keys(customFieldsData).length > 0 ? { ...customFieldsData } : undefined,
         externalClientId: selectedExternalClient || undefined,

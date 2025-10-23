@@ -20,7 +20,9 @@ type CacheKey =
   | `templates:${string}`
   | `paymentStats:${string}:${number}:${boolean}`
   | `pendingServices:${string}:${string}`
-  | `externalClients:${string}`;
+  | `externalClients:${string}`
+  | `workHoursStats:${string}:${number}:${boolean}`
+  | `workHoursByPeriod:${string}:${boolean}`;
 
 export class PersistentCache {
   private static readonly PREFIX = 'klycs_cache_';
@@ -34,6 +36,8 @@ export class PersistentCache {
     templates: 60,       // 60 minutos (no cambian frecuentemente)
     paymentStats: 10,    // 10 minutos (estadísticas de pagos)
     pendingServices: 5,  // 5 minutos (servicios pendientes)
+    workHoursStats: 10,  // 10 minutos (estadísticas de horas)
+    workHoursByPeriod: 30, // 30 minutos (estadísticas por período - cambios menos frecuentes)
   };
 
   /**

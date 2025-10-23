@@ -5,6 +5,8 @@ import { WorkHoursStats } from '@/types/calendar';
 import { useUserCalendars } from './useCalendar';
 import { logger } from '@/utils/logger';
 import { getCurrentPaymentPeriod, PaymentPeriod } from '@/utils/paymentPeriods';
+import { PersistentCache } from '@/utils/persistentCache';
+import { costMonitoring } from '@/utils/costMonitoring';
 
 interface PeriodStats {
   stats: WorkHoursStats;
@@ -56,12 +58,27 @@ export const useWorkHoursByPeriod = (
         return [];
       }
 
+      // ✅ LAYER 2: Intentar obtener del PersistentCache primero (30 min para datos por período)
+      const cacheKey = `workHoursByPeriod:${userId}:${onlyCompleted}` as const;
+      const cachedData = PersistentCache.get<WorkHoursByPeriod[]>(cacheKey);
+
+      if (cachedData) {
+        logger.log('✅ Estadísticas por período obtenidas de localStorage (0 lecturas Firebase)');
+        logger.log('📊 Datos cacheados:', cachedData.map(d => ({
+          profesional: d.professionalName,
+          horas: d.stats.totalHours,
+          periodo: d.period.label
+        })));
+        return cachedData;
+      }
+
       logger.log('🔄 Calculando estadísticas por periodo de pago (lectura en vivo)...');
+      logger.log('⚠️ NO había caché - forzando recálculo desde Firestore');
 
       const now = new Date();
       const results: WorkHoursByPeriod[] = [];
 
-      const MAX_HISTORY_PERIODS = 3;
+      const MAX_HISTORY_PERIODS = 1; // ⚠️ REDUCIDO de 3 a 1 para ahorrar lecturas
 
       for (const calendar of calendars) {
         // Obtener configuración de pago del calendario
@@ -95,12 +112,29 @@ export const useWorkHoursByPeriod = (
         logger.log(`📅 Periodo para ${calendar.name}: ${period.label} (${period.start.toISOString()} - ${period.end.toISOString()})`);
 
         const buildStatsForPeriod = async (targetPeriod: PaymentPeriod) => {
+          // Track cada lectura
+          costMonitoring.trackFirestoreRead(1);
+
+          logger.log(`🔍 buildStatsForPeriod - ${calendar.name}:`, {
+            periodKey: targetPeriod.periodKey,
+            label: targetPeriod.label,
+            inicio: targetPeriod.start.toISOString().split('T')[0],
+            fin: targetPeriod.end.toISOString().split('T')[0]
+          });
+
           const { hours, events } = await WorkHoursAnalyticsService.calculateWorkHours(
             calendar.id,
             targetPeriod.start,
             targetPeriod.end,
             onlyCompleted
           );
+
+          logger.log(`✅ Resultados de calculateWorkHours - ${calendar.name}:`, {
+            periodKey: targetPeriod.periodKey,
+            horas: hours,
+            eventos: Array.isArray(events) ? events.length : 'N/A',
+            horasPorEvento: Array.isArray(events) && events.length > 0 ? (hours / events.length).toFixed(2) : 'N/A'
+          });
 
           const roundedHours = Math.round(hours * 100) / 100;
           const amount = Math.round((hours * effectiveHourlyRate) * 100) / 100;
@@ -115,7 +149,7 @@ export const useWorkHoursByPeriod = (
             monthlyBreakdown: [{
               month: targetPeriod.periodKey,
               hours: roundedHours,
-              events,
+              events: Array.isArray(events) ? events.length : 0,
               amount
             }],
             yearlyTotal: roundedHours,
@@ -161,13 +195,26 @@ export const useWorkHoursByPeriod = (
       }
 
       logger.log(`✅ Estadísticas por periodo calculadas: ${results.length} profesionales`);
+      logger.log('📊 Resultados finales:', results.map(r => ({
+        profesional: r.professionalName,
+        horas: r.stats.totalHours,
+        monto: r.stats.totalAmount,
+        periodo: r.period.label,
+        periodKey: r.period.periodKey
+      })));
+
+      // ✅ Guardar en PersistentCache (30 minutos)
+      logger.log('💾 Guardando en localStorage con TTL de 30 min...');
+      PersistentCache.set(cacheKey, results, 30);
+      logger.log('✅ Guardado en localStorage - próximas cargas usarán caché');
+
       return results;
     },
-    staleTime: 0,
-    gcTime: 2 * 60 * 1000, // GC corto, recalculamos a menudo
+    staleTime: 15 * 60 * 1000, // 15 minutos - React Query cache
+    gcTime: 30 * 60 * 1000, // 30 minutos en memoria (React Query v5)
     enabled: !!calendars && calendars.length > 0 && !calendarsLoading && !!userId,
     refetchOnWindowFocus: false,
-    refetchOnMount: true, // Siempre recargar al montar (datos en tiempo real)
+    refetchOnMount: false, // ⚠️ CAMBIO: No recargar automáticamente al montar
     placeholderData: (previousData) => previousData // React Query v5: Mantener datos anteriores
   });
 };

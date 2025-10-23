@@ -45,11 +45,17 @@ export const useWorkHoursStats = (
 
       if (cachedStats) {
         logger.log('✅ Estadísticas de horas obtenidas de localStorage (0 lecturas Firebase)');
+        logger.log('📊 Datos cacheados:', cachedStats.map(s => ({
+          profesional: s.professionalName,
+          horas: s.totalHours,
+          monto: s.totalAmount
+        })));
         return cachedStats;
       }
 
       // ✅ LAYER 3: No hay cache, cargar desde Firebase + Cloud Functions
-      logger.log('🔄 Cargando estadísticas de horas desde Firebase + Cloud Functions...');
+      logger.log('🔄 Cargando estadísticas de horas desde Firebase + Cloud Functions... (REFETCH ACTIVADO)');
+      logger.log('⚠️ NO había caché en localStorage - forzando recalcular desde Firestore');
 
       const mappedCalendars = calendars.map(cal => ({
         id: cal.id,
@@ -76,8 +82,8 @@ export const useWorkHoursStats = (
     staleTime: 5 * 60 * 1000, // 5 minutos - React Query cache
     gcTime: 10 * 60 * 1000, // 10 minutos en memoria (antes cacheTime)
     enabled: !!calendars && calendars.length > 0 && !calendarsLoading && !!userId,
-    refetchOnWindowFocus: false, // No recargar al volver a la pestaña
-    refetchOnMount: false, // No recargar al montar si hay datos en cache
+    refetchOnWindowFocus: true, // ✅ CAMBIO: Recargar al volver a la pestaña
+    refetchOnMount: true, // ✅ CAMBIO: Recargar al montar (necesario para updates después de pagar)
     keepPreviousData: true, // Mantener datos anteriores mientras carga los nuevos
   });
 };
