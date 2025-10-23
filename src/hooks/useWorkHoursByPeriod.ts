@@ -92,22 +92,9 @@ export const useWorkHoursByPeriod = (
         const effectiveHourlyRate = customHourlyRate ?? baseHourlyRate;
         const currency = calendar.hourlyRateCurrency || 'EUR';
 
-        // Encontrar el último pago registrado
-        let lastPaymentDate: string | undefined;
-        let latestTimestamp = 0;
-
-        Object.values(payoutRecords).forEach(record => {
-          if (record?.lastPaymentDate) {
-            const timestamp = new Date(record.lastPaymentDate).getTime();
-            if (timestamp > latestTimestamp) {
-              latestTimestamp = timestamp;
-              lastPaymentDate = record.lastPaymentDate;
-            }
-          }
-        });
-
-        // Calcular periodo de pago actual
-        const period = getCurrentPaymentPeriod(now, paymentType, paymentDay, lastPaymentDate);
+        // ✅ NO pasar lastPaymentDate - queremos el período ACTUAL EN EJECUCIÓN, no el del último pago
+        // Calcular periodo de pago actual (basado en hoy, no en último pago)
+        const period = getCurrentPaymentPeriod(now, paymentType, paymentDay);
 
         logger.log(`📅 Periodo para ${calendar.name}: ${period.label} (${period.start.toISOString()} - ${period.end.toISOString()})`);
 

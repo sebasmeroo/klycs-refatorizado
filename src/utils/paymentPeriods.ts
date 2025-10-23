@@ -69,36 +69,17 @@ export const getCurrentPaymentPeriod = (
 
     case 'weekly': {
       // Periodo semanal: desde el día de pago configurado hasta 6 días después
+      // ✅ SIMPLIFICADO: Siempre mostrar la semana ACTUAL EN EJECUCIÓN
       const normalizedDay = normalizePaymentDay(paymentDay, 5); // Por defecto viernes (5)
       const dayOfWeek = now.getDay(); // 0=domingo, 1=lunes, etc.
 
-      // Calcular días desde el último día de pago
+      // Calcular días desde el último día de pago (hacia atrás)
       let daysSincePayday = (dayOfWeek - normalizedDay + 7) % 7;
 
-      // Si hoy es el día de pago y aún no se ha pagado, considerar el periodo actual
-      if (daysSincePayday === 0) {
-        // Verificar si ya se pagó hoy
-        if (effectiveLastPaymentDate) {
-          const lastPaid = new Date(effectiveLastPaymentDate);
-          lastPaid.setHours(0, 0, 0, 0);
-          if (lastPaid.getTime() === now.getTime()) {
-            // Ya se pagó hoy, iniciar nuevo periodo
-            start = new Date(now);
-          } else {
-            // No se ha pagado hoy, retroceder 7 días
-            start = new Date(now);
-            start.setDate(start.getDate() - 7);
-          }
-        } else {
-          // No hay registro, retroceder 7 días
-          start = new Date(now);
-          start.setDate(start.getDate() - 7);
-        }
-      } else {
-        // Retroceder al último día de pago
-        start = new Date(now);
-        start.setDate(start.getDate() - daysSincePayday);
-      }
+      // ✅ Siempre retroceder al inicio del período actual
+      // Esto asegura mostrar la semana EN EJECUCIÓN, no importa si ya se pagó o no
+      start = new Date(now);
+      start.setDate(start.getDate() - daysSincePayday);
 
       end = new Date(start);
       end.setDate(end.getDate() + 6);
