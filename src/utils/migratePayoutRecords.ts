@@ -2,10 +2,11 @@
  * 🔄 MIGRACIÓN: Convertir payoutRecords de formato global a formato individual por paymentType
  *
  * ANTES: "2025-10" para TODOS los tipos de pago
- * DESPUÉS: "2025-W42" (semanal), "2025-10-Q1" (quincenal), "2025-10" (mensual)
+ * DESPUÉS: "2025-10-24" (semanal, quincenal, mensual - UNIFICADO)
  *
  * ✅ Optimiza Firestore reduciendo lecturas en 90%
  * ✅ Permite pagos independientes por profesional
+ * ✅ UNIFICADO: Todos usan YYYY-MM-DD basado en fecha de pago para consistencia
  */
 
 import { db } from '@/lib/firebase';
@@ -14,18 +15,8 @@ import { SharedCalendar } from '@/types/calendar';
 import { logger } from '@/utils/logger';
 
 /**
- * Obtener número de semana ISO (1-53)
- */
-const getWeekNumber = (date: Date): number => {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-};
-
-/**
- * Convertir fecha antigua format "2025-10" a nuevo formato según paymentType
+ * Convertir fecha antigua format "2025-10" a nuevo formato UNIFICADO YYYY-MM-DD
+ * ✅ TODOS los tipos (weekly, biweekly, monthly) usan el mismo formato ahora
  */
 export const convertPeriodKey = (
   oldKey: string,
@@ -33,8 +24,8 @@ export const convertPeriodKey = (
   paymentDate?: string
 ): string => {
   try {
-    // Si ya está en formato nuevo, retornar tal cual
-    if (oldKey.includes('-W') || oldKey.includes('-Q') || (paymentType === 'daily' && oldKey.split('-').length === 3)) {
+    // Si ya está en formato nuevo YYYY-MM-DD, retornar tal cual
+    if (oldKey.split('-').length === 3) {
       return oldKey;
     }
 
@@ -50,31 +41,12 @@ export const convertPeriodKey = (
 
     date.setHours(0, 0, 0, 0);
 
-    if (paymentType === 'weekly') {
-      const week = getWeekNumber(date);
-      const year = date.getFullYear();
-      return `${year}-W${String(week).padStart(2, '0')}`;
-    }
-
-    if (paymentType === 'biweekly') {
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
-      const day = date.getDate();
-      const quarter = day <= 15 ? 'Q1' : 'Q2';
-      return `${year}-${String(month).padStart(2, '0')}-${quarter}`;
-    }
-
-    if (paymentType === 'daily') {
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
-      const day = date.getDate();
-      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    }
-
-    // monthly (default)
+    // ✅ UNIFICADO: Todos usan YYYY-MM-DD basado en fecha de pago
+    // Esto asegura que weekly, biweekly y monthly tengan periodKey consistente
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
-    return `${year}-${String(month).padStart(2, '0')}`;
+    const day = date.getDate();
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   } catch (error) {
     logger.error('Error converting period key', error, { oldKey, paymentType });
     return oldKey; // Retornar sin cambios si hay error

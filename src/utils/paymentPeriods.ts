@@ -71,31 +71,45 @@ export const getCurrentPaymentPeriod = (
     }
 
     case 'weekly': {
-      // Periodo semanal: desde el día de pago configurado hasta 6 días después
-      // ✅ SIMPLIFICADO: Siempre mostrar la semana ACTUAL EN EJECUCIÓN
-      const normalizedDay = normalizePaymentDay(paymentDay, 5); // Por defecto viernes (5)
-      const dayOfWeek = now.getDay(); // 0=domingo, 1=lunes, etc.
+      // Periodo semanal: 7 días dinámicos desde el día de pago configurado
+      // ✅ UNIFICADO: Misma lógica que biweekly y monthly
+      // Si hay pago registrado, usarlo como punto de inicio. Si no, calcular desde hoy.
 
-      // Calcular días desde el último día de pago (hacia atrás)
-      let daysSincePayday = (dayOfWeek - normalizedDay + 7) % 7;
+      let paymentStartDate: Date;
 
-      // ✅ Siempre retroceder al inicio del período actual
-      // Esto asegura mostrar la semana EN EJECUCIÓN, no importa si ya se pagó o no
-      start = new Date(now);
-      start.setDate(start.getDate() - daysSincePayday);
+      if (effectiveLastPaymentDate) {
+        // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
+        paymentStartDate = new Date(effectiveLastPaymentDate);
+        paymentStartDate.setHours(0, 0, 0, 0);
 
+        // El período actual empieza desde el pago
+        start = new Date(paymentStartDate);
+      } else {
+        // Sin pago registrado: calcular dinámicamente desde hoy
+        const normalizedDay = normalizePaymentDay(paymentDay, 5); // Por defecto viernes (5)
+        const dayOfWeek = now.getDay(); // 0=domingo, 1=lunes, etc.
+
+        // Calcular días desde el último día de pago (hacia atrás)
+        let daysSincePayday = (dayOfWeek - normalizedDay + 7) % 7;
+
+        start = new Date(now);
+        start.setDate(start.getDate() - daysSincePayday);
+      }
+
+      // El período termina 6 días después (7 días totales)
       end = new Date(start);
       end.setDate(end.getDate() + 6);
       end.setHours(23, 59, 59, 999);
 
       label = `${start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`;
-      periodKey = `${start.getFullYear()}-W${String(getWeekNumber(start)).padStart(2, '0')}`;
+      // ✅ CLAVE: Usar YYYY-MM-DD como biweekly y monthly, NO ISO week number
+      periodKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
       break;
     }
 
     case 'biweekly': {
       // Periodo quincenal: 15 días dinámicos desde el día de pago configurado
-      // ✅ IDÉNTICO AL SEMANAL: Misma lógica, solo cambia intervalo de días
+      // ✅ IDÉNTICO A WEEKLY Y MONTHLY: Misma lógica, solo cambia intervalo de días
       // Si hay pago registrado, usarlo como punto de inicio. Si no, calcular desde hoy.
 
       let daysSincePay: number;
@@ -142,7 +156,7 @@ export const getCurrentPaymentPeriod = (
     case 'monthly':
     default: {
       // Periodo mensual: 30 días dinámicos desde el día de pago configurado
-      // ✅ IDÉNTICO AL SEMANAL: Misma lógica, solo cambia intervalo de días
+      // ✅ IDÉNTICO A WEEKLY Y BIWEEKLY: Misma lógica, solo cambia intervalo de días
       // Si hay pago registrado, usarlo como punto de inicio. Si no, calcular desde hoy.
 
       let daysSincePay: number;
