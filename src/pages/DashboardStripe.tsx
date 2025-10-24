@@ -715,11 +715,8 @@ const DashboardStripe: React.FC = () => {
     } else if (paymentType === 'biweekly') {
       nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
     } else if (paymentType === 'monthly') {
-      nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
-      // Mantener el mismo día del mes si es posible
-      const baseDay = paymentDay ?? 1;
-      const maxDay = new Date(nextPaymentDate.getFullYear(), nextPaymentDate.getMonth() + 1, 0).getDate();
-      nextPaymentDate.setDate(Math.min(baseDay, maxDay));
+      // ✅ CRÍTICO: Sumar 29 días (período de 30 días), NO setMonth()
+      nextPaymentDate.setDate(nextPaymentDate.getDate() + 29);
     }
 
     // Obtener el período que vence en nextPaymentDate
@@ -1755,11 +1752,10 @@ const DashboardStripe: React.FC = () => {
         nextPaymentDate = new Date(paidDate);
         nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
       } else if (paymentType === 'monthly') {
+        // ✅ CRÍTICO: Sumar 29 días (período de 30 días), NO setMonth()
+        // Ejemplo: si se pagó 24 oct, próximo pago es 23 nov (24 + 29 = 23 nov)
         nextPaymentDate = new Date(paidDate);
-        nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
-        const baseDay = paymentDay ?? 1;
-        const maxDay = new Date(nextPaymentDate.getFullYear(), nextPaymentDate.getMonth() + 1, 0).getDate();
-        nextPaymentDate.setDate(Math.min(baseDay, maxDay));
+        nextPaymentDate.setDate(nextPaymentDate.getDate() + 29);
       } else {
         // daily
         nextPaymentDate = new Date(paidDate);
@@ -3004,10 +3000,7 @@ const DashboardStripe: React.FC = () => {
                             nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
                           } else if (paymentType === 'monthly') {
                             nextPaymentDate = new Date(paidDate);
-                            nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
-                            const baseDay = paymentDay ?? 1;
-                            const maxDay = new Date(nextPaymentDate.getFullYear(), nextPaymentDate.getMonth() + 1, 0).getDate();
-                            nextPaymentDate.setDate(Math.min(baseDay, maxDay));
+                            nextPaymentDate.setDate(nextPaymentDate.getDate() + 29);
                           } else {
                             nextPaymentDate = new Date(paidDate);
                             nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
@@ -4027,10 +4020,7 @@ const DashboardStripe: React.FC = () => {
                         nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
                       } else if (paymentType === 'monthly') {
                         nextPaymentDate = new Date(paidDate);
-                        nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
-                        const baseDay = paymentDay ?? 1;
-                        const maxDay = new Date(nextPaymentDate.getFullYear(), nextPaymentDate.getMonth() + 1, 0).getDate();
-                        nextPaymentDate.setDate(Math.min(baseDay, maxDay));
+                        nextPaymentDate.setDate(nextPaymentDate.getDate() + 29);
                       } else {
                         nextPaymentDate = new Date(paidDate);
                         nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
