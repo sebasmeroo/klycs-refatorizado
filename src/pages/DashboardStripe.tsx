@@ -1234,10 +1234,15 @@ const DashboardStripe: React.FC = () => {
     const paymentType: PaymentFrequency = details?.paymentType ?? 'monthly';
     const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
 
-    // ✅ CRÍTICO: scheduledPaymentDate debe ser la fecha de HOY (cuando se realiza el pago)
-    // NO la fecha programada del próximo pago
-    // Esto es lo que se usa como punto de inicio del período
-    const scheduledDate = today;
+    // ✅ CRÍTICO: scheduledPaymentDate es el inicio del NUEVO período
+    // Si se pagó el 24, el nuevo período empieza el 25 a las 00:00
+    // Esto significa: pago del 24 cierra cuentas, nuevo período inicia el 25
+    // El período es: 25 oct 00:00 - 23 nov 23:59 (30 días contables)
+    const scheduledDate = (() => {
+      const nextDay = new Date(today);
+      nextDay.setDate(nextDay.getDate() + 1);
+      return nextDay.toISOString().split('T')[0];
+    })();
 
     // Calcular cuántos días antes/después de lo previsto se realizó el pago
     const nextPaymentDateForComparison = calculateScheduledPaymentDate(paymentType, paymentDay);
