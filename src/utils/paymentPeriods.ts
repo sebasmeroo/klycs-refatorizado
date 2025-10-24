@@ -46,8 +46,11 @@ export const getCurrentPaymentPeriod = (
   lastPaymentDate?: string,
   scheduledPaymentDate?: string
 ): PaymentPeriod => {
-  // Usar scheduledPaymentDate si existe, sino lastPaymentDate (para compatibilidad)
-  const effectiveLastPaymentDate = scheduledPaymentDate || lastPaymentDate;
+  // ✅ CRÍTICO: Usar SIEMPRE lastPaymentDate para calcular el período actual
+  // scheduledPaymentDate es el inicio del SIGUIENTE período, no del actual
+  // Ejemplo: si pagaste el 24 oct (lastPaymentDate), ese es el inicio del período actual
+  // El período actual es 24 oct - 22 nov, no 25 oct - 23 nov
+  const effectiveLastPaymentDate = lastPaymentDate;
   const now = new Date(referenceDate);
   now.setHours(0, 0, 0, 0);
 
