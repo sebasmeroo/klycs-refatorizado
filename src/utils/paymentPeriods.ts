@@ -39,6 +39,13 @@ const clampDayOfMonth = (day: number, year: number, month: number): number => {
  * @param scheduledPaymentDate - Fecha programada del último pago (usa esto en lugar de lastPaymentDate)
  * @returns Periodo de pago actual { start, end, label, periodKey }
  */
+/**
+ * ✅ Calcular el período de pago que está "EN EJECUCIÓN" hoy
+ * Esto diferencia entre:
+ * - El período que ya fue pagado (historical)
+ * - El período actual que está en curso (running period)
+ * - El período futuro
+ */
 export const getCurrentPaymentPeriod = (
   referenceDate: Date,
   paymentType: PaymentFrequency,
@@ -46,11 +53,11 @@ export const getCurrentPaymentPeriod = (
   lastPaymentDate?: string,
   scheduledPaymentDate?: string
 ): PaymentPeriod => {
-  // ✅ CRÍTICO: Usar SIEMPRE lastPaymentDate para calcular el período actual
-  // scheduledPaymentDate es el inicio del SIGUIENTE período, no del actual
-  // Ejemplo: si pagaste el 24 oct (lastPaymentDate), ese es el inicio del período actual
-  // El período actual es 24 oct - 22 nov, no 25 oct - 23 nov
-  const effectiveLastPaymentDate = lastPaymentDate;
+  // ✅ LÓGICA MEJORADA:
+  // - Si hay scheduledPaymentDate (inicio del nuevo ciclo), usarlo
+  // - Esto detecta automáticamente cuándo pasamos a un nuevo ciclo
+  // - Sin scheduledPaymentDate, caer back a lastPaymentDate para compatibilidad
+  const effectiveStartDate = scheduledPaymentDate || lastPaymentDate;
   const now = new Date(referenceDate);
   now.setHours(0, 0, 0, 0);
 
@@ -77,9 +84,9 @@ export const getCurrentPaymentPeriod = (
 
       let paymentStartDate: Date;
 
-      if (effectiveLastPaymentDate) {
+      if (effectiveStartDate) {
         // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
-        paymentStartDate = new Date(effectiveLastPaymentDate);
+        paymentStartDate = new Date(effectiveStartDate);
         paymentStartDate.setHours(0, 0, 0, 0);
 
         // El período actual empieza desde el pago
@@ -115,9 +122,9 @@ export const getCurrentPaymentPeriod = (
       let daysSincePay: number;
       let paymentStartDate: Date;
 
-      if (effectiveLastPaymentDate) {
+      if (effectiveStartDate) {
         // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
-        paymentStartDate = new Date(effectiveLastPaymentDate);
+        paymentStartDate = new Date(effectiveStartDate);
         paymentStartDate.setHours(0, 0, 0, 0);
 
         // El período actual empieza desde el pago
@@ -162,9 +169,9 @@ export const getCurrentPaymentPeriod = (
       let daysSincePay: number;
       let paymentStartDate: Date;
 
-      if (effectiveLastPaymentDate) {
+      if (effectiveStartDate) {
         // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
-        paymentStartDate = new Date(effectiveLastPaymentDate);
+        paymentStartDate = new Date(effectiveStartDate);
         paymentStartDate.setHours(0, 0, 0, 0);
 
         // El período actual empieza desde el pago
