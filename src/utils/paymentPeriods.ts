@@ -91,79 +91,95 @@ export const getCurrentPaymentPeriod = (
     }
 
     case 'biweekly': {
-      // Periodo quincenal: días 1-15 o 16-fin de mes
-      const normalizedDay = normalizePaymentDay(paymentDay, 1);
-      const currentDay = now.getDate();
+      // Periodo quincenal: 15 días dinámicos desde el día de pago configurado
+      // ✅ IDÉNTICO AL SEMANAL: Misma lógica, solo cambia intervalo de días
+      // Si hay pago registrado, usarlo como punto de inicio. Si no, calcular desde hoy.
 
-      if (normalizedDay <= 15) {
-        // Primera quincena: día X al 15
-        if (currentDay >= normalizedDay && currentDay <= 15) {
-          start = new Date(now.getFullYear(), now.getMonth(), normalizedDay);
-          end = new Date(now.getFullYear(), now.getMonth(), 15, 23, 59, 59, 999);
-        } else if (currentDay < normalizedDay) {
-          // Estamos antes del día de pago, periodo anterior (segunda quincena del mes anterior)
+      let daysSincePay: number;
+      let paymentStartDate: Date;
+
+      if (effectiveLastPaymentDate) {
+        // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
+        paymentStartDate = new Date(effectiveLastPaymentDate);
+        paymentStartDate.setHours(0, 0, 0, 0);
+
+        // El período actual empieza desde el pago
+        start = new Date(paymentStartDate);
+      } else {
+        // Sin pago registrado: calcular dinámicamente desde hoy
+        const normalizedDay = normalizePaymentDay(paymentDay, 1);
+        const currentDay = now.getDate();
+        daysSincePay = currentDay - normalizedDay;
+
+        if (daysSincePay < 0) {
+          // Aún no llegamos al día configurado, retroceder al mes anterior
           const prevMonth = now.getMonth() - 1;
           const prevYear = prevMonth < 0 ? now.getFullYear() - 1 : now.getFullYear();
           const adjMonth = prevMonth < 0 ? 11 : prevMonth;
-          start = new Date(prevYear, adjMonth, 16);
-          end = new Date(prevYear, adjMonth + 1, 0, 23, 59, 59, 999);
+          const clampedDay = clampDayOfMonth(normalizedDay, prevYear, adjMonth);
+          start = new Date(prevYear, adjMonth, clampedDay);
         } else {
-          // Segunda quincena: 16 al fin de mes
-          start = new Date(now.getFullYear(), now.getMonth(), 16);
-          end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-        }
-      } else {
-        // Segunda quincena: día 16 al X
-        if (currentDay >= 16 && currentDay <= normalizedDay) {
-          start = new Date(now.getFullYear(), now.getMonth(), 16);
-          end = new Date(now.getFullYear(), now.getMonth(), normalizedDay, 23, 59, 59, 999);
-        } else if (currentDay > normalizedDay) {
-          // Estamos después del día de pago, periodo anterior (primera quincena)
-          start = new Date(now.getFullYear(), now.getMonth(), 1);
-          end = new Date(now.getFullYear(), now.getMonth(), 15, 23, 59, 59, 999);
-        } else {
-          // Primera quincena del mes siguiente
-          start = new Date(now.getFullYear(), now.getMonth(), 1);
-          end = new Date(now.getFullYear(), now.getMonth(), 15, 23, 59, 59, 999);
+          // Ya pasó el día configurado
+          const clampedDay = clampDayOfMonth(normalizedDay, now.getFullYear(), now.getMonth());
+          start = new Date(now.getFullYear(), now.getMonth(), clampedDay);
         }
       }
 
+      // El período termina 14 días después (15 días totales)
+      end = new Date(start);
+      end.setDate(end.getDate() + 14);
+      end.setHours(23, 59, 59, 999);
+
       label = `${start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`;
-      periodKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-Q${start.getDate() <= 15 ? '1' : '2'}`;
+      // ✅ CLAVE: Usar fecha de inicio del período como periodKey, idéntico al semanal
+      periodKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
       break;
     }
 
     case 'monthly':
     default: {
-      // Periodo mensual: desde el día de pago hasta el día anterior del mes siguiente
-      const normalizedDay = normalizePaymentDay(paymentDay, 1);
-      const currentDay = now.getDate();
+      // Periodo mensual: 30 días dinámicos desde el día de pago configurado
+      // ✅ IDÉNTICO AL SEMANAL: Misma lógica, solo cambia intervalo de días
+      // Si hay pago registrado, usarlo como punto de inicio. Si no, calcular desde hoy.
 
-      if (currentDay >= normalizedDay) {
-        // Estamos en el periodo actual
-        const clampedDay = clampDayOfMonth(normalizedDay, now.getFullYear(), now.getMonth());
-        start = new Date(now.getFullYear(), now.getMonth(), clampedDay);
+      let daysSincePay: number;
+      let paymentStartDate: Date;
 
-        // Fin: día anterior al día de pago del mes siguiente
-        const nextMonth = now.getMonth() + 1;
-        const nextYear = nextMonth > 11 ? now.getFullYear() + 1 : now.getFullYear();
-        const adjMonth = nextMonth > 11 ? 0 : nextMonth;
-        const clampedNextDay = clampDayOfMonth(normalizedDay, nextYear, adjMonth);
-        end = new Date(nextYear, adjMonth, clampedNextDay - 1, 23, 59, 59, 999);
+      if (effectiveLastPaymentDate) {
+        // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
+        paymentStartDate = new Date(effectiveLastPaymentDate);
+        paymentStartDate.setHours(0, 0, 0, 0);
+
+        // El período actual empieza desde el pago
+        start = new Date(paymentStartDate);
       } else {
-        // Estamos antes del día de pago, usar periodo del mes anterior
-        const prevMonth = now.getMonth() - 1;
-        const prevYear = prevMonth < 0 ? now.getFullYear() - 1 : now.getFullYear();
-        const adjMonth = prevMonth < 0 ? 11 : prevMonth;
-        const clampedPrevDay = clampDayOfMonth(normalizedDay, prevYear, adjMonth);
-        start = new Date(prevYear, adjMonth, clampedPrevDay);
+        // Sin pago registrado: calcular dinámicamente desde hoy
+        const normalizedDay = normalizePaymentDay(paymentDay, 1);
+        const currentDay = now.getDate();
+        daysSincePay = currentDay - normalizedDay;
 
-        const clampedDay = clampDayOfMonth(normalizedDay, now.getFullYear(), now.getMonth());
-        end = new Date(now.getFullYear(), now.getMonth(), clampedDay - 1, 23, 59, 59, 999);
+        if (daysSincePay < 0) {
+          // Aún no llegamos al día configurado, retroceder al mes anterior
+          const prevMonth = now.getMonth() - 1;
+          const prevYear = prevMonth < 0 ? now.getFullYear() - 1 : now.getFullYear();
+          const adjMonth = prevMonth < 0 ? 11 : prevMonth;
+          const clampedDay = clampDayOfMonth(normalizedDay, prevYear, adjMonth);
+          start = new Date(prevYear, adjMonth, clampedDay);
+        } else {
+          // Ya pasó el día configurado
+          const clampedDay = clampDayOfMonth(normalizedDay, now.getFullYear(), now.getMonth());
+          start = new Date(now.getFullYear(), now.getMonth(), clampedDay);
+        }
       }
 
-      label = `${start.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`;
-      periodKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
+      // El período termina 29 días después (30 días totales)
+      end = new Date(start);
+      end.setDate(end.getDate() + 29);
+      end.setHours(23, 59, 59, 999);
+
+      label = `${start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`;
+      // ✅ CLAVE: Usar fecha de inicio del período como periodKey, idéntico al semanal
+      periodKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
       break;
     }
   }

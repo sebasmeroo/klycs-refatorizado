@@ -1766,16 +1766,16 @@
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
-  min-height: 150px;
+  min-height: 200px;
+  max-height: 350px;
 }
 
 .payments-chart__column {
   display: flex;
   flex-direction: column-reverse;
-  gap: 6px;
-  justify-items: center;
+  gap: 4px;
   align-items: center;
-  min-height: 100%;
+  min-height: fit-content;
 }
 
 .payments-chart__column--active .payments-chart__bar {
@@ -1788,7 +1788,8 @@
 
 .payments-chart__bar {
   width: 70%;
-  min-height: 4px;
+  min-height: 6px;
+  flex-shrink: 0;
   border-radius: 999px 999px 12px 12px;
   background: linear-gradient(180deg, #007aff 0%, #0051d5 100%);
   position: relative;

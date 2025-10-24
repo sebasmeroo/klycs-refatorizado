@@ -178,14 +178,17 @@ const getLatestPaymentRecord = (payoutRecords?: Record<string, any>) => {
   if (!payoutRecords) return null;
   let latest: any = null;
   Object.entries(payoutRecords).forEach(([periodKey, record]) => {
-    if (!record?.lastPaymentDate) return;
-    const currentDate = new Date(record.lastPaymentDate);
+    // ✅ Usar actualPaymentDate o lastPaymentDate como referencia
+    const dateToCheck = record?.actualPaymentDate || record?.lastPaymentDate;
+    if (!dateToCheck) return;
+    const currentDate = new Date(dateToCheck);
     if (Number.isNaN(currentDate.getTime())) return;
     if (!latest) {
       latest = { periodKey, ...record };
       return;
     }
-    const latestDate = new Date(latest.lastPaymentDate);
+    const latestDateToCheck = latest.actualPaymentDate || latest.lastPaymentDate;
+    const latestDate = new Date(latestDateToCheck);
     if (currentDate.getTime() > latestDate.getTime()) {
       latest = { periodKey, ...record };
     }
@@ -203,12 +206,24 @@ const getRecentPayments = (
   }>
 ) => {
   if (!payoutRecords) return [];
+
+  // ✅ Deduplicar por lastPaymentDate para evitar mostrar el mismo pago 2 veces
+  const seenDates = new Set<string>();
+
   return Object.entries(payoutRecords)
     .filter(([, record]) => Boolean(record?.lastPaymentDate))
     .sort((a, b) => {
       const dateA = a[1]?.lastPaymentDate ? new Date(a[1].lastPaymentDate as string).getTime() : 0;
       const dateB = b[1]?.lastPaymentDate ? new Date(b[1].lastPaymentDate as string).getTime() : 0;
       return dateB - dateA;
+    })
+    .filter(([, record]) => {
+      const dateKey = record?.lastPaymentDate ?? '';
+      if (seenDates.has(dateKey)) {
+        return false; // Duplicado, omitir
+      }
+      seenDates.add(dateKey);
+      return true;
     })
     .slice(0, 3)
     .map(([periodKey, record]) => ({
@@ -290,17 +305,17 @@ const getNextPaymentDate = (
 
     if (referenceDate) {
       // Si tenemos fecha de referencia (scheduledPaymentDate), calcular desde ahí
-      // La referencia es la fecha de vencimiento del período actual que se está pagando
-      // El siguiente período vence 1 mes después
+      // ✅ NUEVO: La referencia es el INICIO del período
+      // El siguiente período TERMINA 29 días después del inicio (período de 30 días)
       candidate = new Date(referenceDate);
-      candidate.setMonth(candidate.getMonth() + 1);
-      candidate.setDate(clampDayOfMonth(baseDay, candidate));
+      candidate.setDate(candidate.getDate() + 29);
     } else {
       // Sin referencia, calcular desde hoy
-      candidate = new Date(today.getFullYear(), today.getMonth(), clampDayOfMonth(baseDay, today));
+      const clampedDay = clampDayOfMonth(baseDay, today);
+      candidate = new Date(today.getFullYear(), today.getMonth(), clampedDay);
       if (candidate.getTime() < today.getTime()) {
-        candidate.setMonth(candidate.getMonth() + 1);
-        candidate.setDate(clampDayOfMonth(baseDay, candidate));
+        // Si el día de pago ya pasó este mes, calcular para el próximo período
+        candidate.setDate(candidate.getDate() + 30);
       }
     }
     return candidate;
@@ -311,21 +326,24 @@ const getNextPaymentDate = (
 
   if (referenceDate) {
     // Si tenemos fecha de referencia (scheduledPaymentDate), calcular desde ahí
-    // La referencia es la fecha de vencimiento del período actual que se está pagando
-    // El siguiente período vence 14 días después
+    // ✅ NUEVO: La referencia es el INICIO del período
+    // El siguiente período TERMINA 14 días después del inicio (período de 15 días)
     candidate = new Date(referenceDate);
     candidate.setDate(candidate.getDate() + 14);
   } else {
     // Sin referencia, calcular desde hoy
-    candidate = new Date(today.getFullYear(), today.getMonth(), clampDayOfMonth(baseDay, today));
+    const clampedDay = clampDayOfMonth(baseDay, today);
+    candidate = new Date(today.getFullYear(), today.getMonth(), clampedDay);
     const secondCandidate = new Date(candidate);
-    secondCandidate.setDate(candidate.getDate() + 14);
+    secondCandidate.setDate(candidate.getDate() + 15);
 
     if (candidate.getTime() < today.getTime()) {
       if (secondCandidate.getTime() >= today.getTime()) {
         candidate = secondCandidate;
       } else {
-        candidate = new Date(today.getFullYear(), today.getMonth() + 1, clampDayOfMonth(baseDay, new Date(today.getFullYear(), today.getMonth() + 1, 1)));
+        // Siguiente período: 15 días desde hoy
+        candidate = new Date(today);
+        candidate.setDate(today.getDate() + 15);
       }
     }
   }
@@ -1203,13 +1221,16 @@ const DashboardStripe: React.FC = () => {
     const paymentType: PaymentFrequency = details?.paymentType ?? 'monthly';
     const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
 
-    // Calcular la fecha programada para el siguiente pago
-    const scheduledDate = calculateScheduledPaymentDate(paymentType, paymentDay);
+    // ✅ CRÍTICO: scheduledPaymentDate debe ser la fecha de HOY (cuando se realiza el pago)
+    // NO la fecha programada del próximo pago
+    // Esto es lo que se usa como punto de inicio del período
+    const scheduledDate = today;
 
-    // Calcular cuántos días antes de la programación se realizó el pago
-    const scheduledDateObj = new Date(scheduledDate);
+    // Calcular cuántos días antes/después de lo previsto se realizó el pago
+    const nextPaymentDateForComparison = calculateScheduledPaymentDate(paymentType, paymentDay);
+    const nextPaymentDateObj = new Date(nextPaymentDateForComparison);
     const todayObj = new Date(today);
-    const earlyPaymentDays = Math.floor((scheduledDateObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
+    const earlyPaymentDays = Math.floor((nextPaymentDateObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
 
     const normalizedRecord: PayoutRecordDraft = {
       status: 'paid',
@@ -1802,7 +1823,12 @@ const DashboardStripe: React.FC = () => {
       if (!displayRecord?.lastPaymentDate) {
         return recentPaymentsFromCalendar;
       }
-      const alreadyListed = recentPaymentsFromCalendar.some(item => item.periodKey === periodKeyForRecord);
+      // ✅ CRÍTICO: Deduplicar por DATE, no por periodKey
+      // Previene duplicados cuando hay múltiples periodKeys con la misma lastPaymentDate
+      // (ej: '2025-10' y '2025-10-24' ambos con lastPaymentDate='2025-10-24')
+      const alreadyListed = recentPaymentsFromCalendar.some(
+        item => item.lastPaymentDate === displayRecord.lastPaymentDate
+      );
       if (alreadyListed) {
         return recentPaymentsFromCalendar;
       }
@@ -2010,7 +2036,12 @@ const DashboardStripe: React.FC = () => {
         <div className="payments-professional-card__chart">
           <div className="payments-chart">
             {monthlySeries.map(month => {
-              const height = maxValue > 0 ? Math.max(6, (month.valueForChart / maxValue) * 100) : 8;
+              let height = 8;
+              if (maxValue > 0) {
+                const calculatedHeight = (month.valueForChart / maxValue) * 100;
+                // Si hay datos, mínimo 50%; si no hay datos, mínimo 6%
+                height = month.valueForChart > 0 ? Math.max(50, calculatedHeight) : 6;
+              }
               const amountLabel = formatCurrency(month.amount, stat.currency || 'EUR');
               return (
                 <div
