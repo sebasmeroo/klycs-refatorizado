@@ -380,24 +380,40 @@ const getUpcomingPaymentPeriods = (
 ): Array<{ date: Date; label: string }> => {
   const periods: Array<{ date: Date; label: string }> = [];
 
-  // Comenzar desde la fecha programada (o hoy si no hay)
+  // ✅ CRÍTICO: scheduledPaymentDate es la fecha de INICIO del período actual
+  // El período actual va de scheduledPaymentDate hasta (scheduledPaymentDate + intervalo - 1)
+  // Por ejemplo: 24 oct - 22 nov (30 días)
+  // El SIGUIENTE período empieza el 23 nov
+
   let referenceDate = scheduledPaymentDate ? new Date(scheduledPaymentDate) : new Date();
   referenceDate.setHours(0, 0, 0, 0);
 
   for (let i = 0; i < count; i++) {
-    // Obtener el siguiente pago desde esta referencia
-    // referenceDate es la fecha de vencimiento del período actual
-    // getNextPaymentDate sumará el intervalo (7, 14, 30 días, etc.)
-    const nextDate = getNextPaymentDate(referenceDate, paymentType, paymentDay, undefined, referenceDate.toISOString().split('T')[0]);
+    // Calcular cuántos días dura el período
+    let periodLength: number;
+    if (paymentType === 'daily') {
+      periodLength = 1;
+    } else if (paymentType === 'weekly') {
+      periodLength = 7;
+    } else if (paymentType === 'biweekly') {
+      periodLength = 15;
+    } else {
+      // monthly
+      periodLength = 30;
+    }
+
+    // El siguiente período EMPIEZA después del actual
+    // INICIO siguiente = FIN actual + 1 = INICIO actual + periodLength
+    const nextPeriodStart = new Date(referenceDate);
+    nextPeriodStart.setDate(nextPeriodStart.getDate() + periodLength);
 
     periods.push({
-      date: new Date(nextDate),
-      label: nextDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+      date: new Date(nextPeriodStart),
+      label: nextPeriodStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
     });
 
-    // Para la siguiente iteración, usar el nextDate como nueva referencia
-    // NO sumar 1 día, porque nextDate es directamente la fecha de vencimiento del siguiente período
-    referenceDate = new Date(nextDate);
+    // Para la siguiente iteración, usar el inicio del período que acabamos de calcular
+    referenceDate = new Date(nextPeriodStart);
   }
 
   return periods;
