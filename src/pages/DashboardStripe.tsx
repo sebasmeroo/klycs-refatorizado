@@ -324,7 +324,7 @@ const getIntervalDays = (paymentType: PaymentFrequency): number => {
     case 'weekly':
       return 7;
     case 'biweekly':
-      return 15;
+      return 14;
     case 'monthly':
     default:
       return 30;
