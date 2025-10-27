@@ -346,19 +346,21 @@ export class CollaborativeCalendarService {
     }
   ): Promise<void> {
     try {
-      // ✅ Filtrar campos undefined para evitar errores de Firestore
-      const cleanedDetails: Record<string, any> = {};
+      const docRef = doc(db, 'shared_calendars', calendarId);
+      const updatePayload: Record<string, any> = {
+        updatedAt: Timestamp.now()
+      };
 
       Object.entries(payoutDetails).forEach(([key, value]) => {
-        if (value !== undefined) {
-          cleanedDetails[key] = value;
+        const fieldPath = `payoutDetails.${key}`;
+        if (value === undefined) {
+          updatePayload[fieldPath] = deleteField();
+        } else {
+          updatePayload[fieldPath] = value;
         }
       });
 
-      await updateDoc(doc(db, 'shared_calendars', calendarId), {
-        payoutDetails: cleanedDetails,
-        updatedAt: Timestamp.now()
-      });
+      await updateDoc(docRef, updatePayload);
       logger.info('Detalles de pago del profesional actualizados', { calendarId });
     } catch (error) {
       logger.error('Error al actualizar detalles de pago', error as Error, { calendarId });
@@ -376,6 +378,12 @@ export class CollaborativeCalendarService {
       note?: string;
       paymentMethod?: PaymentMethod;
       amountPaid?: number;
+      actualPaymentDate?: string;
+      scheduledPaymentDate?: string;
+      earlyPaymentDays?: number;
+      cycleStart?: string;
+      cycleEnd?: string;
+      intervalDays?: number;
     }
   ): Promise<void> {
     try {
@@ -386,7 +394,11 @@ export class CollaborativeCalendarService {
 
       Object.entries(record).forEach(([key, value]) => {
         if (key !== 'status' && value !== undefined) {
-          cleanedRecord[key] = value;
+          if (value === null) {
+            cleanedRecord[key] = deleteField();
+          } else {
+            cleanedRecord[key] = value;
+          }
         }
       });
 
@@ -398,6 +410,72 @@ export class CollaborativeCalendarService {
       logger.info('Registro de pago actualizado', { calendarId, periodKey });
     } catch (error) {
       logger.error('Error al actualizar registro de pago', error as Error, { calendarId, periodKey });
+      throw error;
+    }
+  }
+
+  static async updatePayoutDetailsAndRecord(
+    calendarId: string,
+    periodKey: string,
+    payoutDetails: {
+      iban?: string;
+      bank?: string;
+      notes?: string;
+      paypalEmail?: string;
+      paymentType?: PaymentFrequency;
+      paymentDay?: number;
+      paymentMethod?: PaymentMethod;
+      customHourlyRate?: number;
+    },
+    payoutRecord: {
+      status: 'pending' | 'paid';
+      lastPaymentDate?: string | null;
+      lastPaymentBy?: string | null;
+      note?: string | null;
+      paymentMethod?: PaymentMethod | null;
+      amountPaid?: number | null;
+      actualPaymentDate?: string | null;
+      scheduledPaymentDate?: string | null;
+      earlyPaymentDays?: number | null;
+    }
+  ): Promise<void> {
+    try {
+      const docRef = doc(db, 'shared_calendars', calendarId);
+      const updatePayload: Record<string, any> = {
+        updatedAt: Timestamp.now()
+      };
+
+      Object.entries(payoutDetails).forEach(([key, value]) => {
+        const fieldPath = `payoutDetails.${key}`;
+        if (value === undefined || value === null) {
+          updatePayload[fieldPath] = deleteField();
+        } else {
+          updatePayload[fieldPath] = value;
+        }
+      });
+
+      const recordPayload: Record<string, any> = {
+        status: payoutRecord.status
+      };
+
+      Object.entries(payoutRecord).forEach(([key, value]) => {
+        if (key === 'status') return;
+        if (value === undefined) {
+          return;
+        }
+        if (value === null) {
+          recordPayload[key] = deleteField();
+        } else {
+          recordPayload[key] = value;
+        }
+      });
+
+      updatePayload[`payoutRecords.${periodKey}`] = recordPayload;
+
+      await updateDoc(docRef, updatePayload);
+      logger.info('Detalles y registro de pago actualizados', { calendarId, periodKey });
+    } catch (error) {
+      logger.error('Error al actualizar detalles y registro de pago', error as Error, { calendarId, periodKey });
       throw error;
     }
   }

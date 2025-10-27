@@ -263,22 +263,26 @@ export const useUpdatePayoutComplete = () => {
       };
       payoutRecord: {
         status: 'pending' | 'paid';
-        lastPaymentDate?: string;
-        lastPaymentBy?: string;
-        note?: string;
-        paymentMethod?: import('@/types/calendar').PaymentMethod;
-        amountPaid?: number;
+        lastPaymentDate?: string | null;
+        lastPaymentBy?: string | null;
+        note?: string | null;
+        paymentMethod?: import('@/types/calendar').PaymentMethod | null;
+        amountPaid?: number | null;
+        actualPaymentDate?: string | null;
+        scheduledPaymentDate?: string | null;
+        earlyPaymentDays?: number | null;
       };
     }) => {
-      costMonitoring.trackFirestoreWrite(2); // 2 escrituras
+      costMonitoring.trackFirestoreWrite(1);
 
       const { CollaborativeCalendarService } = await import('@/services/collaborativeCalendar');
 
-      // Ejecutar ambas actualizaciones en paralelo
-      await Promise.all([
-        CollaborativeCalendarService.updatePayoutDetails(calendarId, payoutDetails),
-        CollaborativeCalendarService.updatePayoutRecord(calendarId, periodKey, payoutRecord)
-      ]);
+      await CollaborativeCalendarService.updatePayoutDetailsAndRecord(
+        calendarId,
+        periodKey,
+        payoutDetails,
+        payoutRecord
+      );
     },
     onSuccess: (_, variables) => {
       console.log('🔄 INICIANDO INVALIDACIÓN DE CACHÉ para calendarId:', variables.calendarId);

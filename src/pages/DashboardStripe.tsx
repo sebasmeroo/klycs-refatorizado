@@ -30,7 +30,7 @@ import {
   X,
   BarChart3
 } from 'lucide-react';
-import '@/styles/payments-dashboard.css';
+import '@/styles/financial-dashboard.css';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAuth } from '@/hooks/useAuth';
@@ -52,7 +52,7 @@ import { useExternalClients } from '@/hooks/useExternalClients';
 import { convertPeriodKey, useMigrationCheck } from '@/utils/migratePayoutRecords';
 import { useWorkHoursByPeriod, useWorkHoursByPeriodTotals } from '@/hooks/useWorkHoursByPeriod';
 import { useWorkHoursStats } from '@/hooks/useWorkHoursStats';
-import { getCurrentPaymentPeriod } from '@/utils/paymentPeriods';
+import { getCurrentPaymentPeriod, PaymentPeriod } from '@/utils/paymentPeriods';
 
 type CurrencySummary = {
   currency: string;
@@ -75,6 +75,7 @@ const formatCurrency = (value: number, currency: string) => {
 };
 
 const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const WEEKDAY_SHORT_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 
 const PAYMENT_TYPE_OPTIONS: { value: PaymentFrequency; label: string }[] = [
   { value: 'daily', label: 'Diario' },
@@ -98,10 +99,10 @@ const INVOICE_STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
 ];
 
 const PAYMENT_TYPE_BADGE_CLASS: Record<PaymentFrequency, string> = {
-  daily: 'payments-badge--daily',
-  weekly: 'payments-badge--weekly',
-  biweekly: 'payments-badge--biweekly',
-  monthly: 'payments-badge--monthly'
+  daily: 'financial-badge--daily',
+  weekly: 'financial-badge--weekly',
+  biweekly: 'financial-badge--biweekly',
+  monthly: 'financial-badge--monthly'
 };
 
 const WEEKDAY_OPTIONS = [
@@ -126,14 +127,28 @@ type PayoutDraft = {
 
 type PayoutRecordDraft = {
   status: 'pending' | 'paid';
-  actualPaymentDate?: string;      // Cuándo se pagó realmente
-  scheduledPaymentDate?: string;   // Cuándo debería haberse pagado
-  lastPaymentDate?: string;        // Mantener para compatibilidad
-  lastPaymentBy?: string;
-  note?: string;
-  paymentMethod?: PaymentMethod;
-  amountPaid?: number;
-  earlyPaymentDays?: number;       // Cuántos días antes se pagó
+  actualPaymentDate?: string | null;      // Cuándo se pagó realmente
+  scheduledPaymentDate?: string | null;   // Cuándo debería haberse pagado
+  lastPaymentDate?: string | null;        // Mantener para compatibilidad
+  lastPaymentBy?: string | null;
+  note?: string | null;
+  paymentMethod?: PaymentMethod | null;
+  amountPaid?: number | null;
+  earlyPaymentDays?: number | null;       // Cuántos días antes se pagó
+  cycleStart?: string | null;
+  cycleEnd?: string | null;
+  nextCycleStart?: string | null;
+  nextCycleEnd?: string | null;
+  preserveScheduledDate?: boolean | null;
+  intervalDays?: number | null;
+};
+
+type PaymentActionModalState = {
+  open: boolean;
+  calendarId: string | null;
+  amount?: number;
+  method?: PaymentMethod;
+  summary?: string;
 };
 
 const getPaymentTypeLabel = (type?: PaymentFrequency) => {
@@ -196,44 +211,26 @@ const getLatestPaymentRecord = (payoutRecords?: Record<string, any>) => {
   return latest;
 };
 
-const getRecentPayments = (
-  payoutRecords?: Record<string, {
-    lastPaymentDate?: string;
-    lastPaymentBy?: string;
-    note?: string;
-    paymentMethod?: PaymentMethod;
-    amountPaid?: number;
-  }>
-) => {
-  if (!payoutRecords) return [];
-
-  // ✅ Deduplicar por lastPaymentDate para evitar mostrar el mismo pago 2 veces
-  const seenDates = new Set<string>();
-
-  return Object.entries(payoutRecords)
-    .filter(([, record]) => Boolean(record?.lastPaymentDate))
-    .sort((a, b) => {
-      const dateA = a[1]?.lastPaymentDate ? new Date(a[1].lastPaymentDate as string).getTime() : 0;
-      const dateB = b[1]?.lastPaymentDate ? new Date(b[1].lastPaymentDate as string).getTime() : 0;
-      return dateB - dateA;
-    })
-    .filter(([, record]) => {
-      const dateKey = record?.lastPaymentDate ?? '';
-      if (seenDates.has(dateKey)) {
-        return false; // Duplicado, omitir
-      }
-      seenDates.add(dateKey);
-      return true;
-    })
-    .slice(0, 3)
-    .map(([periodKey, record]) => ({
-      periodKey,
-      lastPaymentDate: record?.lastPaymentDate ?? '',
-      lastPaymentBy: record?.lastPaymentBy,
-      note: record?.note,
-      paymentMethod: record?.paymentMethod,
-      amountPaid: record?.amountPaid
-    }));
+const getLatestPaidRecord = (payoutRecords?: Record<string, any>) => {
+  if (!payoutRecords) return null;
+  let latest: any = null;
+  Object.entries(payoutRecords).forEach(([periodKey, record]) => {
+    if (record?.status !== 'paid') return;
+    const dateToCheck = record?.actualPaymentDate || record?.lastPaymentDate || record?.cycleEnd;
+    if (!dateToCheck) return;
+    const currentDate = new Date(dateToCheck);
+    if (Number.isNaN(currentDate.getTime())) return;
+    if (!latest) {
+      latest = { periodKey, ...record };
+      return;
+    }
+    const latestDateToCheck = latest.actualPaymentDate || latest.lastPaymentDate || latest.cycleEnd;
+    const latestDate = new Date(latestDateToCheck);
+    if (currentDate.getTime() > latestDate.getTime()) {
+      latest = { periodKey, ...record };
+    }
+  });
+  return latest;
 };
 
 const formatRelativeDate = (date: Date, reference: Date = new Date()) => {
@@ -251,107 +248,7 @@ const formatRelativeDate = (date: Date, reference: Date = new Date()) => {
   return normalizedTarget.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 };
 
-const getNextPaymentDate = (
-  now: Date,
-  paymentType: PaymentFrequency,
-  paymentDay: number | null | undefined,
-  latestPaymentDate?: string,
-  scheduledPaymentDate?: string // IMPORTANTE: usar SIEMPRE para calcular siguiente ciclo
-) => {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-
-  // CRÍTICO: Si hay scheduledPaymentDate, SIEMPRE usarla para cálculos de siguiente ciclo
-  // Esto asegura que pagos anticipados (ej: 23) no rompan el ciclo (ej: deberían estar en 24)
-  const referenceDate = scheduledPaymentDate ? new Date(scheduledPaymentDate) : null;
-  if (referenceDate) {
-    referenceDate.setHours(0, 0, 0, 0);
-  }
-
-  if (paymentType === 'daily') {
-    if (referenceDate && referenceDate.getTime() <= today.getTime()) {
-      const nextDay = new Date(referenceDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-      return nextDay;
-    }
-    return referenceDate || today;
-  }
-
-  if (paymentType === 'weekly') {
-    const targetWeekday = typeof paymentDay === 'number' ? paymentDay : 5; // default Friday
-    let candidate: Date;
-
-    if (referenceDate) {
-      // Si tenemos fecha de referencia (scheduledPaymentDate), calcular desde ahí
-      // La referencia es la fecha de vencimiento del período actual que se está pagando
-      // El siguiente período vence 7 días después
-      candidate = new Date(referenceDate);
-      candidate.setDate(candidate.getDate() + 7);
-    } else {
-      // Sin referencia, calcular desde hoy
-      const currentWeekday = today.getDay();
-      let delta = targetWeekday - currentWeekday;
-      if (delta < 0) delta += 7;
-      if (delta === 0) delta = 7; // Si es hoy, ir a la próxima semana
-      candidate = new Date(today);
-      candidate.setDate(today.getDate() + delta);
-    }
-    return candidate;
-  }
-
-  const baseDay = normalizePaymentDay(paymentDay, 1);
-  if (paymentType === 'monthly') {
-    let candidate: Date;
-
-    if (referenceDate) {
-      // Si tenemos fecha de referencia (scheduledPaymentDate), calcular desde ahí
-      // ✅ NUEVO: La referencia es el INICIO del período
-      // El siguiente período TERMINA 29 días después del inicio (período de 30 días)
-      candidate = new Date(referenceDate);
-      candidate.setDate(candidate.getDate() + 29);
-    } else {
-      // Sin referencia, calcular desde hoy
-      const clampedDay = clampDayOfMonth(baseDay, today);
-      candidate = new Date(today.getFullYear(), today.getMonth(), clampedDay);
-      if (candidate.getTime() < today.getTime()) {
-        // Si el día de pago ya pasó este mes, calcular para el próximo período
-        candidate.setDate(candidate.getDate() + 30);
-      }
-    }
-    return candidate;
-  }
-
-  // biweekly
-  let candidate: Date;
-
-  if (referenceDate) {
-    // Si tenemos fecha de referencia (scheduledPaymentDate), calcular desde ahí
-    // ✅ NUEVO: La referencia es el INICIO del período
-    // El siguiente período TERMINA 14 días después del inicio (período de 15 días)
-    candidate = new Date(referenceDate);
-    candidate.setDate(candidate.getDate() + 14);
-  } else {
-    // Sin referencia, calcular desde hoy
-    const clampedDay = clampDayOfMonth(baseDay, today);
-    candidate = new Date(today.getFullYear(), today.getMonth(), clampedDay);
-    const secondCandidate = new Date(candidate);
-    secondCandidate.setDate(candidate.getDate() + 15);
-
-    if (candidate.getTime() < today.getTime()) {
-      if (secondCandidate.getTime() >= today.getTime()) {
-        candidate = secondCandidate;
-      } else {
-        // Siguiente período: 15 días desde hoy
-        candidate = new Date(today);
-        candidate.setDate(today.getDate() + 15);
-      }
-    }
-  }
-
-  return candidate;
-};
-
-const formatDisplayDate = (value?: string) => {
+const formatDisplayDate = (value?: string | null) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -375,48 +272,183 @@ const formatPeriodRange = (period?: { start: Date; end: Date }) => {
 const getUpcomingPaymentPeriods = (
   paymentType: PaymentFrequency,
   paymentDay: number | null | undefined,
-  scheduledPaymentDate?: string,
+  currentCycleEnd?: string,
   count: number = 3
-): Array<{ date: Date; label: string }> => {
-  const periods: Array<{ date: Date; label: string }> = [];
+): Array<{ start: Date; date: Date; label: string }> => {
+  const periods: Array<{ start: Date; date: Date; label: string }> = [];
+  const intervalDays = getIntervalDays(paymentType);
 
-  // ✅ CRÍTICO: scheduledPaymentDate es la fecha de INICIO del período actual
-  // El período actual va de scheduledPaymentDate hasta (scheduledPaymentDate + intervalo - 1)
-  // Por ejemplo: 24 oct - 22 nov (30 días)
-  // El SIGUIENTE período empieza el 23 nov
-
-  let referenceDate = scheduledPaymentDate ? new Date(scheduledPaymentDate) : new Date();
-  referenceDate.setHours(0, 0, 0, 0);
+  let nextCycleStart: Date;
+  if (currentCycleEnd) {
+    nextCycleStart = addDays(new Date(currentCycleEnd), 1);
+  } else {
+    const initial = getInitialCyclePeriod(new Date(), paymentType, paymentDay);
+    nextCycleStart = addDays(initial.end, 1);
+  }
 
   for (let i = 0; i < count; i++) {
-    // Calcular cuántos días dura el período
-    let periodLength: number;
-    if (paymentType === 'daily') {
-      periodLength = 1;
-    } else if (paymentType === 'weekly') {
-      periodLength = 7;
-    } else if (paymentType === 'biweekly') {
-      periodLength = 15;
-    } else {
-      // monthly
-      periodLength = 30;
+    if (i > 0) {
+      nextCycleStart = addDays(periods[i - 1].date, 1);
     }
-
-    // El siguiente período EMPIEZA después del actual
-    // INICIO siguiente = FIN actual + 1 = INICIO actual + periodLength
-    const nextPeriodStart = new Date(referenceDate);
-    nextPeriodStart.setDate(nextPeriodStart.getDate() + periodLength);
-
+    const cycleEnd = addDays(nextCycleStart, intervalDays - 1);
     periods.push({
-      date: new Date(nextPeriodStart),
-      label: nextPeriodStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+      start: new Date(nextCycleStart),
+      date: cycleEnd,
+      label: cycleEnd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
     });
-
-    // Para la siguiente iteración, usar el inicio del período que acabamos de calcular
-    referenceDate = new Date(nextPeriodStart);
   }
 
   return periods;
+};
+
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const normalizeDate = (value: Date | null | undefined): Date | null => {
+  if (!value) return null;
+  const normalized = new Date(value);
+  normalized.setHours(0, 0, 0, 0);
+  return normalized;
+};
+
+const addDays = (date: Date, days: number): Date => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  result.setHours(0, 0, 0, 0);
+  return result;
+};
+
+const getIntervalDays = (paymentType: PaymentFrequency): number => {
+  switch (paymentType) {
+    case 'daily':
+      return 1;
+    case 'weekly':
+      return 7;
+    case 'biweekly':
+      return 15;
+    case 'monthly':
+    default:
+      return 30;
+  }
+};
+
+const getNextPeriodStartDate = (
+  currentPeriod: PaymentPeriod | null,
+  paymentType: PaymentFrequency,
+  paymentDay: number | null | undefined
+): Date | null => {
+  if (!currentPeriod) {
+    return null;
+  }
+
+  const reference = new Date(currentPeriod.end);
+  reference.setDate(reference.getDate() + 1);
+  reference.setHours(0, 0, 0, 0);
+
+  const nextPeriod = getCurrentPaymentPeriod(reference, paymentType, paymentDay);
+  return normalizeDate(nextPeriod.start);
+};
+
+const getExpectedPaymentDate = (period: PaymentPeriod | null): Date | null => {
+  if (!period) return null;
+  return normalizeDate(period.end);
+};
+
+const getInitialCyclePeriod = (
+  referenceDate: Date,
+  paymentType: PaymentFrequency,
+  paymentDay: number | null | undefined,
+  lastPaymentDate?: string,
+  scheduledPaymentDate?: string
+): { start: Date; end: Date } => {
+  const fallback = getCurrentPaymentPeriod(
+    referenceDate,
+    paymentType,
+    paymentDay,
+    lastPaymentDate,
+    scheduledPaymentDate
+  );
+  return {
+    start: normalizeDate(fallback.start)!,
+    end: normalizeDate(fallback.end)!
+  };
+};
+
+const createPeriodLabel = (start: Date, end: Date) => {
+  return `${start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`;
+};
+
+const buildPeriodFromRecord = (
+  recordKey: string,
+  record: any,
+  paymentType: PaymentFrequency,
+  paymentDay: number | null | undefined,
+  intervalDays: number
+): PaymentPeriod => {
+  const defaultStart = normalizeDate(new Date(recordKey)) ?? new Date(recordKey);
+  const cycleStart = record?.cycleStart
+    ? normalizeDate(new Date(record.cycleStart)) ?? defaultStart
+    : defaultStart;
+
+  let cycleEnd: Date;
+  if (record?.cycleEnd) {
+    cycleEnd = normalizeDate(new Date(record.cycleEnd)) ?? addDays(cycleStart, intervalDays - 1);
+  } else if (record?.scheduledPaymentDate) {
+    cycleEnd = normalizeDate(new Date(record.scheduledPaymentDate)) ?? addDays(cycleStart, intervalDays - 1);
+  } else {
+    cycleEnd = addDays(cycleStart, intervalDays - 1);
+  }
+
+  return {
+    start: cycleStart,
+    end: cycleEnd,
+    label: createPeriodLabel(cycleStart, cycleEnd),
+    periodKey: record?.cycleStart
+      ? normalizeDate(new Date(record.cycleStart))?.toISOString().split('T')[0] ?? recordKey
+      : recordKey
+  };
+};
+
+const formatDateLabel = (date: Date | null): string => {
+  if (!date) return 'Sin fecha';
+  return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+};
+
+const toInputDateValue = (date: Date | null): string => {
+  if (!date) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const calculateStatusVariant = (status: 'pending' | 'paid', dueDate: Date | null): 'pending' | 'paid' | 'overdue' | 'upcoming' => {
+  if (status === 'paid') {
+    return 'paid';
+  }
+  if (!dueDate) {
+    return 'pending';
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (dueDate.getTime() < today.getTime()) {
+    return 'overdue';
+  }
+  if (dueDate.getTime() === today.getTime()) {
+    return 'pending';
+  }
+  return 'upcoming';
+};
+
+const describeDueState = (dueDate: Date | null): string => {
+  if (!dueDate) return 'Sin fecha programada';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((dueDate.getTime() - today.getTime()) / DAY_IN_MS);
+  if (diffDays === 0) return 'Vence hoy';
+  if (diffDays === 1) return 'En 1 día';
+  if (diffDays > 1) return `En ${diffDays} días`;
+  if (diffDays === -1) return 'Atrasado 1 día';
+  return `Atrasado ${Math.abs(diffDays)} días`;
 };
 
 /**
@@ -449,7 +481,6 @@ const DashboardStripe: React.FC = () => {
     }
   }, [needsMigration, user?.uid, executeMigration]);
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'income' | 'stats' | 'alerts' | 'export'>('calendar');
   const [incomeTab, setIncomeTab] = useState<'platform' | 'external'>('platform');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [onlyCompleted, setOnlyCompleted] = useState(true);
@@ -479,24 +510,13 @@ const DashboardStripe: React.FC = () => {
     reference: '',
     notes: ''
   });
-
-  // Mini calendar state
-  const [calendarDate, setCalendarDate] = useState(new Date());
-
-  // Sidebar filter states
-  const [sidebarFilters, setSidebarFilters] = useState({
-    dateRange: 'all' as 'all' | 'week' | 'month' | 'year',
-    status: 'all' as 'all' | 'pending' | 'paid',
-    paymentMethod: 'all' as 'all' | PaymentMethod,
-    searchTerm: ''
+  const [paymentActionState, setPaymentActionState] = useState<PaymentActionModalState>({
+    open: false,
+    calendarId: null
   });
-
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // Collapsible sections state
-  const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
-  const [isProfessionalsSidebarCollapsed, setIsProfessionalsSidebarCollapsed] = useState(false);
-  const [isHeaderControlsExpanded, setIsHeaderControlsExpanded] = useState(false);
+  const [customPaymentDate, setCustomPaymentDate] = useState<string>('');
+  const [preserveScheduledDate, setPreserveScheduledDate] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
 
   // ✅ REACT QUERY: Reemplaza loadStats manual con hook optimizado
   const { data: stats = [], isLoading: statsLoading, dataUpdatedAt } = usePaymentStats(
@@ -570,12 +590,31 @@ const DashboardStripe: React.FC = () => {
       const monthIndex = Math.min(Math.max(selectedMonth, 0), 11);
       start = new Date(startYear, monthIndex, 1);
       end = new Date(startYear, monthIndex + 1, 0, 23, 59, 59);
+    } else if (period === 'payment') {
+      if (statsByPeriod.length > 0) {
+        const minStart = statsByPeriod.reduce((min, item) => {
+          const time = item.period.start.getTime();
+          return time < min ? time : min;
+        }, statsByPeriod[0].period.start.getTime());
+
+        const maxEnd = statsByPeriod.reduce((max, item) => {
+          const time = item.period.end.getTime();
+          return time > max ? time : max;
+        }, statsByPeriod[0].period.end.getTime());
+
+        start = new Date(minStart);
+        end = new Date(maxEnd);
+      } else {
+        const today = new Date();
+        start = new Date(today);
+        end = new Date(today);
+      }
     }
 
     start.setHours(0, 0, 0, 0);
     end.setHours(23, 59, 59, 999);
     return { start, end };
-  }, [selectedYear, period, selectedQuarter, selectedMonth]);
+  }, [selectedYear, period, selectedQuarter, selectedMonth, statsByPeriod]);
 
   const periodKey = useMemo(() => {
     if (period === 'quarter') {
@@ -665,15 +704,83 @@ const DashboardStripe: React.FC = () => {
     const details = (calendar as any)?.payoutDetails ?? {};
     const paymentType: PaymentFrequency = details?.paymentType ?? 'monthly';
     const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
-    const latestRecord = getLatestPaymentRecord(calendar.payoutRecords);
-    const currentPeriod = getCurrentPaymentPeriod(
-      new Date(),
-      paymentType,
-      paymentDay,
-      latestRecord?.lastPaymentDate,
-      latestRecord?.scheduledPaymentDate // Usar fecha programada si existe
-    );
     const preferredMethod: PaymentMethod = details?.paymentMethod ?? 'transfer';
+    const intervalDays = getIntervalDays(paymentType);
+
+    const payoutRecords = calendar.payoutRecords ?? {};
+    const latestRecord = getLatestPaymentRecord(payoutRecords);
+    const latestPaidRecord = getLatestPaidRecord(payoutRecords);
+
+    let cycleStart: Date | null = null;
+    let projectedCycleEnd: Date | null = null;
+
+    if (
+      latestRecord?.status === 'pending' &&
+      latestRecord?.cycleStart
+    ) {
+      cycleStart = normalizeDate(new Date(latestRecord.cycleStart));
+      const scheduled = latestRecord?.scheduledPaymentDate
+        ? normalizeDate(new Date(latestRecord.scheduledPaymentDate))
+        : null;
+      projectedCycleEnd = scheduled ?? (cycleStart ? addDays(cycleStart, intervalDays - 1) : null);
+    } else {
+      const basePaidRecord = latestRecord?.status === 'paid' ? latestRecord : latestPaidRecord;
+      if (basePaidRecord) {
+        const recordedNextCycleStart = basePaidRecord.nextCycleStart
+          ? normalizeDate(new Date(basePaidRecord.nextCycleStart))
+          : null;
+        const recordedNextCycleEnd = basePaidRecord.nextCycleEnd
+          ? normalizeDate(new Date(basePaidRecord.nextCycleEnd))
+          : null;
+        const recordedCycleEnd = basePaidRecord.cycleEnd
+          ? normalizeDate(new Date(basePaidRecord.cycleEnd))
+          : null;
+
+        if (recordedNextCycleStart) {
+          cycleStart = recordedNextCycleStart;
+          projectedCycleEnd = recordedNextCycleEnd ?? addDays(recordedNextCycleStart, intervalDays - 1);
+        } else if (recordedCycleEnd) {
+          cycleStart = addDays(recordedCycleEnd, 1);
+          projectedCycleEnd = addDays(cycleStart, intervalDays - 1);
+        }
+      }
+    }
+
+    if (!cycleStart || !projectedCycleEnd) {
+      const referenceDate = latestRecord?.actualPaymentDate
+        ? new Date(latestRecord.actualPaymentDate)
+        : new Date();
+      const initial = getInitialCyclePeriod(
+        referenceDate,
+        paymentType,
+        paymentDay,
+        latestRecord?.lastPaymentDate,
+        latestRecord?.scheduledPaymentDate
+      );
+      cycleStart = normalizeDate(initial.start) ?? initial.start;
+      projectedCycleEnd = normalizeDate(initial.end) ?? initial.end;
+    }
+
+    const periodKey = cycleStart.toISOString().split('T')[0];
+    const currentRecord = payoutRecords?.[periodKey];
+    if (currentRecord?.status === 'pending' && currentRecord?.scheduledPaymentDate) {
+      projectedCycleEnd = normalizeDate(new Date(currentRecord.scheduledPaymentDate)) ?? projectedCycleEnd;
+    } else if (currentRecord?.status === 'paid') {
+      const recordEnd = currentRecord?.nextCycleEnd
+        ? normalizeDate(new Date(currentRecord.nextCycleEnd))
+        : currentRecord?.cycleEnd
+          ? normalizeDate(new Date(currentRecord.cycleEnd))
+          : null;
+      projectedCycleEnd = recordEnd ?? projectedCycleEnd;
+    }
+
+    const currentPeriod: PaymentPeriod = {
+      start: cycleStart,
+      end: projectedCycleEnd,
+      label: formatPeriodRange({ start: cycleStart, end: projectedCycleEnd }),
+      periodKey
+    };
+
     const periodStats = statsByPeriodMap.get(calendarId);
 
     // Buscar los datos específicos del período actual
@@ -681,7 +788,6 @@ const DashboardStripe: React.FC = () => {
     let hoursForCurrentPeriod: number | undefined;
 
     if (periodStats) {
-      // Buscar si hay datos que coincidan con el período actual
       const allStatsData = Array.isArray(periodStats) ? periodStats : [periodStats];
       const currentPeriodData = allStatsData.find(item => {
         return item?.period?.periodKey === currentPeriod?.periodKey;
@@ -691,11 +797,31 @@ const DashboardStripe: React.FC = () => {
         amountForCurrentPeriod = currentPeriodData.stats?.totalAmount;
         hoursForCurrentPeriod = currentPeriodData.stats?.totalHours;
       } else {
-        // Fallback: si no hay datos específicos del período, usar el total
         amountForCurrentPeriod = periodStats.stats?.totalAmount;
         hoursForCurrentPeriod = periodStats.stats?.totalHours;
       }
     }
+
+    let nextCycleStartRaw: Date;
+    if (currentRecord?.nextCycleStart) {
+      nextCycleStartRaw = normalizeDate(new Date(currentRecord.nextCycleStart)) ?? addDays(projectedCycleEnd, 1);
+    } else if (currentRecord?.status === 'paid' && currentRecord?.cycleEnd) {
+      nextCycleStartRaw = addDays(new Date(currentRecord.cycleEnd), 1);
+    } else {
+      nextCycleStartRaw = addDays(projectedCycleEnd, 1);
+    }
+    const nextCycleStart = normalizeDate(nextCycleStartRaw) ?? nextCycleStartRaw;
+    const nextCycleEndRaw = currentRecord?.nextCycleEnd
+      ? normalizeDate(new Date(currentRecord.nextCycleEnd)) ?? addDays(nextCycleStart, intervalDays - 1)
+      : addDays(nextCycleStart, intervalDays - 1);
+    const nextCycleEnd = normalizeDate(nextCycleEndRaw) ?? nextCycleEndRaw;
+
+    const nextPeriod: PaymentPeriod = {
+      start: nextCycleStart,
+      end: nextCycleEnd,
+      label: createPeriodLabel(nextCycleStart, nextCycleEnd),
+      periodKey: nextCycleStart.toISOString().split('T')[0]
+    };
 
     return {
       calendar,
@@ -704,8 +830,13 @@ const DashboardStripe: React.FC = () => {
       preferredMethod,
       currentPeriod,
       latestRecord,
+      latestPaidRecord,
       amountForPeriod: amountForCurrentPeriod,
-      hoursForPeriod: hoursForCurrentPeriod
+      hoursForPeriod: hoursForCurrentPeriod,
+      intervalDays,
+      nextCycleStart,
+      nextCycleEnd,
+      nextPeriod
     };
   }, [calendarMap, statsByPeriodMap]);
 
@@ -715,34 +846,9 @@ const DashboardStripe: React.FC = () => {
     const context = getCalendarPaymentContext(calendarId);
     if (!context) return undefined;
 
-    const { paymentType, paymentDay, latestRecord } = context;
+    const { nextPeriod } = context;
 
-    // Si no hay registro de pago, no hay "siguiente"
-    if (!latestRecord?.scheduledPaymentDate) return undefined;
-
-    // Calcular la fecha de vencimiento del siguiente período
-    // scheduledPaymentDate es la fecha que se acaba de pagar
-    // El siguiente vence en (intervalo) días después
-    const scheduledDate = new Date(latestRecord.scheduledPaymentDate);
-    let nextPaymentDate = new Date(scheduledDate);
-
-    if (paymentType === 'weekly') {
-      nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
-    } else if (paymentType === 'biweekly') {
-      nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
-    } else if (paymentType === 'monthly') {
-      // ✅ CRÍTICO: Sumar 29 días (período de 30 días), NO setMonth()
-      nextPaymentDate.setDate(nextPaymentDate.getDate() + 29);
-    }
-
-    // Obtener el período que vence en nextPaymentDate
-    const nextPeriod = getCurrentPaymentPeriod(
-      nextPaymentDate,
-      paymentType,
-      paymentDay,
-      undefined,
-      nextPaymentDate.toISOString().split('T')[0]
-    );
+    if (!nextPeriod) return undefined;
 
     const periodStats = statsByPeriodMap.get(calendarId);
     if (!periodStats) return undefined;
@@ -850,37 +956,37 @@ const DashboardStripe: React.FC = () => {
 
   const scheduledPayments = useMemo(() => {
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
     return displayStats
       .map(({ base: stat, filteredAmount, paymentPeriod }) => {
-        const calendar = calendarMap.get(stat.professionalId);
-        if (!calendar) return null;
-        const details = (calendar as any)?.payoutDetails ?? {};
-        const paymentType: PaymentFrequency = details?.paymentType ?? 'monthly';
-        const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
-        const preferredMethod: PaymentMethod = details?.paymentMethod ?? 'transfer';
-        const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
-        // ⚠️ CRÍTICO: pasar scheduledPaymentDate para cálculos correctos
-        const nextDate = getNextPaymentDate(
-          new Date(now),
+        const context = getCalendarPaymentContext(stat.professionalId);
+        if (!context) return null;
+
+        const {
+          calendar,
           paymentType,
           paymentDay,
-          latestRecord?.lastPaymentDate,
-          latestRecord?.scheduledPaymentDate // IMPORTANTE: usar fecha programada
-        );
+          preferredMethod,
+          currentPeriod,
+          nextCycleEnd,
+          amountForPeriod,
+          intervalDays
+        } = context;
+
+        const nextDate = normalizeDate(nextCycleEnd) ?? addDays(currentPeriod.end, intervalDays - 1);
         if (!nextDate) return null;
-        const context = getCalendarPaymentContext(stat.professionalId);
-        const currentPeriod = context?.currentPeriod;
-        const periodKeyForRecord = currentPeriod?.periodKey;
+
+        const periodKeyForRecord = currentPeriod.periodKey;
         const recordStatus = periodKeyForRecord
-          ? context?.calendar?.payoutRecords?.[periodKeyForRecord]?.status ?? 'pending'
+          ? calendar.payoutRecords?.[periodKeyForRecord]?.status ?? 'pending'
           : 'pending';
         const periodRangeLabel = currentPeriod
           ? formatPeriodRange(currentPeriod)
           : paymentPeriod?.label ?? null;
         const pendingAmount = recordStatus === 'paid'
           ? 0
-          : typeof context?.amountForPeriod === 'number'
-            ? context.amountForPeriod
+          : typeof amountForPeriod === 'number'
+            ? amountForPeriod
             : typeof filteredAmount === 'number'
               ? filteredAmount
               : 0;
@@ -898,7 +1004,8 @@ const DashboardStripe: React.FC = () => {
           periodRangeLabel,
           status: recordStatus as 'pending' | 'paid',
           isPending: recordStatus !== 'paid',
-          pendingAmount
+          pendingAmount,
+          amount: pendingAmount
         };
       })
       .filter((item): item is {
@@ -915,9 +1022,46 @@ const DashboardStripe: React.FC = () => {
         status: 'pending' | 'paid';
         isPending: boolean;
         pendingAmount: number;
+        amount: number;
       } => Boolean(item))
       .sort((a, b) => a.nextDate.getTime() - b.nextDate.getTime());
-  }, [displayStats, calendarMap, getCalendarPaymentContext]);
+  }, [displayStats, getCalendarPaymentContext]);
+
+  const totalPendingAmount = useMemo(() => {
+    return statsForDisplay.reduce((sum, { base: stat, filteredAmount }) => {
+      const context = getCalendarPaymentContext(stat.professionalId);
+      if (!context) return sum;
+
+      const periodKeyForRecord = context.currentPeriod.periodKey;
+      const recordStatus = context.calendar?.payoutRecords?.[periodKeyForRecord]?.status ?? 'pending';
+      if (recordStatus === 'paid') {
+        return sum;
+      }
+
+      const amount = typeof context.amountForPeriod === 'number'
+        ? context.amountForPeriod
+        : typeof filteredAmount === 'number'
+          ? filteredAmount
+          : 0;
+
+      return sum + Math.max(amount, 0);
+    }, 0);
+  }, [statsForDisplay, getCalendarPaymentContext]);
+
+  const upcomingWithinWeek = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const sevenDays = 7 * DAY_IN_MS;
+    return scheduledPayments.filter(item => {
+      if (!item.isPending) return false;
+      const diff = item.nextDate.getTime() - today.getTime();
+      return diff >= 0 && diff <= sevenDays;
+    }).length;
+  }, [scheduledPayments]);
+
+  const pendingProfessionalsCount = useMemo(() => {
+    return statsForDisplay.filter(({ base }) => isProfessionalPending(base.professionalId)).length;
+  }, [statsForDisplay, isProfessionalPending]);
 
   const withdrawalSummary = useMemo(() => {
     const totalGross = withdrawals.reduce((sum, item) => sum + item.grossAmount, 0);
@@ -949,6 +1093,48 @@ const DashboardStripe: React.FC = () => {
     };
   }, [externalClients]);
 
+  const totalInvoicePaid = invoiceSummary.byStatus['paid'] ?? 0;
+  const totalIncome = withdrawalSummary.totalNet + totalInvoicePaid + externalClientsSummary.totalAmount;
+  const payrollPaid = currentTotalAmount;
+  const netProfit = totalIncome - payrollPaid;
+  const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
+  const summaryMetrics = useMemo(() => [
+    {
+      label: 'Nómina actual',
+      value: formatCurrency(payrollPaid, primaryCurrency),
+      helper: `${statsForDisplay.length} profesionales`,
+      icon: Wallet
+    },
+    {
+      label: 'Ingresos totales',
+      value: formatCurrency(totalIncome, primaryCurrency),
+      helper: `Netos ${formatCurrency(withdrawalSummary.totalNet, primaryCurrency)}`,
+      icon: TrendingUp
+    },
+    {
+      label: 'Pendiente por pagar',
+      value: formatCurrency(totalPendingAmount, primaryCurrency),
+      helper: `${pendingProfessionalsCount} profesionales`,
+      icon: Clock
+    },
+    {
+      label: 'Margen neto',
+      value: `${Number.isFinite(profitMargin) ? profitMargin.toFixed(1) : '0.0'}%`,
+      helper: `${netProfit >= 0 ? '+' : ''}${formatCurrency(netProfit, primaryCurrency)}`,
+      icon: BarChart3
+    }
+  ], [
+    payrollPaid,
+    primaryCurrency,
+    statsForDisplay.length,
+    totalIncome,
+    withdrawalSummary.totalNet,
+    totalPendingAmount,
+    pendingProfessionalsCount,
+    profitMargin,
+    netProfit
+  ]);
+
   const withdrawalNetPreview = useMemo(() => {
     const gross = Number(withdrawalForm.grossAmount || 0);
     const commission = Number(withdrawalForm.commission || 0);
@@ -973,6 +1159,32 @@ const DashboardStripe: React.FC = () => {
     });
   }, [paymentTypeDistribution]);
 
+  const activePaymentActionContext = paymentActionState.open && paymentActionState.calendarId
+    ? getCalendarPaymentContext(paymentActionState.calendarId)
+    : null;
+  const actionDueDate = activePaymentActionContext
+    ? getExpectedPaymentDate(activePaymentActionContext.currentPeriod)
+    : null;
+  const actionDueLabel = formatDateLabel(actionDueDate);
+  const actionAmountLabel = typeof paymentActionState.amount === 'number'
+    ? formatCurrency(
+        paymentActionState.amount,
+        activePaymentActionContext?.calendar?.hourlyRateCurrency || 'EUR'
+      )
+    : null;
+  const actionPaymentMethodLabel = paymentActionState.method
+    ? getPaymentMethodLabel(paymentActionState.method)
+    : null;
+  const actionPeriodLabel = paymentActionState.summary ?? activePaymentActionContext?.currentPeriod?.label;
+  const todayLabel = formatDateLabel(new Date());
+  const maintainedNextStart = actionDueDate ? addDays(actionDueDate, 1) : null;
+  const paymentReferenceDate = customPaymentDate
+    ? normalizeDate(new Date(customPaymentDate)) ?? new Date(customPaymentDate)
+    : normalizeDate(new Date()) ?? new Date();
+  const adjustedNextStart = addDays(paymentReferenceDate, 1);
+  const maintainedNextStartLabel = maintainedNextStart ? formatDateLabel(maintainedNextStart) : null;
+  const adjustedNextStartLabel = formatDateLabel(adjustedNextStart);
+
   const invoiceStatusStats = useMemo(() => {
     return INVOICE_STATUS_OPTIONS.map(option => ({
       value: option.value,
@@ -980,13 +1192,6 @@ const DashboardStripe: React.FC = () => {
       amount: invoiceSummary.byStatus[option.value] ?? 0
     }));
   }, [invoiceSummary]);
-
-  const totalInvoicePaid = invoiceSummary.byStatus['paid'] ?? 0;
-  const totalIncome = withdrawalSummary.totalNet + totalInvoicePaid + externalClientsSummary.totalAmount; // ✅ Incluye CRM
-  const payrollPaid = currentTotalAmount;
-  const netProfit = totalIncome - payrollPaid;
-  const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
-  const payrollVariation = payrollPaid - previousTotals.totalAmount;
 
 
   useEffect(() => {
@@ -1113,92 +1318,17 @@ const DashboardStripe: React.FC = () => {
     });
   }, [calendarMap, getCalendarPaymentContext, periodKey]);
 
-  /**
-   * Calcula la fecha programada para el próximo pago basada en la frecuencia y el día de pago
-   */
-  const calculateScheduledPaymentDate = useCallback((
-    paymentType: PaymentFrequency,
-    paymentDay: number | null | undefined,
-    fromDate: Date = new Date()
-  ): string => {
-    const date = new Date(fromDate);
-    date.setHours(0, 0, 0, 0);
-
-    switch (paymentType) {
-      case 'daily':
-        return date.toISOString().split('T')[0];
-
-      case 'weekly': {
-        const normalizedDay = paymentDay ?? 5; // Viernes por defecto
-        const dayOfWeek = date.getDay();
-        const daysUntilPayday = (normalizedDay - dayOfWeek + 7) % 7;
-        const paymentDate = new Date(date);
-        paymentDate.setDate(paymentDate.getDate() + (daysUntilPayday === 0 ? 7 : daysUntilPayday));
-        return paymentDate.toISOString().split('T')[0];
-      }
-
-      case 'biweekly': {
-        const normalizedDay = paymentDay ?? 1;
-        const currentDay = date.getDate();
-        let paymentDate: Date;
-
-        if (normalizedDay <= 15) {
-          // Primera quincena
-          if (currentDay < normalizedDay) {
-            paymentDate = new Date(date.getFullYear(), date.getMonth(), normalizedDay);
-          } else if (currentDay <= 15) {
-            paymentDate = new Date(date.getFullYear(), date.getMonth(), 16);
-          } else {
-            const nextMonth = date.getMonth() + 1;
-            const nextYear = nextMonth > 11 ? date.getFullYear() + 1 : date.getFullYear();
-            paymentDate = new Date(nextYear, nextMonth > 11 ? 0 : nextMonth, normalizedDay);
-          }
-        } else {
-          // Segunda quincena
-          if (currentDay < 16) {
-            paymentDate = new Date(date.getFullYear(), date.getMonth(), 16);
-          } else if (currentDay <= normalizedDay) {
-            const nextMonth = date.getMonth() + 1;
-            const nextYear = nextMonth > 11 ? date.getFullYear() + 1 : date.getFullYear();
-            paymentDate = new Date(nextYear, nextMonth > 11 ? 0 : nextMonth, 16);
-          } else {
-            const nextMonth = date.getMonth() + 1;
-            const nextYear = nextMonth > 11 ? date.getFullYear() + 1 : date.getFullYear();
-            paymentDate = new Date(nextYear, nextMonth > 11 ? 0 : nextMonth, normalizedDay);
-          }
-        }
-
-        return paymentDate.toISOString().split('T')[0];
-      }
-
-      case 'monthly':
-      default: {
-        const normalizedDay = paymentDay ?? 1;
-        const currentDay = date.getDate();
-
-        if (currentDay < normalizedDay) {
-          return new Date(date.getFullYear(), date.getMonth(), normalizedDay).toISOString().split('T')[0];
-        } else {
-          const nextMonth = date.getMonth() + 1;
-          const nextYear = nextMonth > 11 ? date.getFullYear() + 1 : date.getFullYear();
-          const adjustedMonth = nextMonth > 11 ? 0 : nextMonth;
-          return new Date(nextYear, adjustedMonth, normalizedDay).toISOString().split('T')[0];
-        }
-      }
-    }
-  }, []);
-
   const handleQuickMarkAsPaid = useCallback(async (
     calendarId: string,
-    options?: { amount?: number; paymentMethod?: PaymentMethod }
-  ) => {
+    options?: { amount?: number; paymentMethod?: PaymentMethod; preserveScheduledDate?: boolean }
+  ): Promise<boolean> => {
     const context = getCalendarPaymentContext(calendarId);
     if (!context) {
       toast.error('No encontramos el profesional a actualizar');
-      return;
+      return false;
     }
 
-    const { calendar, currentPeriod, preferredMethod, latestRecord } = context;
+    const { calendar, currentPeriod, preferredMethod, intervalDays } = context;
     // ✅ CAMBIO CLAVE: Usar periodKey del contexto directamente (ya está bien calculado)
     // currentPeriod.periodKey es el correcto: W42 para 17-23 oct
     const targetPeriodKey = currentPeriod.periodKey;
@@ -1230,25 +1360,22 @@ const DashboardStripe: React.FC = () => {
         ? draftRecord.amountPaid
         : existingRecord?.amountPaid;
 
-    const details = (calendar as any)?.payoutDetails ?? {};
-    const paymentType: PaymentFrequency = details?.paymentType ?? 'monthly';
-    const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
+    const cycleStartDate = normalizeDate(currentPeriod.start) ?? new Date(today);
+    const paymentDateObj = normalizeDate(new Date(today)) ?? new Date(today);
+    const expectedPaymentDate = normalizeDate(currentPeriod.end);
+    const cycleEndDate = expectedPaymentDate ?? addDays(cycleStartDate, intervalDays - 1);
+    const preserveScheduleRequest = options?.preserveScheduledDate ?? false;
+    const paymentBeforeExpected = paymentDateObj.getTime() <= cycleEndDate.getTime();
+    const shouldPreserveSchedule = preserveScheduleRequest && paymentBeforeExpected;
+    const nextCycleStartDate = shouldPreserveSchedule
+      ? addDays(cycleEndDate, 1)
+      : addDays(paymentDateObj, 1);
+    const nextCycleEndDate = addDays(nextCycleStartDate, intervalDays - 1);
+    const scheduledDate = cycleEndDate.toISOString().split('T')[0];
 
-    // ✅ CRÍTICO: scheduledPaymentDate es el inicio del NUEVO período
-    // Si se pagó el 24, el nuevo período empieza el 25 a las 00:00
-    // Esto significa: pago del 24 cierra cuentas, nuevo período inicia el 25
-    // El período es: 25 oct 00:00 - 23 nov 23:59 (30 días contables)
-    const scheduledDate = (() => {
-      const nextDay = new Date(today);
-      nextDay.setDate(nextDay.getDate() + 1);
-      return nextDay.toISOString().split('T')[0];
-    })();
-
-    // Calcular cuántos días antes/después de lo previsto se realizó el pago
-    const nextPaymentDateForComparison = calculateScheduledPaymentDate(paymentType, paymentDay);
-    const nextPaymentDateObj = new Date(nextPaymentDateForComparison);
-    const todayObj = new Date(today);
-    const earlyPaymentDays = Math.floor((nextPaymentDateObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
+    const earlyPaymentDays = expectedPaymentDate
+      ? Math.floor((expectedPaymentDate.getTime() - paymentDateObj.getTime()) / DAY_IN_MS)
+      : 0;
 
     const normalizedRecord: PayoutRecordDraft = {
       status: 'paid',
@@ -1259,9 +1386,16 @@ const DashboardStripe: React.FC = () => {
       note: draftRecord?.note ?? existingRecord?.note,
       paymentMethod,
       amountPaid: typeof normalizedAmount === 'number' ? normalizedAmount : undefined,
-      earlyPaymentDays: earlyPaymentDays > 0 ? earlyPaymentDays : undefined // Solo si se pagó antes
+      earlyPaymentDays: earlyPaymentDays > 0 ? earlyPaymentDays : undefined,
+      cycleStart: cycleStartDate.toISOString().split('T')[0],
+      cycleEnd: cycleEndDate.toISOString().split('T')[0],
+      nextCycleStart: nextCycleStartDate.toISOString().split('T')[0],
+      nextCycleEnd: nextCycleEndDate.toISOString().split('T')[0],
+      preserveScheduledDate: shouldPreserveSchedule,
+      intervalDays
     };
 
+    const details = (calendar as any)?.payoutDetails ?? {};
     const normalizedDetails = {
       iban: (draftDetails?.iban ?? details?.iban) || undefined,
       bank: (draftDetails?.bank ?? details?.bank) || undefined,
@@ -1326,13 +1460,156 @@ const DashboardStripe: React.FC = () => {
         }
       }));
       setEditingPayout(prev => ({ ...prev, [calendarId]: false }));
+      return true;
     } catch (error) {
       console.error('Error registrando pago', error);
       toast.error('No pudimos registrar el pago');
+      return false;
     } finally {
       setMarkingPayout(prev => ({ ...prev, [calendarId]: false }));
     }
   }, [getCalendarPaymentContext, payoutRecordDrafts, payoutDrafts, updatePayoutMutation, user?.displayName, user?.email]);
+
+  const handleSchedulePayment = useCallback(async (
+    calendarId: string,
+    scheduledDateISO: string
+  ): Promise<boolean> => {
+    const context = getCalendarPaymentContext(calendarId);
+    if (!context) {
+      toast.error('No encontramos el profesional a actualizar');
+      return false;
+    }
+
+    if (!scheduledDateISO) {
+      toast.error('Selecciona una fecha para programar el pago');
+      return false;
+    }
+
+    const { calendar, currentPeriod, preferredMethod, intervalDays } = context;
+    const targetPeriodKey = currentPeriod.periodKey;
+    const existingRecord = calendar.payoutRecords?.[targetPeriodKey];
+    const recordDraft = payoutRecordDrafts[calendarId];
+    const draftDetails = payoutDrafts[calendarId];
+    const details = (calendar as any)?.payoutDetails ?? {};
+
+    const normalizedRecord: PayoutRecordDraft = {
+      status: 'pending',
+      scheduledPaymentDate: scheduledDateISO,
+      actualPaymentDate: null,
+      lastPaymentDate: null,
+      lastPaymentBy: null,
+      note: recordDraft?.note ?? existingRecord?.note,
+      paymentMethod: recordDraft?.paymentMethod ?? existingRecord?.paymentMethod ?? preferredMethod,
+      amountPaid: recordDraft?.amountPaid ?? existingRecord?.amountPaid,
+      earlyPaymentDays: null,
+      cycleStart: currentPeriod.start.toISOString().split('T')[0],
+      cycleEnd: null,
+      intervalDays
+    };
+
+    const normalizedDetails = {
+      iban: (draftDetails?.iban ?? details?.iban) || undefined,
+      bank: (draftDetails?.bank ?? details?.bank) || undefined,
+      notes: (draftDetails?.notes ?? details?.notes) || undefined,
+      paypalEmail: (draftDetails?.paypalEmail ?? details?.paypalEmail) || undefined,
+      paymentType: draftDetails?.paymentType ?? details?.paymentType ?? undefined,
+      paymentDay: typeof draftDetails?.paymentDay === 'number'
+        ? draftDetails.paymentDay
+        : typeof details?.paymentDay === 'number'
+          ? details.paymentDay
+          : undefined,
+      paymentMethod: draftDetails?.paymentMethod ?? details?.paymentMethod ?? undefined
+    };
+
+    try {
+      setSavingPayout(prev => ({ ...prev, [calendarId]: true }));
+      await updatePayoutMutation.mutateAsync({
+        calendarId,
+        periodKey: targetPeriodKey,
+        payoutDetails: normalizedDetails,
+        payoutRecord: normalizedRecord
+      });
+      toast.success(`Pago programado para ${new Date(scheduledDateISO).toLocaleDateString('es-ES')}`);
+      setPayoutRecordDrafts(prev => ({
+        ...prev,
+        [calendarId]: {
+          status: 'pending',
+          scheduledPaymentDate: scheduledDateISO,
+          note: normalizedRecord.note,
+          paymentMethod: normalizedRecord.paymentMethod,
+          amountPaid: normalizedRecord.amountPaid,
+          cycleStart: normalizedRecord.cycleStart,
+          intervalDays: normalizedRecord.intervalDays
+        }
+      }));
+      return true;
+    } catch (error) {
+      console.error('Error programando pago', error);
+      toast.error('No pudimos programar el pago');
+      return false;
+    } finally {
+      setSavingPayout(prev => ({ ...prev, [calendarId]: false }));
+    }
+  }, [getCalendarPaymentContext, payoutRecordDrafts, payoutDrafts, updatePayoutMutation]);
+
+  const closePaymentActionModal = useCallback(() => {
+    setPaymentActionState({ open: false, calendarId: null });
+    setCustomPaymentDate('');
+    setPreserveScheduledDate(false);
+    setModalLoading(false);
+  }, []);
+
+  const openPaymentActionModal = useCallback((
+    calendarId: string,
+    payload?: { amount?: number; method?: PaymentMethod; summary?: string }
+  ) => {
+    const context = getCalendarPaymentContext(calendarId);
+    const defaultDate = context ? getExpectedPaymentDate(context.currentPeriod) : null;
+    setCustomPaymentDate(toInputDateValue(defaultDate));
+    setPreserveScheduledDate(false);
+    setPaymentActionState({
+      open: true,
+      calendarId,
+      amount: payload?.amount ?? (context?.amountForPeriod ?? undefined),
+      method: payload?.method ?? context?.preferredMethod,
+      summary: payload?.summary ?? context?.currentPeriod?.label ?? undefined
+    });
+  }, [getCalendarPaymentContext]);
+
+  const handleConfirmPaymentNow = useCallback(async () => {
+    if (!paymentActionState.calendarId) return;
+    setModalLoading(true);
+    const success = await handleQuickMarkAsPaid(paymentActionState.calendarId, {
+      amount: typeof paymentActionState.amount === 'number' ? paymentActionState.amount : undefined,
+      paymentMethod: paymentActionState.method,
+      preserveScheduledDate: preserveScheduledDate
+    });
+    setModalLoading(false);
+    if (success) {
+      closePaymentActionModal();
+    }
+  }, [
+    closePaymentActionModal,
+    handleQuickMarkAsPaid,
+    paymentActionState.calendarId,
+    paymentActionState.amount,
+    paymentActionState.method,
+    preserveScheduledDate
+  ]);
+
+  const handleConfirmScheduledPayment = useCallback(async () => {
+    if (!paymentActionState.calendarId) return;
+    if (!customPaymentDate) {
+      toast.error('Selecciona una fecha para programar el pago');
+      return;
+    }
+    setModalLoading(true);
+    const success = await handleSchedulePayment(paymentActionState.calendarId, customPaymentDate);
+    setModalLoading(false);
+    if (success) {
+      closePaymentActionModal();
+    }
+  }, [closePaymentActionModal, customPaymentDate, handleSchedulePayment, paymentActionState.calendarId]);
 
   const handleCreateWithdrawal = useCallback(async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1660,15 +1937,6 @@ const DashboardStripe: React.FC = () => {
       ? annualStats.find(s => s.professionalId === stat.professionalId)
       : null;
 
-    console.log(`🔍 Chart Debug - ${stat.professionalName}:`, {
-      annualStatsAvailable: annualStats && annualStats.length > 0,
-      annualStatsCount: annualStats?.length,
-      chartDataFound: !!chartData,
-      monthlyBreakdownLength: chartData?.monthlyBreakdown?.length,
-      statMonthlyBreakdownLength: stat?.monthlyBreakdown?.length,
-      usingAnnualStats: !!chartData
-    });
-
     // ✅ FALLBACK: Si annualStats aún no está cargado, usar stat.monthlyBreakdown
     // (que ahora siempre tiene 12 meses tras nuestro fix)
     const dataForChart = chartData || stat;
@@ -1757,50 +2025,29 @@ const DashboardStripe: React.FC = () => {
     const hasCustomRate = typeof payoutCustomRate === 'number';
 
     const latestPaymentRecord = paymentContext?.latestRecord ?? getLatestPaymentRecord(relatedCalendar?.payoutRecords);
+    const currentPeriod = paymentContext?.currentPeriod ?? (() => {
+      const startFallback = paymentContext?.nextCycleStart
+        ? addDays(paymentContext.nextCycleStart, -((paymentContext.intervalDays ?? intervalDays)))
+        : normalizeDate(new Date()) ?? new Date();
+      const endFallback = paymentContext?.nextCycleEnd
+        ? normalizeDate(paymentContext.nextCycleEnd) ?? addDays(startFallback, intervalDays - 1)
+        : addDays(startFallback, intervalDays - 1);
 
-    // Calcular próximo pago: si está PAGADO, usa la fecha real del pago
-    // Si es PENDIENTE, usa la fecha programada
-    let nextPaymentDate: Date | null = null;
-    if (latestPaymentRecord?.status === 'paid' && latestPaymentRecord?.lastPaymentDate) {
-      // Ya pagado: siguiente ciclo es desde la fecha real del pago
-      const paidDate = new Date(latestPaymentRecord.lastPaymentDate);
-      paidDate.setHours(0, 0, 0, 0);
-
-      if (paymentType === 'weekly') {
-        nextPaymentDate = new Date(paidDate);
-        nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
-      } else if (paymentType === 'biweekly') {
-        nextPaymentDate = new Date(paidDate);
-        nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
-      } else if (paymentType === 'monthly') {
-        // ✅ CRÍTICO: Sumar 29 días (período de 30 días), NO setMonth()
-        // Ejemplo: si se pagó 24 oct, próximo pago es 23 nov (24 + 29 = 23 nov)
-        nextPaymentDate = new Date(paidDate);
-        nextPaymentDate.setDate(nextPaymentDate.getDate() + 29);
-      } else {
-        // daily
-        nextPaymentDate = new Date(paidDate);
-        nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
-      }
-    } else if (latestPaymentRecord?.scheduledPaymentDate) {
-      // Pendiente: usa la fecha programada
-      nextPaymentDate = new Date(latestPaymentRecord.scheduledPaymentDate);
-    } else {
-      // Sin registro: calcula desde hoy
-      nextPaymentDate = getNextPaymentDate(
-        new Date(),
-        paymentType,
-        paymentDay,
-        undefined,
-        undefined
-      );
-    }
+      return {
+        start: startFallback,
+        end: endFallback,
+        label: `${startFallback.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${endFallback.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`,
+        periodKey: startFallback.toISOString().split('T')[0]
+      } as PaymentPeriod;
+    })();
+    const intervalDays = paymentContext?.intervalDays ?? getIntervalDays(paymentType);
+    const nextCycleEnd = paymentContext?.nextCycleEnd
+      ?? (latestPaymentRecord?.scheduledPaymentDate ? normalizeDate(new Date(latestPaymentRecord.scheduledPaymentDate)) : null);
+    const nextPaymentDate = nextCycleEnd
+      ? normalizeDate(nextCycleEnd)
+      : addDays(paymentContext?.currentPeriod.end ?? new Date(), intervalDays - 1);
 
     const nextPaymentLabel = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programar';
-
-    // Obtener próximos períodos de pago para mostrar un calendario
-    const upcomingPaymentPeriods = getUpcomingPaymentPeriods(paymentType, paymentDay, latestPaymentRecord?.scheduledPaymentDate, 4);
-    const recentPaymentsFromCalendar = getRecentPayments(relatedCalendar?.payoutRecords);
 
     const paymentDayLabel = getPaymentDayDescription(paymentType, paymentDay);
 
@@ -1812,7 +2059,10 @@ const DashboardStripe: React.FC = () => {
       lastPaymentBy: currentRecord?.lastPaymentBy || '',
       note: currentRecord?.note || '',
       paymentMethod: currentRecord?.paymentMethod,
-      amountPaid: typeof currentRecord?.amountPaid === 'number' ? currentRecord.amountPaid : undefined
+      amountPaid: typeof currentRecord?.amountPaid === 'number' ? currentRecord.amountPaid : undefined,
+      cycleStart: currentRecord?.cycleStart || undefined,
+      cycleEnd: currentRecord?.cycleEnd || undefined,
+      intervalDays: typeof currentRecord?.intervalDays === 'number' ? currentRecord.intervalDays : undefined
     };
     const displayRecord = editing
       ? recordDraft ?? defaultRecord
@@ -1836,57 +2086,332 @@ const DashboardStripe: React.FC = () => {
       ? getPaymentMethodLabel(displayRecord.paymentMethod)
       : null;
 
-    const recentPayments = (() => {
-      if (!displayRecord?.lastPaymentDate) {
-        return recentPaymentsFromCalendar;
-      }
-      // ✅ CRÍTICO: Deduplicar por DATE, no por periodKey
-      // Previene duplicados cuando hay múltiples periodKeys con la misma lastPaymentDate
-      // (ej: '2025-10' y '2025-10-24' ambos con lastPaymentDate='2025-10-24')
-      const alreadyListed = recentPaymentsFromCalendar.some(
-        item => item.lastPaymentDate === displayRecord.lastPaymentDate
-      );
-      if (alreadyListed) {
-        return recentPaymentsFromCalendar;
-      }
-      return [
-        {
-          periodKey: periodKeyForRecord,
-          lastPaymentDate: displayRecord.lastPaymentDate,
-          paymentMethod: displayRecord.paymentMethod,
-          amountPaid: displayRecord.amountPaid
-        },
-        ...recentPaymentsFromCalendar
-      ].slice(0, 3);
-    })();
+    const upcomingPaymentPeriods = getUpcomingPaymentPeriods(
+      paymentType,
+      paymentDay,
+      (currentRecord?.status === 'paid' && currentRecord?.cycleEnd)
+        ? currentRecord.cycleEnd
+        : currentPeriod.end.toISOString().split('T')[0],
+      4
+    );
+    const statusVariant = calculateStatusVariant(recordStatus, nextPaymentDate);
+    const periodSummaryLabel = paymentContext?.currentPeriod?.label ?? paymentPeriod?.label ?? null;
+    const dueDateLabel = formatDateLabel(nextPaymentDate);
+    const statusTimelineDescription = recordStatus === 'paid'
+      ? (() => {
+          const paymentDate = displayRecord?.lastPaymentDate
+            ? new Date(displayRecord.lastPaymentDate)
+            : null;
+          const formattedPaymentDate = paymentDate
+            ? paymentDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+            : 'Fecha no registrada';
+          const amountLabel = lastPaymentAmountLabel ? ` · ${lastPaymentAmountLabel}` : '';
+          if (typeof displayRecord?.earlyPaymentDays === 'number' && displayRecord.earlyPaymentDays > 0) {
+            return `Pagado ${formattedPaymentDate}${amountLabel} · ${displayRecord.earlyPaymentDays} día${displayRecord.earlyPaymentDays > 1 ? 's' : ''} antes`;
+          }
+          return `Pagado ${formattedPaymentDate}${amountLabel}`;
+        })()
+      : `${formatCurrency(pendingAmount, stat.currency || 'EUR')} · ${describeDueState(nextPaymentDate)}`;
+    const summaryDueText = recordStatus === 'paid'
+      ? (nextPaymentDate ? `Siguiente pago: ${dueDateLabel}` : 'Siguiente pago sin programar')
+      : (nextPaymentDate ? `Debes pagar el ${dueDateLabel}` : 'Fecha de pago sin programar');
 
+    const pendingServicesCount = pendingServices[stat.professionalId]?.count ?? 0;
+    const pendingServicesExamples = pendingServices[stat.professionalId]?.examples ?? [];
     const activeMonthKeys = filteredMonths.length
       ? new Set(filteredMonths.map(month => month.month))
       : new Set(monthlySeries.map(month => month.monthKey));
+    const projectedNextAmount = getNextPaymentPeriodAmount(stat.professionalId) ?? 0;
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    const currentHoursValue = paymentContext?.hoursForPeriod ?? filteredHours ?? 0;
+    const currentServicesCount = filteredEvents ?? 0;
+    const zeroBalance = recordStatus !== 'paid' && pendingAmount <= 0.009 && currentServicesCount === 0 && pendingServicesCount === 0;
+    const dueDate = nextPaymentDate;
+    const dueDiff = dueDate ? Math.round((dueDate.getTime() - todayMidnight.getTime()) / DAY_IN_MS) : null;
+    let currentStatusVariant: 'paid' | 'clear' | 'overdue' | 'upcoming' | 'pending';
+    let currentStatusLabel: string;
+
+    if (recordStatus === 'paid') {
+      currentStatusVariant = 'paid';
+      currentStatusLabel = 'Pagado';
+    } else if (zeroBalance) {
+      currentStatusVariant = 'clear';
+      currentStatusLabel = 'Sin saldo';
+    } else if (dueDate && dueDate.getTime() < todayMidnight.getTime()) {
+      currentStatusVariant = 'overdue';
+      currentStatusLabel = 'Atrasado';
+    } else if (dueDiff !== null && dueDiff <= 7) {
+      currentStatusVariant = 'upcoming';
+      currentStatusLabel = 'Próximo';
+    } else {
+      currentStatusVariant = 'pending';
+      currentStatusLabel = 'Pendiente';
+    }
+
+    const formattedPaymentDate = displayRecord?.actualPaymentDate
+      ? formatDisplayDate(displayRecord.actualPaymentDate)
+      : displayRecord?.lastPaymentDate
+        ? formatDisplayDate(displayRecord.lastPaymentDate)
+        : null;
+
+    let currentStatusMessage: string;
+    if (recordStatus === 'paid') {
+      currentStatusMessage = `Pago registrado ${formattedPaymentDate ?? ''}${lastPaymentAmountLabel ? ` · ${lastPaymentAmountLabel}` : ''}. El siguiente ciclo comienza el ${paymentContext?.nextPeriod ? paymentContext.nextPeriod.start.toLocaleDateString('es-ES') : dueDate ? dueDate.toLocaleDateString('es-ES') : '—'}.`;
+    } else if (zeroBalance) {
+      currentStatusMessage = 'Sin saldo pendiente: todavía no se han cerrado servicios en este período.';
+    } else if (pendingServicesCount > 0) {
+      currentStatusMessage = `Debes liquidar ${formatCurrency(Math.max(pendingAmount, 0), stat.currency || 'EUR')} antes del ${dueDate ? dueDate.toLocaleDateString('es-ES') : '—'}. ${pendingServicesCount} servicio${pendingServicesCount !== 1 ? 's' : ''} en curso.`;
+    } else {
+      currentStatusMessage = `Debes liquidar ${formatCurrency(Math.max(pendingAmount, 0), stat.currency || 'EUR')} antes del ${dueDate ? dueDate.toLocaleDateString('es-ES') : '—'}.`;
+    }
+
+    const servicesDetailMessage = pendingServicesCount > 0 && pendingServicesExamples.length > 0
+      ? `Ejemplos: ${pendingServicesExamples.slice(0, 3).join(', ')}${pendingServicesExamples.length > 3 ? '…' : ''}`
+      : '';
+
+    const nextPeriod = paymentContext?.nextPeriod;
+    const nextPeriodMessage = nextPeriod
+      ? `Preparado para ${nextPeriod.end.toLocaleDateString('es-ES')}. El ciclo cubrirá ${createPeriodLabel(nextPeriod.start, nextPeriod.end)}.`
+      : 'El próximo ciclo se generará automáticamente cuando existan servicios posteriores.';
+
+    type TimelineEntry = {
+      key: string;
+      status: 'paid' | 'pending' | 'upcoming' | 'overdue' | 'clear';
+      period: PaymentPeriod;
+      amount: number;
+      method?: PaymentMethod | null;
+      paymentDate?: string | null;
+      scheduledDate?: string | null;
+      note?: string | null;
+      isCurrent?: boolean;
+      zeroBalance?: boolean;
+    };
+
+    const timelineEntries: TimelineEntry[] = (() => {
+      const entries: TimelineEntry[] = [];
+      const records = relatedCalendar?.payoutRecords ?? {};
+
+      if (paymentContext?.nextPeriod) {
+        entries.push({
+          key: `${paymentContext.nextPeriod.periodKey}-upcoming`,
+          status: 'upcoming',
+          period: paymentContext.nextPeriod,
+          amount: projectedNextAmount,
+          method: preferredMethod,
+          paymentDate: null,
+          scheduledDate: paymentContext.nextPeriod.end.toISOString().split('T')[0],
+          note: null,
+          isCurrent: false,
+          zeroBalance: projectedNextAmount <= 0.009
+        });
+      }
+
+      entries.push({
+        key: currentPeriod.periodKey,
+        status: recordStatus === 'paid' ? 'paid' : zeroBalance ? 'clear' : currentStatusVariant === 'overdue' ? 'overdue' : 'pending',
+        period: currentPeriod,
+        amount: recordStatus === 'paid'
+          ? (displayRecord?.amountPaid ?? amountForCurrentPeriod ?? 0)
+          : Math.max(pendingAmount, 0),
+        method: displayRecord?.paymentMethod ?? preferredMethod,
+        paymentDate: displayRecord?.actualPaymentDate ?? displayRecord?.lastPaymentDate ?? null,
+        scheduledDate: nextPaymentDate ? nextPaymentDate.toISOString().split('T')[0] : currentRecord?.scheduledPaymentDate ?? null,
+        note: displayRecord?.note ?? null,
+        isCurrent: true,
+        zeroBalance
+      });
+
+      const sortedRecords = Object.entries(records)
+        .filter(([key]) => key !== currentPeriod.periodKey)
+        .map(([key, record]) => {
+          const periodFromRecord = buildPeriodFromRecord(key, record, paymentType, paymentDay, intervalDays);
+          if (
+            !periodFromRecord ||
+            Number.isNaN(periodFromRecord.start.getTime()) ||
+            Number.isNaN(periodFromRecord.end.getTime())
+          ) {
+            return null;
+          }
+          const amount = record.status === 'paid'
+            ? record.amountPaid ?? 0
+            : record.pendingAmount ?? 0;
+          const status: TimelineEntry['status'] = record.status === 'paid'
+            ? 'paid'
+            : amount <= 0.009
+              ? 'clear'
+              : record.scheduledPaymentDate && new Date(record.scheduledPaymentDate).getTime() < todayMidnight.getTime()
+                ? 'overdue'
+                : 'pending';
+
+          return {
+            key,
+            status,
+            period: periodFromRecord,
+            amount,
+            method: record.paymentMethod ?? null,
+            paymentDate: record.actualPaymentDate ?? record.lastPaymentDate ?? null,
+            scheduledDate: record.scheduledPaymentDate ?? null,
+            note: record.note ?? null,
+            isCurrent: false,
+            zeroBalance: amount <= 0.009
+          } as TimelineEntry | null;
+        })
+        .filter((entry): entry is TimelineEntry => Boolean(entry))
+        .sort((a, b) => b.period.start.getTime() - a.period.start.getTime());
+
+      entries.push(...sortedRecords.slice(0, 5));
+
+      const seenPeriodKeys = new Set<string>();
+      const deduped: TimelineEntry[] = [];
+      entries.forEach(entry => {
+        const dedupeKey = entry.status === 'upcoming'
+          ? `upcoming-${entry.period?.periodKey ?? entry.key}`
+          : entry.period?.periodKey ?? entry.key;
+        if (entry.status !== 'upcoming' && entry.period?.periodKey) {
+          if (seenPeriodKeys.has(entry.period.periodKey)) {
+            return;
+          }
+          seenPeriodKeys.add(entry.period.periodKey);
+        }
+        deduped.push(entry);
+      });
+
+      return deduped;
+    })();
+
+    type CalendarDayMarker = 'start' | 'end' | 'paid' | 'pending' | 'overdue' | 'upcoming' | 'clear';
+    const periodStartNormalized = normalizeDate(currentPeriod.start) ?? currentPeriod.start;
+    const periodEndNormalized = normalizeDate(currentPeriod.end) ?? currentPeriod.end;
+    const calendarDisplayStart = (() => {
+      const weekDay = (periodStartNormalized.getDay() + 6) % 7;
+      return addDays(periodStartNormalized, -weekDay);
+    })();
+    const calendarDisplayEnd = (() => {
+      const weekDay = (periodEndNormalized.getDay() + 6) % 7;
+      return addDays(periodEndNormalized, 6 - weekDay);
+    })();
+    const totalCalendarDays = Math.max(
+      1,
+      Math.round((calendarDisplayEnd.getTime() - calendarDisplayStart.getTime()) / DAY_IN_MS) + 1
+    );
+    type MarkerDescriptor = { statuses: Set<CalendarDayMarker>; notes: string[] };
+    const dayMarkers = new Map<string, MarkerDescriptor>();
+    const registerMarker = (value: string | Date | null | undefined, status: CalendarDayMarker, note: string) => {
+      if (!value) return;
+      const date = typeof value === 'string' ? new Date(value) : value;
+      const normalized = normalizeDate(date);
+      if (!normalized) return;
+      const iso = normalized.toISOString().split('T')[0];
+      const descriptor = dayMarkers.get(iso) ?? { statuses: new Set<CalendarDayMarker>(), notes: [] };
+      descriptor.statuses.add(status);
+      if (note && !descriptor.notes.includes(note)) {
+        descriptor.notes.push(note);
+      }
+      dayMarkers.set(iso, descriptor);
+    };
+
+    registerMarker(periodStartNormalized, 'start', 'Inicio del período actual');
+    registerMarker(periodEndNormalized, 'end', 'Fin del período actual · Fecha de corte');
+
+    timelineEntries.forEach(entry => {
+      const periodLabel = createPeriodLabel(entry.period.start, entry.period.end);
+      if (entry.paymentDate) {
+        const paymentNote = `Pago registrado (${periodLabel})${entry.amount ? ` · ${formatCurrency(entry.amount, stat.currency || 'EUR')}` : ''}`;
+        registerMarker(entry.paymentDate, 'paid', paymentNote);
+      }
+      if (entry.scheduledDate) {
+        let statusNote = 'Pago registrado';
+        if (entry.status === 'pending') {
+          statusNote = entry.zeroBalance ? 'Sin saldo pendiente' : 'Pago pendiente';
+        } else if (entry.status === 'overdue') {
+          statusNote = 'Pago atrasado';
+        } else if (entry.status === 'upcoming') {
+          statusNote = 'Pago programado';
+        } else if (entry.status === 'paid') {
+          statusNote = 'Pago liquidado';
+        } else if (entry.status === 'clear') {
+          statusNote = 'Saldo en cero';
+        }
+        registerMarker(entry.scheduledDate, entry.zeroBalance ? 'clear' : entry.status, `${statusNote} (${periodLabel})`);
+      }
+    });
+
+    if (paymentContext?.nextPeriod) {
+      registerMarker(paymentContext.nextPeriod.start, 'upcoming', `Inicio del siguiente ciclo (${paymentContext.nextPeriod.label})`);
+      registerMarker(paymentContext.nextPeriod.end, 'upcoming', `Fin estimado del siguiente ciclo (${paymentContext.nextPeriod.label})`);
+    }
+
+    const calendarDays = Array.from({ length: totalCalendarDays }, (_, index) => {
+      const date = addDays(calendarDisplayStart, index);
+      const iso = date.toISOString().split('T')[0];
+      const descriptor = dayMarkers.get(iso);
+      const inPeriod = date >= periodStartNormalized && date <= periodEndNormalized;
+      const statuses = descriptor ? Array.from(descriptor.statuses) : [];
+      const tooltip = descriptor
+        ? descriptor.notes.join(' · ')
+        : inPeriod
+          ? 'Día dentro del período actual'
+          : 'Fuera del período actual';
+      const classNames = ['financial-cycle-calendar__day'];
+      if (inPeriod) {
+        classNames.push('financial-cycle-calendar__day--in-period');
+      } else {
+        classNames.push('financial-cycle-calendar__day--outside');
+      }
+      if (statuses.includes('start')) classNames.push('financial-cycle-calendar__day--start');
+      if (statuses.includes('end')) classNames.push('financial-cycle-calendar__day--end');
+      if (statuses.includes('paid')) classNames.push('financial-cycle-calendar__day--paid');
+      if (statuses.includes('pending')) classNames.push('financial-cycle-calendar__day--due');
+      if (statuses.includes('overdue')) classNames.push('financial-cycle-calendar__day--overdue');
+      if (statuses.includes('upcoming')) classNames.push('financial-cycle-calendar__day--upcoming');
+      if (statuses.includes('clear')) classNames.push('financial-cycle-calendar__day--clear');
+      if (date.toDateString() === todayMidnight.toDateString()) {
+        classNames.push('financial-cycle-calendar__day--today');
+      }
+      return {
+        date,
+        iso,
+        tooltip,
+        className: classNames.join(' ')
+      };
+    });
+    const calendarHeaderLabel = (() => {
+      const sameMonth =
+        periodStartNormalized.getMonth() === periodEndNormalized.getMonth() &&
+        periodStartNormalized.getFullYear() === periodEndNormalized.getFullYear();
+      if (sameMonth) {
+        const label = periodStartNormalized.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+        return label.charAt(0).toUpperCase() + label.slice(1);
+      }
+      const startLabel = periodStartNormalized.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' });
+      const endLabel = periodEndNormalized.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' });
+      return `${startLabel} – ${endLabel}`;
+    })();
 
     return (
-      <article className="payments-professional-card" key={stat.professionalId}>
-        <div className="payments-professional-card__header">
-          <div className="payments-professional-card__identity">
-            <div className="payments-professional-card__avatar">
+      <article className="financial-professional-card" key={stat.professionalId}>
+        <div className="financial-professional-card__header">
+          <div className="financial-professional-card__identity">
+            <div className="financial-professional-card__avatar">
               {owner?.avatar ? (
                 <img src={owner.avatar} alt={owner.name} />
               ) : (
                 <span>{(stat.professionalName || 'P').charAt(0)}</span>
               )}
             </div>
-            <div className="payments-professional-card__identity-info">
+            <div className="financial-professional-card__identity-info">
               <h4>{stat.professionalName}</h4>
               <span>{owner?.email || relatedCalendar?.linkedEmail || 'Sin email vinculado'}</span>
-              <div className="payments-professional-card__badge-row">
-                <span className={`payments-payment-badge ${PAYMENT_TYPE_BADGE_CLASS[paymentType]}`}>
+              <div className="financial-professional-card__badge-row">
+                <span className={`financial-payment-badge ${PAYMENT_TYPE_BADGE_CLASS[paymentType]}`}>
                   {getPaymentTypeLabel(paymentType)}
                 </span>
-                <span className="payments-payment-badge payments-payment-badge--method">
+                <span className="financial-payment-badge financial-payment-badge--method">
                   {getPaymentMethodLabel(preferredMethod)}
                 </span>
                 {(paymentContext?.currentPeriod || paymentPeriod) && (
-                  <span className="payments-payment-badge payments-payment-badge--period" style={{ backgroundColor: '#10b981', color: 'white' }}>
+                  <span className="financial-payment-badge financial-payment-badge--period" style={{ backgroundColor: '#10b981', color: 'white' }}>
                     📅 {paymentContext?.currentPeriod?.label ?? paymentPeriod.label}
                   </span>
                 )}
@@ -1895,8 +2420,9 @@ const DashboardStripe: React.FC = () => {
                   const relatedRecord = relatedCalendar?.payoutRecords?.[
                     Object.keys(relatedCalendar?.payoutRecords || {}).find(key => {
                       const record = relatedCalendar?.payoutRecords?.[key];
-                      if (!record?.scheduledPaymentDate) return false;
-                      const recordDate = new Date(record.scheduledPaymentDate);
+                      const referenceDateIso = record?.cycleEnd ?? record?.scheduledPaymentDate;
+                      if (!referenceDateIso) return false;
+                      const recordDate = new Date(referenceDateIso);
                       return recordDate.toDateString() === period.date.toDateString();
                     }) ?? ''
                   ];
@@ -1917,7 +2443,7 @@ const DashboardStripe: React.FC = () => {
                   return (
                     <span
                       key={`next-${stat.professionalId}-${period.date.toISOString().split('T')[0]}`}
-                      className="payments-payment-badge"
+                      className="financial-payment-badge"
                       style={{ backgroundColor: bgColor, color: textColor }}
                     >
                       {isPaid ? '✓' : ''} {period.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
@@ -1929,16 +2455,21 @@ const DashboardStripe: React.FC = () => {
           </div>
           <button
             type="button"
-            className="payments-professional-card__close-btn"
+            className="financial-professional-card__close-btn"
             onClick={() => setSelectedProfessionalId(null)}
             aria-label="Cerrar detalles"
           >
             <X size={20} />
           </button>
-          <div className="payments-status">
+        <div className={`financial-detail-summary financial-detail-summary--${statusVariant}`}>
+          <p className="financial-detail-summary__title">
+            {getPaymentTypeLabel(paymentType)}
+            {periodSummaryLabel ? ` · ${periodSummaryLabel}` : ''}
+          </p>
+          <div className="financial-detail-summary__chip-row">
             {editing ? (
               <select
-                className="payments-status__select"
+                className="financial-detail-summary__select"
                 value={(recordDraft?.status ?? displayRecord?.status ?? 'pending')}
                 onChange={(event) => handlePayoutRecordChange(stat.professionalId, 'status', event.target.value)}
               >
@@ -1946,35 +2477,18 @@ const DashboardStripe: React.FC = () => {
                 <option value="paid">Pagado</option>
               </select>
             ) : (
-              <span className={`payments-status__pill payments-status__pill--${recordStatus}`}>
+              <span className={`financial-detail-summary__chip financial-detail-summary__chip--${statusVariant}`}>
                 {recordStatus === 'paid' ? 'Pagado' : 'Pendiente'}
               </span>
             )}
-            {!editing && displayRecord?.lastPaymentDate && (
-              <span className="payments-status__meta">
-                Último pago: {formatDisplayDate(displayRecord.lastPaymentDate)}
-                {lastPaymentAmountLabel ? ` · ${lastPaymentAmountLabel}` : ''}
-                {lastPaymentMethodLabel ? ` · ${lastPaymentMethodLabel}` : ''}
-                {displayRecord?.lastPaymentBy ? ` · Responsable: ${displayRecord.lastPaymentBy}` : ''}
-              </span>
-            )}
-            {!editing && nextPaymentDate && (
-              <span className="payments-status__meta payments-status__meta--next">
-                Próximo pago: {nextPaymentLabel}
-                {(() => {
-                  const nextAmount = getNextPaymentPeriodAmount(stat.professionalId) ?? 0;
-                  return nextAmount > 0 ? ` · ${formatCurrency(nextAmount, stat.currency || 'EUR')}` : '';
-                })()}
-              </span>
-            )}
-            {!editing && recordStatus !== 'paid' && periodRangeLabel && (
-              <span className="payments-status__meta">
-                Falta pago del {periodRangeLabel}
-              </span>
-            )}
           </div>
-          <div className="payments-professional-card__metrics">
-            <div className="payments-metric">
+          <p className="financial-detail-summary__due">{summaryDueText}</p>
+          <p className="financial-detail-summary__status">
+            {statusTimelineDescription}
+          </p>
+        </div>
+          <div className="financial-professional-card__metrics">
+            <div className="financial-metric">
               <span>Estado período de pago</span>
               <strong>
                 {recordStatus === 'paid'
@@ -1989,7 +2503,7 @@ const DashboardStripe: React.FC = () => {
                     : 'Sin período activo'}
               </small>
             </div>
-            <div className="payments-metric payments-metric--schedule">
+            <div className="financial-metric financial-metric--schedule">
               <span>Próximo pago</span>
               <strong>
                 {nextPaymentDate
@@ -1998,7 +2512,7 @@ const DashboardStripe: React.FC = () => {
               </strong>
               <small>{paymentDayLabel} · {nextPaymentLabel}</small>
             </div>
-            <div className="payments-metric payments-metric--hover">
+            <div className="financial-metric financial-metric--hover">
               <span>Horas trabajadas</span>
               <strong>{WorkHoursAnalyticsService.formatHours(filteredHours || 0)}</strong>
               <small>Incluye servicios completados y en curso según filtros</small>
@@ -2006,8 +2520,8 @@ const DashboardStripe: React.FC = () => {
           </div>
 
           {/* Tarifa vigente - métrica adicional */}
-          <div className="payments-professional-card__metrics">
-            <div className="payments-metric">
+          <div className="financial-professional-card__metrics">
+            <div className="financial-metric">
               <span>Tarifa vigente</span>
               <strong>
                 {typeof effectiveRate === 'number'
@@ -2023,13 +2537,13 @@ const DashboardStripe: React.FC = () => {
               </small>
             </div>
             {pendingLoading ? (
-              <div className="payments-metric">
+              <div className="financial-metric">
                 <span>Servicios pendientes</span>
                 <strong>Calculando...</strong>
                 <small>Revisa en unos segundos</small>
               </div>
             ) : (
-              <div className={`payments-metric ${pendingServices[stat.professionalId]?.count ? 'payments-metric--alert' : ''}`}>
+              <div className={`financial-metric ${pendingServices[stat.professionalId]?.count ? 'financial-metric--alert' : ''}`}>
                 <span>Servicios pendientes</span>
                 <strong>{pendingServices[stat.professionalId]?.count ?? 0}</strong>
                 <small>
@@ -2039,7 +2553,7 @@ const DashboardStripe: React.FC = () => {
                 </small>
               </div>
             )}
-            <div className="payments-metric">
+            <div className="financial-metric">
               <span>Último mes</span>
               <strong>{formatCurrency(lastFilteredDisplay?.amount || 0, stat.currency || 'EUR')}</strong>
               <small>
@@ -2050,8 +2564,8 @@ const DashboardStripe: React.FC = () => {
           </div>
         </div>
 
-        <div className="payments-professional-card__chart">
-          <div className="payments-chart">
+        <div className="financial-professional-card__chart">
+          <div className="financial-chart">
             {monthlySeries.map(month => {
               let height = 8;
               if (maxValue > 0) {
@@ -2063,20 +2577,20 @@ const DashboardStripe: React.FC = () => {
               return (
                 <div
                   key={`${stat.professionalId}-${month.label}`}
-                  className={`payments-chart__column ${activeMonthKeys.has(month.monthKey) ? 'payments-chart__column--active' : ''}`}
+                  className={`financial-chart__column ${activeMonthKeys.has(month.monthKey) ? 'financial-chart__column--active' : ''}`}
                 >
                   <div
-                    className="payments-chart__bar"
+                    className="financial-chart__bar"
                     style={{ height: `${height}%` }}
                     data-amount={amountLabel}
                     data-hours={month.hours.toFixed(2)}
                   />
-                  <span className="payments-chart__label">{month.label}</span>
+                  <span className="financial-chart__label">{month.label}</span>
                 </div>
               );
             })}
           </div>
-          <div className="payments-professional-card__legend">
+          <div className="financial-professional-card__legend">
             <div>
               <span className="legend-dot legend-dot--amount" />
               <span>Importe mensual</span>
@@ -2086,10 +2600,10 @@ const DashboardStripe: React.FC = () => {
               <span>Horas registradas</span>
             </div>
           </div>
-          <div className="payments-history">
+          <div className="financial-history">
             <h5>Histórico del período</h5>
             {filteredMonths.length === 0 ? (
-              <p className="payments-history__empty">Sin movimientos registrados dentro del rango seleccionado.</p>
+              <p className="financial-history__empty">Sin movimientos registrados dentro del rango seleccionado.</p>
             ) : (
               <ul>
                 {filteredMonths.map(month => {
@@ -2109,19 +2623,19 @@ const DashboardStripe: React.FC = () => {
           </div>
         </div>
 
-        <div className="payments-professional-card__payout">
-          <div className="payments-payout-config">
-            <div className="payments-payout-config__header">
+        <div className="financial-professional-card__payout">
+          <div className="financial-payout-config">
+            <div className="financial-payout-config__header">
               <h5>Configuración de pago</h5>
               {!editing && nextPaymentDate && (
-                <span className="payments-payout-config__header-chip">
+                <span className="financial-payout-config__header-chip">
                   Próximo: {nextPaymentDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
                 </span>
               )}
             </div>
             {editing ? (
-              <div className="payments-payout-config__grid">
-                <div className="payments-payout-config__field">
+              <div className="financial-payout-config__grid">
+                <div className="financial-payout-config__field">
                   <label>Frecuencia</label>
                   <select
                     value={paymentType}
@@ -2132,7 +2646,7 @@ const DashboardStripe: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                <div className="payments-payout-config__field">
+                <div className="financial-payout-config__field">
                   <label>Día de pago</label>
                   {paymentType === 'weekly' ? (
                     <select
@@ -2159,7 +2673,7 @@ const DashboardStripe: React.FC = () => {
                     />
                   )}
                 </div>
-                <div className="payments-payout-config__field">
+                <div className="financial-payout-config__field">
                   <label>Método preferido</label>
                   <select
                     value={preferredMethod}
@@ -2170,7 +2684,7 @@ const DashboardStripe: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                <div className="payments-payout-config__field">
+                <div className="financial-payout-config__field">
                   <label>Tarifa vigente</label>
                   <input
                     value={typeof effectiveRate === 'number'
@@ -2183,7 +2697,7 @@ const DashboardStripe: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <ul className="payments-payout-config__summary">
+              <ul className="financial-payout-config__summary">
                 <li>
                   <span>Frecuencia</span>
                   <strong>{getPaymentTypeLabel(paymentType)}</strong>
@@ -2207,10 +2721,10 @@ const DashboardStripe: React.FC = () => {
               </ul>
             )}
           </div>
-          <div className="payments-payout-divider" />
-          <div className="payments-payout-field">
+          <div className="financial-payout-divider" />
+          <div className="financial-payout-field">
             <label htmlFor={`iban-${stat.professionalId}`}>IBAN</label>
-            <div className={`payments-payout-field__control ${editing ? '' : 'payments-payout-field__control--readonly'}`}>
+            <div className={`financial-payout-field__control ${editing ? '' : 'financial-payout-field__control--readonly'}`}>
               <input
                 id={`iban-${stat.professionalId}`}
                 value={formValues.iban || ''}
@@ -2220,7 +2734,7 @@ const DashboardStripe: React.FC = () => {
               />
               <button
                 type="button"
-                className="payments-copy-button"
+                className="financial-copy-button"
                 onClick={() => handleCopyValue(formValues.iban, 'IBAN')}
                 aria-label="Copiar IBAN"
               >
@@ -2228,9 +2742,9 @@ const DashboardStripe: React.FC = () => {
               </button>
             </div>
           </div>
-          <div className="payments-payout-field">
+          <div className="financial-payout-field">
             <label htmlFor={`bank-${stat.professionalId}`}>Banco / Método</label>
-            <div className={`payments-payout-field__control ${editing ? '' : 'payments-payout-field__control--readonly'}`}>
+            <div className={`financial-payout-field__control ${editing ? '' : 'financial-payout-field__control--readonly'}`}>
               <input
                 id={`bank-${stat.professionalId}`}
                 value={formValues.bank || ''}
@@ -2240,7 +2754,7 @@ const DashboardStripe: React.FC = () => {
               />
               <button
                 type="button"
-                className="payments-copy-button"
+                className="financial-copy-button"
                 onClick={() => handleCopyValue(formValues.bank, 'Banco')}
                 aria-label="Copiar Banco"
               >
@@ -2248,9 +2762,9 @@ const DashboardStripe: React.FC = () => {
               </button>
             </div>
           </div>
-          <div className="payments-payout-field">
+          <div className="financial-payout-field">
             <label htmlFor={`paypal-${stat.professionalId}`}>PayPal / Email</label>
-            <div className={`payments-payout-field__control ${editing ? '' : 'payments-payout-field__control--readonly'}`}>
+            <div className={`financial-payout-field__control ${editing ? '' : 'financial-payout-field__control--readonly'}`}>
               <input
                 id={`paypal-${stat.professionalId}`}
                 value={formValues.paypalEmail || ''}
@@ -2260,7 +2774,7 @@ const DashboardStripe: React.FC = () => {
               />
               <button
                 type="button"
-                className="payments-copy-button"
+                className="financial-copy-button"
                 onClick={() => handleCopyValue(formValues.paypalEmail, 'Email de pago')}
                 aria-label="Copiar email de pago"
               >
@@ -2268,19 +2782,19 @@ const DashboardStripe: React.FC = () => {
               </button>
             </div>
           </div>
-          <div className="payments-payout-field">
+          <div className="financial-payout-field">
             <label>Fecha último pago</label>
-            <p className="payments-readonly-value">
+            <p className="financial-readonly-value">
               {displayRecord?.lastPaymentDate ? formatDisplayDate(displayRecord.lastPaymentDate) : 'Sin registrar'}
             </p>
           </div>
-          <div className="payments-payout-field">
+          <div className="financial-payout-field">
             <label>Responsable</label>
-            <p className="payments-readonly-value">
+            <p className="financial-readonly-value">
               {displayRecord?.lastPaymentBy || 'Sin asignar'}
             </p>
           </div>
-          <div className="payments-payout-field">
+          <div className="financial-payout-field">
             <label htmlFor={`payment-method-${stat.professionalId}`}>Método registrado</label>
             {editing ? (
               <select
@@ -2293,20 +2807,20 @@ const DashboardStripe: React.FC = () => {
                 ))}
               </select>
             ) : (
-              <p className="payments-readonly-value">
+              <p className="financial-readonly-value">
                 {displayRecord?.paymentMethod ? getPaymentMethodLabel(displayRecord.paymentMethod) : 'Sin registrar'}
               </p>
             )}
           </div>
-          <div className="payments-payout-field">
+          <div className="financial-payout-field">
             <label>Monto registrado</label>
-            <p className="payments-readonly-value">
+            <p className="financial-readonly-value">
               {typeof displayRecord?.amountPaid === 'number'
                 ? formatCurrency(displayRecord.amountPaid, stat.currency || 'EUR')
                 : 'Sin registrar'}
             </p>
           </div>
-          <div className="payments-payout-field payments-payout-field--textarea">
+          <div className="financial-payout-field financial-payout-field--textarea">
             <label htmlFor={`notes-${stat.professionalId}`}>Notas internas</label>
             <textarea
               id={`notes-${stat.professionalId}`}
@@ -2317,7 +2831,7 @@ const DashboardStripe: React.FC = () => {
               readOnly={!editing}
             />
           </div>
-          <div className="payments-payout-field payments-payout-field--textarea">
+          <div className="financial-payout-field financial-payout-field--textarea">
             <label htmlFor={`period-note-${stat.professionalId}`}>Notas del período</label>
             {editing ? (
               <textarea
@@ -2328,75 +2842,215 @@ const DashboardStripe: React.FC = () => {
                 rows={2}
               />
             ) : (
-              <p className="payments-readonly-value">
+              <p className="financial-readonly-value">
                 {displayRecord?.note || 'Sin notas adicionales'}
               </p>
             )}
           </div>
-          <div className="payments-payment-history">
-            <h5>Historial de pagos</h5>
-            {recentPayments.length ? (
-              <ul>
-                {recentPayments.map(item => {
-                  // Buscar el período key en los registros para obtener datos completos
-                  const fullRecord = relatedCalendar?.payoutRecords?.[item.periodKey];
-                  const isEarlyPayment = fullRecord?.earlyPaymentDays && fullRecord.earlyPaymentDays > 0;
+          <div className="financial-cycle-overview">
+            <div className="financial-cycle-overview__column">
+              <div className="financial-cycle-timeline">
+                <h5>Estado de pagos</h5>
+                {timelineEntries.length ? (
+                  <ul className="financial-cycle-timeline__list">
+                    {timelineEntries.map(entry => {
+                      const periodLabel = createPeriodLabel(entry.period.start, entry.period.end);
+                      const amountLabel = formatCurrency(Math.max(entry.amount ?? 0, 0), stat.currency || 'EUR');
+                      const scheduledDate = entry.scheduledDate ? new Date(entry.scheduledDate) : null;
+                      const paymentDate = entry.paymentDate ? new Date(entry.paymentDate) : null;
+                      const scheduledLabel = formatDateLabel(scheduledDate);
+                      const paymentLabel = formatDateLabel(paymentDate);
+                      const methodLabel = entry.method ? getPaymentMethodLabel(entry.method) : getPaymentMethodLabel(preferredMethod);
+                      const isCurrentEntry = Boolean(entry.isCurrent);
+                      const isPaidEntry = entry.status === 'paid';
+                      const isPendingEntry = entry.status === 'pending' || entry.status === 'overdue';
+                      const zeroBalanceEntry = entry.status === 'clear' || entry.zeroBalance;
+                      const canCancelPayment = isPaidEntry && Boolean(relatedCalendar?.payoutRecords?.[entry.period.periodKey]);
+                      const statusLabel = (() => {
+                        switch (entry.status) {
+                          case 'paid':
+                            return 'Pagado';
+                          case 'overdue':
+                            return 'Atrasado';
+                          case 'upcoming':
+                            return 'Próximo';
+                          case 'clear':
+                            return 'Sin saldo';
+                          default:
+                            return zeroBalanceEntry ? 'Sin saldo' : 'Pendiente';
+                        }
+                      })();
+                      const description = (() => {
+                        if (isCurrentEntry) {
+                          return currentStatusMessage;
+                        }
+                        if (entry.status === 'paid') {
+                          return paymentDate
+                            ? `Pagado el ${paymentLabel}${entry.amount ? ` · ${amountLabel}` : ''}`
+                            : 'Pago registrado';
+                        }
+                        if (entry.status === 'overdue') {
+                          return `Atrasado desde ${scheduledLabel}`;
+                        }
+                        if (entry.status === 'upcoming') {
+                          return `Programado para ${scheduledLabel}`;
+                        }
+                        if (zeroBalanceEntry) {
+                          return 'Sin saldo pendiente en este período.';
+                        }
+                        return `Pendiente · Vence ${scheduledLabel}`;
+                      })();
+                      const itemClassNames = [
+                        'financial-cycle-timeline__item',
+                        `financial-cycle-timeline__item--${entry.status}`
+                      ];
+                      if (isCurrentEntry) itemClassNames.push('financial-cycle-timeline__item--current');
+                      if (entry.status === 'clear') itemClassNames.push('financial-cycle-timeline__item--clear');
+                      if (zeroBalanceEntry && entry.status !== 'clear') itemClassNames.push('financial-cycle-timeline__item--empty');
 
-                  return (
-                    <li key={`${stat.professionalId}-recent-${item.periodKey}`} className={isEarlyPayment ? 'payments-history-item--early' : ''}>
-                      <div className="payments-history-item__info">
-                        <span className="payments-history-item__date">
-                          {formatDisplayDate(item.lastPaymentDate)}
-                          {isEarlyPayment && (
-                            <small className="payments-history-item__badge">
-                              ⏰ {fullRecord.earlyPaymentDays} día{fullRecord.earlyPaymentDays > 1 ? 's' : ''} anticipado
-                            </small>
-                          )}
-                        </span>
-                        <span className="payments-history-item__amount">
-                          {item.amountPaid ? formatCurrency(item.amountPaid, stat.currency || 'EUR') : 'Monto no registrado'}
-                        </span>
-                        <span className="payments-history-item__method">
-                          {item.paymentMethod ? getPaymentMethodLabel(item.paymentMethod) : 'Método no registrado'}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        className="payments-history-item__cancel-btn"
-                        onClick={() => handleCancelPayment(stat.professionalId, item.periodKey)}
-                        title="Cancelar este pago y volver a estado Pendiente"
-                        aria-label="Cancelar pago"
-                      >
-                        <X size={16} />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="payments-history__empty">Aún no hay pagos registrados.</p>
-            )}
+                      const badgeClassNames = [
+                        'financial-cycle-timeline__badge',
+                        `financial-cycle-timeline__badge--${entry.status}`
+                      ];
+                      if (entry.status === 'clear') badgeClassNames.push('financial-cycle-timeline__badge--clear');
+                      if (zeroBalanceEntry && entry.status !== 'clear') badgeClassNames.push('financial-cycle-timeline__badge--empty');
+
+                      const showActions = (isPendingEntry && isCurrentEntry && !zeroBalanceEntry) || canCancelPayment;
+
+                      return (
+                        <li
+                          key={`${stat.professionalId}-timeline-${entry.key}`}
+                          className={itemClassNames.join(' ')}
+                        >
+                          <div className="financial-cycle-timeline__marker" />
+                          <div className="financial-cycle-timeline__content">
+                            <div className="financial-cycle-timeline__header">
+                              <div>
+                                <span className="financial-cycle-timeline__period">{periodLabel}</span>
+                                <span className="financial-cycle-timeline__amount">{amountLabel}</span>
+                              </div>
+                              <span className={badgeClassNames.join(' ')}>
+                                {statusLabel}
+                              </span>
+                            </div>
+                            <p className="financial-cycle-timeline__description">
+                              {description}
+                            </p>
+                            <div className="financial-cycle-timeline__meta">
+                              <span>{methodLabel}</span>
+                              {isPaidEntry && paymentDate ? (
+                                <span>Pagado: {paymentLabel}</span>
+                              ) : null}
+                              {!isPaidEntry && !zeroBalanceEntry ? (
+                                <span>{entry.status === 'overdue' ? `Vencido: ${scheduledLabel}` : `Vence: ${scheduledLabel}`}</span>
+                              ) : null}
+                            </div>
+                            {showActions ? (
+                              <div className="financial-cycle-timeline__actions">
+                                {isPendingEntry && isCurrentEntry && !zeroBalanceEntry ? (
+                                  <button
+                                    type="button"
+                                    className="financial-button financial-button--ghost financial-button--compact"
+                                    onClick={() => openPaymentActionModal(stat.professionalId, {
+                                      amount: entry.amount ?? markAmount,
+                                      method: entry.method ?? preferredMethod,
+                                      summary: periodLabel
+                                    })}
+                                    disabled={quickPayDisabled}
+                                  >
+                                    Registrar pago
+                                  </button>
+                                ) : null}
+                                {canCancelPayment ? (
+                                  <button
+                                    type="button"
+                                    className="financial-button financial-button--ghost financial-button--compact financial-cycle-timeline__undo"
+                                    onClick={() => handleCancelPayment(stat.professionalId, entry.period.periodKey)}
+                                    disabled={isMarking}
+                                  >
+                                    Deshacer pago
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="financial-cycle-timeline__empty">Aún no hay datos de pagos para este profesional.</p>
+                )}
+                {nextPeriodMessage && (
+                  <p className="financial-cycle-timeline__hint">{nextPeriodMessage}</p>
+                )}
+              </div>
+            </div>
+            <div className="financial-cycle-overview__column financial-cycle-overview__column--calendar">
+              <div className="financial-cycle-calendar">
+                <div className="financial-cycle-calendar__header">
+                  <h5>Calendario del ciclo</h5>
+                  <span>{calendarHeaderLabel}</span>
+                </div>
+                <div className="financial-cycle-calendar__weekdays">
+                  {WEEKDAY_SHORT_LABELS.map(label => (
+                    <span key={`${stat.professionalId}-weekday-${label}`} className="financial-cycle-calendar__weekday">
+                      {label}
+                    </span>
+                  ))}
+                </div>
+                <div className="financial-cycle-calendar__grid">
+                  {calendarDays.map(day => (
+                    <div
+                      key={`${stat.professionalId}-calendar-${day.iso}`}
+                      className={day.className}
+                      data-tooltip={day.tooltip}
+                    >
+                      {day.date.getDate()}
+                    </div>
+                  ))}
+                </div>
+                <div className="financial-cycle-calendar__legend">
+                  <span className="financial-cycle-calendar__legend-item">
+                    <span className="financial-cycle-calendar__bullet financial-cycle-calendar__bullet--period" />
+                    Ciclo actual
+                  </span>
+                  <span className="financial-cycle-calendar__legend-item">
+                    <span className="financial-cycle-calendar__bullet financial-cycle-calendar__bullet--payment" />
+                    Pago realizado
+                  </span>
+                  <span className="financial-cycle-calendar__legend-item">
+                    <span className="financial-cycle-calendar__bullet financial-cycle-calendar__bullet--due" />
+                    Pago pendiente
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="payments-professional-card__actions">
+        <div className="financial-professional-card__actions">
           <small>
             Estos datos se guardan en el calendario del profesional. Úsalos al procesar transferencias.
           </small>
-          <div className="payments-professional-card__action-buttons">
+          <div className="financial-professional-card__action-buttons">
             <button
               type="button"
-              className="payments-button payments-button--primary payments-button--with-icon payments-button--compact"
-              onClick={() => handleQuickMarkAsPaid(stat.professionalId, { amount: markAmount, paymentMethod: preferredMethod })}
+              className="financial-button financial-button--primary financial-button--with-icon financial-button--compact"
+              onClick={() => openPaymentActionModal(stat.professionalId, {
+                amount: markAmount,
+                method: preferredMethod,
+                summary: periodRangeLabel ?? paymentContext?.currentPeriod?.label ?? undefined
+              })}
               disabled={quickPayDisabled}
             >
               <CheckCircle size={16} />
-              {isMarking ? 'Registrando...' : 'Pago realizado'}
+              Registrar pago
             </button>
             {editing ? (
               <>
                 <button
                   type="button"
-                  className="payments-button payments-button--ghost payments-button--with-icon payments-button--compact"
+                  className="financial-button financial-button--ghost financial-button--with-icon financial-button--compact"
                   onClick={() => handleCancelPayoutEdit(stat.professionalId)}
                   disabled={isSaving}
                 >
@@ -2404,7 +3058,7 @@ const DashboardStripe: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  className="payments-button payments-button--ghost payments-button--with-icon payments-button--compact"
+                  className="financial-button financial-button--ghost financial-button--with-icon financial-button--compact"
                   onClick={() => handleSavePayout(stat.professionalId)}
                   disabled={isSaving}
                 >
@@ -2415,7 +3069,7 @@ const DashboardStripe: React.FC = () => {
             ) : (
               <button
                 type="button"
-                className="payments-button payments-button--ghost payments-button--with-icon payments-button--compact"
+                className="financial-button financial-button--ghost financial-button--with-icon financial-button--compact"
                 onClick={() => handleTogglePayoutEdit(stat.professionalId)}
               >
                 <Pencil size={16} />
@@ -2627,8 +3281,8 @@ const DashboardStripe: React.FC = () => {
 
   if (planLoading || loadingCalendars) {
     return (
-      <div className="payments-page">
-        <div className="payments-container payments-container--center">
+      <div className="financial-page">
+        <div className="financial-container financial-container--center">
           <LoadingSpinner />
         </div>
       </div>
@@ -2637,17 +3291,17 @@ const DashboardStripe: React.FC = () => {
 
   if (!paymentsEnabled) {
     return (
-      <div className="payments-page">
-        <div className="payments-container payments-container--center">
-          <div className="payments-card payments-card--compact">
-            <div className="payments-card__icon payments-card__icon--gradient">
+      <div className="financial-page">
+        <div className="financial-container financial-container--center">
+          <div className="financial-card financial-card--compact">
+            <div className="financial-card__icon financial-card__icon--gradient">
               <Wallet size={26} />
             </div>
-            <h2 className="payments-card__title">Consola económica disponible en planes PRO y BUSINESS</h2>
-            <p className="payments-card__subtitle">
+            <h2 className="financial-card__title">Consola económica disponible en planes PRO y BUSINESS</h2>
+            <p className="financial-card__subtitle">
               Visualiza lo que debes pagar a cada profesional, su acumulado por mes y exporta reportes listos para contabilidad.
             </p>
-            <Link to="/dashboard/settings" className="payments-button payments-button--primary">
+            <Link to="/dashboard/settings" className="financial-button financial-button--primary">
               Ver planes disponibles
             </Link>
           </div>
@@ -2658,17 +3312,17 @@ const DashboardStripe: React.FC = () => {
 
   if (calendars.length === 0) {
     return (
-      <div className="payments-page">
-        <div className="payments-container payments-container--center">
-          <div className="payments-card payments-card--compact">
-            <div className="payments-card__icon payments-card__icon--warning">
+      <div className="financial-page">
+        <div className="financial-container financial-container--center">
+          <div className="financial-card financial-card--compact">
+            <div className="financial-card__icon financial-card__icon--warning">
               <AlertCircle size={26} />
             </div>
-            <h2 className="payments-card__title">No encontramos profesionales asignados</h2>
-            <p className="payments-card__subtitle">
+            <h2 className="financial-card__title">No encontramos profesionales asignados</h2>
+            <p className="financial-card__subtitle">
               Crea calendarios profesionales desde el panel de horarios para empezar a calcular el acumulado de pagos.
             </p>
-            <Link to="/dashboard/horas" className="payments-button payments-button--primary payments-button--with-icon">
+            <Link to="/dashboard/horas" className="financial-button financial-button--primary financial-button--with-icon">
               Ir a horarios
               <ArrowRight size={16} />
             </Link>
@@ -2679,847 +3333,346 @@ const DashboardStripe: React.FC = () => {
   }
 
   return (
-    <div className={`payments-page ${isProfessionalsSidebarCollapsed ? 'professionals-collapsed' : ''}`}>
-      <div className="payments-container payments-layout-two-columns">
-        {/* Contenido principal */}
-        <div className="payments-main-content">
-        <nav className="payments-tabs">
-          <button
-            type="button"
-            className={`payments-tab ${activeTab === 'calendar' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('calendar')}
-          >
-            General
-          </button>
-          <button
-            type="button"
-            className={`payments-tab ${activeTab === 'income' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('income')}
-          >
-            Ingresos
-          </button>
-          <button
-            type="button"
-            className={`payments-tab ${activeTab === 'export' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('export')}
-          >
-            Exportar
-          </button>
-        </nav>
-
-        {/* Panel expandible de profesional seleccionado con TODOS los detalles */}
-        {selectedProfessional && activeTab === 'calendar' && (
-          <div className="payments-professional-detail-wrapper">
-            {renderProfessionalDetail(selectedProfessional)}
-          </div>
-        )}
-
-        {activeTab === 'calendar' && (
-          loading ? (
-            <div className="payments-card payments-card--loader">
-              <LoadingSpinner />
-              <p>Calculando acumulado de pagos...</p>
+    <div className={`financial-dashboard ${selectedProfessional ? 'financial-dashboard--drawer-open' : ''}`}>
+      <section className="financial-hero">
+        <div className="financial-hero__top">
+          <div className="financial-hero__copy">
+            <span className="financial-hero__eyebrow">Gestor financiero</span>
+            <h1>Gestor financiero</h1>
+            <p>Centraliza nómina, ingresos y obligaciones del equipo con una vista clara y accionable.</p>
+            <div className="financial-hero__meta">
+              <span>{statsForDisplay.length} profesionales activos</span>
+              <span>{upcomingWithinWeek} pagos en los próximos 7 días</span>
             </div>
-          ) : (
-            <>
-              <section className="payments-card">
-                <header className="payments-header">
-                  <div className="payments-header__info">
-                    <div className="payments-header__icon">
-                      <Wallet size={24} />
-                    </div>
-                    <div>
-                      <h1 className="payments-header__title">Gestor financiero</h1>
-                      <p className="payments-header__subtitle">
-                        Centraliza nómina, ingresos y reportes del equipo
-                      </p>
-                    </div>
-                  </div>
-                  <div className="payments-header__actions">
-                    <button
-                      onClick={() => setIsHeaderControlsExpanded(!isHeaderControlsExpanded)}
-                      className="payments-button payments-button--ghost payments-button--with-icon"
-                    >
-                      <Filter size={16} />
-                      Controles
-                      <ChevronDown size={16} />
-                    </button>
-                    <button
-                      onClick={exportToCSV}
-                      disabled={!stats.length}
-                      className="payments-button payments-button--ghost payments-button--with-icon"
-                    >
-                      <Download size={16} />
-                      Exportar CSV
-                    </button>
-                    <button
-                      onClick={exportPendingToCSV}
-                      disabled={!hasPendingProfessionals}
-                      className="payments-button payments-button--ghost payments-button--with-icon"
-                    >
-                      <Download size={16} />
-                      Exportar pendientes
-                    </button>
-                    {lastUpdated && (
-                      <span className="payments-header__timestamp">
-                        Última actualización: {lastUpdated.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
+          </div>
+          <div className="financial-hero__actions">
+            <button
+              type="button"
+              className="financial-button financial-button--ghost"
+              onClick={exportPendingToCSV}
+              disabled={!hasPendingProfessionals}
+            >
+              <Download size={16} />
+              Pendientes CSV
+            </button>
+            <button
+              type="button"
+              className="financial-button financial-button--ghost"
+              onClick={exportToCSV}
+              disabled={!stats.length}
+            >
+              <Download size={16} />
+              Resumen CSV
+            </button>
+            <button
+              type="button"
+              className="financial-button financial-button--primary"
+              onClick={exportDetailedReport}
+              disabled={!stats.length}
+            >
+              <BarChart3 size={16} />
+              Reporte detallado
+            </button>
+          </div>
+        </div>
+        <div className="financial-hero__controls">
+          <div className="financial-control">
+            <label>Ejercicio</label>
+            <select value={selectedYear} onChange={(event) => setSelectedYear(Number(event.target.value))}>
+              {years.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
+          <div className="financial-control financial-control--segmented">
+            <label>Periodo</label>
+            <div className="financial-segmented">
+              {[{ value: 'year', label: 'Año' }, { value: 'quarter', label: 'Trimestre' }, { value: 'month', label: 'Mes' }, { value: 'payment', label: 'Ciclo' }].map(option => (
+                <button
+                  type="button"
+                  key={option.value}
+                  className={`financial-segmented__option ${period === option.value ? 'is-active' : ''}`}
+                  onClick={() => setPeriod(option.value as typeof period)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {period === 'quarter' && (
+            <div className="financial-control">
+              <label>Trimestre</label>
+              <select value={selectedQuarter} onChange={(event) => setSelectedQuarter(Number(event.target.value))}>
+                {[1, 2, 3, 4].map(quarter => (
+                  <option key={quarter} value={quarter}>{`T${quarter}`}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {period === 'month' && (
+            <div className="financial-control">
+              <label>Mes</label>
+              <select value={selectedMonth} onChange={(event) => setSelectedMonth(Number(event.target.value))}>
+                {MONTH_LABELS.map((label, index) => (
+                  <option key={label} value={index}>{label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <label className="financial-switch">
+            <input
+              type="checkbox"
+              checked={onlyCompleted}
+              onChange={(event) => setOnlyCompleted(event.target.checked)}
+            />
+            <span>Solo servicios completados</span>
+          </label>
+          <label className="financial-switch">
+            <input
+              type="checkbox"
+              checked={showPendingOnly}
+              onChange={(event) => setShowPendingOnly(event.target.checked)}
+            />
+            <span>Mostrar sólo pendientes</span>
+          </label>
+        </div>
+      </section>
 
-                  {isHeaderControlsExpanded && (
-                    <div className="payments-header__controls">
-                      <div className="payments-filters">
-                        <div className="payments-select">
-                          <label>Año</label>
-                          <select value={selectedYear} onChange={(event) => setSelectedYear(Number(event.target.value))}>
-                            {years.map(year => (
-                              <option key={year} value={year}>{year}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="payments-select">
-                          <label>Período</label>
-                          <select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)}>
-                            <option value="year">Año completo</option>
-                            <option value="quarter">Trimestre</option>
-                            <option value="month">Mes</option>
-                            <option value="payment">Por Periodo de Pago</option>
-                          </select>
-                        </div>
-                        {period === 'quarter' && (
-                          <div className="payments-select">
-                            <label>Trimestre</label>
-                            <select value={selectedQuarter} onChange={(event) => setSelectedQuarter(Number(event.target.value))}>
-                              {[1, 2, 3, 4].map(quarter => (
-                                <option key={quarter} value={quarter}>Q{quarter}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                        {period === 'month' && (
-                          <div className="payments-select">
-                            <label>Mes</label>
-                            <select value={selectedMonth} onChange={(event) => setSelectedMonth(Number(event.target.value))}>
-                              {MONTH_LABELS.map((label, index) => (
-                                <option key={label} value={index}>{label}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setOnlyCompleted(!onlyCompleted)}
-                          className={`payments-toggle ${onlyCompleted ? 'payments-toggle--active' : ''}`}
-                        >
-                          {onlyCompleted ? 'Solo servicios completados' : 'Todos los servicios'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowPendingOnly(!showPendingOnly)}
-                          className={`payments-toggle ${showPendingOnly ? 'payments-toggle--active' : ''}`}
-                        >
-                          {showPendingOnly ? 'Solo pendientes' : 'Todos los profesionales'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </header>
-
-                {/* Indicador de período actual */}
-                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                  <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
-                    <span className="font-bold">Período mostrado:</span>{' '}
-                    {period === 'year' && `Año ${selectedYear} (completo)`}
-                    {period === 'quarter' && `Q${selectedQuarter} ${selectedYear}`}
-                    {period === 'month' && `${MONTH_LABELS[selectedMonth]} ${selectedYear}`}
-                    {period === 'payment' && 'Período de pago actual'}
-                  </p>
+      <section className="financial-summary">
+        <div className="financial-summary__grid">
+          {summaryMetrics.map(metric => {
+            const Icon = metric.icon;
+            return (
+              <article key={metric.label} className="financial-summary__card">
+                <div className="financial-summary__icon">
+                  <Icon size={18} />
                 </div>
+                <div>
+                  <span className="financial-summary__label">{metric.label}</span>
+                  <strong className="financial-summary__value">{metric.value}</strong>
+                  <small className="financial-summary__helper">{metric.helper}</small>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
 
-                {/* SECCIÓN CRÍTICA: PAGOS PENDIENTES (Rojo) */}
-                {displayStats.some(({ base }) => isProfessionalPending(base.professionalId)) && (
-                  <div className="mb-8 p-6 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-r-lg">
-                    <h3 className="payments-card__section-title flex items-center gap-2 text-red-700 dark:text-red-400">
-                      <AlertCircle size={20} />
-                      Pagos Pendientes - Acción Inmediata
-                    </h3>
-                    <div className="mt-4 space-y-3">
-                      {displayStats
-                        .filter(({ base }) => isProfessionalPending(base.professionalId))
-                        .slice(0, 5)
-                        .map(({ base: stat, filteredAmount }) => {
-                          const context = getCalendarPaymentContext(stat.professionalId);
-                          const periodKeyForRecord = context?.currentPeriod.periodKey ?? periodKey;
-                          const recordStatus = context?.calendar?.payoutRecords?.[periodKeyForRecord]?.status ?? 'pending';
-                          const isPending = recordStatus !== 'paid' && filteredAmount > 0;
-
-                          return isPending ? (
-                            <div key={stat.professionalId} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-lg">
-                              <div className="flex-1">
-                                <p className="font-semibold text-gray-900 dark:text-white">{stat.professionalName}</p>
-                                <p className="text-sm text-gray-600 dark:text-gray-400">Adeudado: {formatCurrency(filteredAmount, stat.currency || 'EUR')}</p>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  const professional = displayStats.find(s => s.base.professionalId === stat.professionalId);
-                                  if (professional) setSelectedProfessional(professional);
-                                }}
-                                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
-                              >
-                                Procesar Pago
-                              </button>
-                            </div>
-                          ) : null;
-                        })}
-                    </div>
-                  </div>
-                )}
-
-                {/* SECCIÓN IMPORTANTE: PRÓXIMOS 7 DÍAS (Ámbar) */}
-                {scheduledPayments.filter(p => {
-                  const daysUntil = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                  return daysUntil <= 7 && daysUntil > 0;
-                }).length > 0 && (
-                  <div className="mb-8 p-6 bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 rounded-r-lg">
-                    <h3 className="payments-card__section-title flex items-center gap-2 text-amber-700 dark:text-amber-400">
-                      <Clock size={20} />
-                      Próximos 7 días - Planificación
-                    </h3>
-                    <div className="mt-4 space-y-3">
-                      {scheduledPayments
-                        .filter(p => {
-                          const daysUntil = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                          return daysUntil <= 7 && daysUntil > 0;
-                        })
-                        .slice(0, 5)
-                        .map(item => (
-                          <div key={item.professionalId} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-lg">
-                            <div className="flex-1">
-                              <p className="font-semibold text-gray-900 dark:text-white">{item.professionalName}</p>
-                              <p className="text-sm text-gray-600 dark:text-gray-400">
-                                {item.nextDate.toLocaleDateString('es-ES')} · {formatCurrency(item.pendingAmount, item.currency)} · {getPaymentMethodLabel(item.paymentMethod)}
-                              </p>
-                            </div>
-                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                              item.relativeLabel.includes('Hoy') ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
-                              item.relativeLabel.includes('Mañana') ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300' :
-                              'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
-                            }`}>
-                              {item.relativeLabel}
-                            </span>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-
-                <h3 className="payments-card__section-title">Resumen general</h3>
-                {!stats.length ? (
-                  <div className="payments-empty">No hay horas registradas para {selectedYear}. Actualiza o cambia el filtro.</div>
-                ) : (
-                  <div className="payments-summary-grid">
-                    {totalsByCurrency.map(summary => (
-                      <article key={summary.currency} className="payments-summary-card">
-                        <div className="payments-summary-card__icon payments-summary-card__icon--accent">
-                          <TrendingUp size={18} />
-                        </div>
-                        <div className="payments-summary-card__content">
-                          <span className="payments-summary-card__label">
-                            Total a pagar ({summary.currency})
-                          </span>
-                          <strong className="payments-summary-card__value">
-                            {formatCurrency(summary.amount, summary.currency)}
-                          </strong>
-                          <span className="payments-summary-card__meta">
-                            {summary.professionals} profesionales · {summary.hours.toFixed(2)} h
-                          </span>
-                        </div>
-                      </article>
-                    ))}
-                    <article className="payments-summary-card">
-                      <div className="payments-summary-card__icon">
-                        <Users size={18} />
+      <div className={`financial-layout ${selectedProfessional ? 'financial-layout--drawer-open' : ''}`}>
+        <div className="financial-layout__main">
+          <section className="financial-card financial-card--table">
+            <header className="financial-card__header">
+              <div>
+                <h2>Pagos del equipo</h2>
+                <p>Estado del ciclo actual para cada profesional.</p>
+              </div>
+            </header>
+            {displayStats.length ? (
+              <div className="financial-table">
+                <div className="financial-table__head">
+                  <span>Profesional</span>
+                  <span>Periodo</span>
+                  <span>Estado</span>
+                  <span>Importe</span>
+                  <span>Próximo pago</span>
+                  <span></span>
+                </div>
+                {displayStats.map(statContainer => {
+                  const { base: stat, filteredAmount, paymentPeriod } = statContainer;
+                  const context = getCalendarPaymentContext(stat.professionalId);
+                  if (!context) {
+                    return null;
+                  }
+                  const recordDraft = payoutRecordDrafts[stat.professionalId];
+                  const periodKeyForRecord = context.currentPeriod.periodKey;
+                  const currentRecord = context.calendar?.payoutRecords?.[periodKeyForRecord];
+                  const recordStatus = recordDraft?.status ?? currentRecord?.status ?? 'pending';
+                  const rawAmount = recordStatus === 'paid'
+                    ? 0
+                    : typeof context.amountForPeriod === 'number'
+                      ? context.amountForPeriod
+                      : typeof filteredAmount === 'number'
+                        ? filteredAmount
+                        : 0;
+                  const pendingAmount = Math.max(rawAmount, 0);
+                  const nextPaymentDate = context.nextCycleEnd
+                    ? normalizeDate(context.nextCycleEnd)
+                    : addDays(context.currentPeriod.end, (context.intervalDays ?? getIntervalDays(context.paymentType)) - 1);
+                  let statusVariant: 'pending' | 'paid' | 'overdue' | 'upcoming' | 'clear' = calculateStatusVariant(recordStatus, nextPaymentDate);
+                  if (pendingAmount <= 0.009 && recordStatus !== 'paid') {
+                    statusVariant = 'clear';
+                  }
+                  const statusLabel = statusVariant === 'paid'
+                    ? 'Pagado'
+                    : statusVariant === 'overdue'
+                      ? 'Atrasado'
+                      : statusVariant === 'upcoming'
+                        ? 'Próximo'
+                        : statusVariant === 'clear'
+                          ? 'Sin saldo'
+                          : 'Pendiente';
+                  const dueLabel = nextPaymentDate ? nextPaymentDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }) : 'Sin fecha';
+                  const relativeDue = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programación';
+                  const owner = calendarMap.get(stat.professionalId)?.members?.find(member => member.role === 'owner');
+                  return (
+                    <div
+                      key={stat.professionalId}
+                      className={`financial-table__row ${selectedProfessionalId === stat.professionalId ? 'is-active' : ''}`}
+                      onClick={() => setSelectedProfessionalId(stat.professionalId)}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div className="financial-table__cell financial-table__cell--name">
+                        <strong>{stat.professionalName || 'Profesional'}</strong>
+                        <small>{owner?.email || stat.professionalEmail || 'Sin email'}</small>
                       </div>
-                      <div className="payments-summary-card__content">
-                        <span className="payments-summary-card__label">Profesionales activos</span>
-                        <strong className="payments-summary-card__value">{stats.length}</strong>
-                        <span className="payments-summary-card__meta">
-                          Con horas registradas en {selectedYear}
-                        </span>
+                      <div className="financial-table__cell">
+                        <span>{context.currentPeriod?.label ?? paymentPeriod?.label ?? 'Sin período'}</span>
                       </div>
-                    </article>
-                    <article className="payments-summary-card">
-                      <div className="payments-summary-card__icon">
-                        <Clock size={18} />
+                      <div className="financial-table__cell">
+                        <span className={`financial-status financial-status--${statusVariant}`}>{statusLabel}</span>
                       </div>
-                      <div className="payments-summary-card__content">
-                        <span className="payments-summary-card__label">Horas acumuladas</span>
-                        <strong className="payments-summary-card__value">
-                          {overallTotals.totalHours.toFixed(2)} h
-                        </strong>
-                        <span className="payments-summary-card__meta">
-                          {overallTotals.totalEvents} servicios
-                        </span>
+                      <div className="financial-table__cell">
+                        <strong>{formatCurrency(pendingAmount, stat.currency || 'EUR')}</strong>
+                        <small>{Math.max(context.hoursForPeriod ?? 0, 0).toFixed(1)} h</small>
                       </div>
-                    </article>
-                    <article className="payments-summary-card payments-summary-card--accent">
-                      <div className="payments-summary-card__icon payments-summary-card__icon--accent">
-                        <TrendingUp size={18} />
+                      <div className="financial-table__cell">
+                        <strong>{dueLabel}</strong>
+                        <small>{relativeDue}</small>
                       </div>
-                      <div className="payments-summary-card__content">
-                        <span className="payments-summary-card__label">Variación vs período anterior</span>
-                        <strong className="payments-summary-card__value">
-                          {formatCurrency(
-                            currentTotalAmount - previousTotals.totalAmount,
-                            primaryCurrency
-                          )}
-                        </strong>
-                        <span className="payments-summary-card__meta">
-                          Horas: {(overallTotals.totalHours - previousTotals.totalHours).toFixed(2)} · Servicios: {overallTotals.totalEvents - previousTotals.totalEvents}
-                        </span>
-                      </div>
-                    </article>
-                  </div>
-                )}
-
-                {/* KPIs por profesional */}
-                {stats.length > 0 && (
-                  <div className="payments-professional-kpis">
-                    <h4 className="payments-professional-kpis__title">Vista por profesional</h4>
-                    <div className="payments-professional-kpis__grid">
-                      {displayStats.slice(0, 12).map(({ base, filteredAmount, filteredHours, filteredEvents, paymentPeriod }) => {
-                        const calendar = calendarMap.get(base.professionalId);
-                        const owner = calendar?.members?.find(m => m.role === 'owner') ?? calendar?.members?.[0];
-                        const payoutDetails = ((calendar as any)?.payoutDetails ?? {}) as {
-                          paymentType?: PaymentFrequency;
-                          paymentDay?: number;
-                          paymentMethod?: PaymentMethod;
-                        };
-                        const isPending = isProfessionalPending(base.professionalId);
-                        const paymentContext = getCalendarPaymentContext(base.professionalId);
-                        const currentPeriod = paymentContext?.currentPeriod;
-                        const currentPeriodKey = currentPeriod?.periodKey;
-                        const recordStatus = currentPeriodKey
-                          ? paymentContext?.calendar?.payoutRecords?.[currentPeriodKey]?.status ?? 'pending'
-                          : calendar?.payoutRecords?.[periodKey]?.status ?? 'pending';
-                        const paymentType = payoutDetails.paymentType ?? 'monthly';
-                        const paymentDay = typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null;
-                        const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
-                        // Calcular próximo pago: si está PAGADO, usa la fecha real del pago
-                        let nextPaymentDate: Date | null = null;
-                        if (latestRecord?.status === 'paid' && latestRecord?.lastPaymentDate) {
-                          // Ya pagado: siguiente ciclo es desde la fecha real del pago
-                          const paidDate = new Date(latestRecord.lastPaymentDate);
-                          paidDate.setHours(0, 0, 0, 0);
-
-                          if (paymentType === 'weekly') {
-                            nextPaymentDate = new Date(paidDate);
-                            nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
-                          } else if (paymentType === 'biweekly') {
-                            nextPaymentDate = new Date(paidDate);
-                            nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
-                          } else if (paymentType === 'monthly') {
-                            nextPaymentDate = new Date(paidDate);
-                            nextPaymentDate.setDate(nextPaymentDate.getDate() + 29);
-                          } else {
-                            nextPaymentDate = new Date(paidDate);
-                            nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
-                          }
-                        } else if (latestRecord?.scheduledPaymentDate) {
-                          nextPaymentDate = new Date(latestRecord.scheduledPaymentDate);
-                        } else {
-                          nextPaymentDate = getNextPaymentDate(
-                            new Date(),
-                            paymentType,
-                            paymentDay,
-                            undefined,
-                            undefined
-                          );
-                        }
-                        const periodRangeLabel = currentPeriod
-                          ? formatPeriodRange(currentPeriod)
-                          : paymentPeriod?.label ?? null;
-                        const pendingAmountKpi = recordStatus === 'paid'
-                          ? 0
-                          : typeof paymentContext?.amountForPeriod === 'number'
-                            ? paymentContext.amountForPeriod
-                            : filteredAmount;
-
-                        // Determinar la alerta más importante
-                        let alertIcon = '';
-                        let alertText = '';
-                        let alertType = '';
-
-                        if (recordStatus === 'pending' && pendingAmountKpi > 0) {
-                          alertIcon = '💰';
-                          alertText = `Falta pagar ${formatCurrency(pendingAmountKpi, base.currency)}${periodRangeLabel ? ` · ${periodRangeLabel}` : ''}`;
-                          alertType = 'error';
-                        } else if (recordStatus === 'pending') {
-                          alertIcon = '⏳';
-                          alertText = periodRangeLabel ? `Pendiente: ${periodRangeLabel}` : 'Pago pendiente';
-                          alertType = 'warning';
-                        } else if (nextPaymentDate) {
-                          const daysUntil = Math.ceil((nextPaymentDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                          if (daysUntil >= 0 && daysUntil <= 7) {
-                            alertIcon = '⚠️';
-                            const relativeDate = daysUntil === 0 ? 'Hoy' : daysUntil === 1 ? 'Mañana' : `${daysUntil}d`;
-                            // Mostrar el monto del siguiente período de pago basado en períodos reales
-                            const nextPeriodAmount = getNextPaymentPeriodAmount(base.professionalId) ?? 0;
-                            const amountText = nextPeriodAmount > 0 ? ` · ${formatCurrency(nextPeriodAmount, base.currency)}` : '';
-                            alertText = `Próximo pago: ${relativeDate}${amountText}`;
-                            alertType = 'warning';
-                          } else {
-                            alertIcon = '✓';
-                            alertText = 'Al día';
-                            alertType = 'success';
-                          }
-                        } else {
-                          alertIcon = 'ℹ️';
-                          alertText = 'Sin configurar';
-                          alertType = 'info';
-                        }
-
-                        return (
-                          <article
-                            key={base.professionalId}
-                            className={`payments-professional-kpi ${isPending ? 'payments-professional-kpi--pending' : ''}`}
-                            onClick={() => setSelectedProfessionalId(base.professionalId)}
+                      <div className="financial-table__cell financial-table__cell--actions">
+                        {recordStatus !== 'paid' && (
+                          <button
+                            type="button"
+                            className="financial-link"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openPaymentActionModal(stat.professionalId, {
+                                amount: pendingAmount,
+                                method: context.preferredMethod,
+                                summary: context.currentPeriod?.label ?? paymentPeriod?.label ?? undefined
+                              });
+                            }}
                           >
-                            <div className="payments-professional-kpi__header">
-                              <div className="payments-professional-kpi__avatar">
-                                {owner?.avatar ? (
-                                  <img src={owner.avatar} alt={base.professionalName} />
-                                ) : (
-                                  <span>{(base.professionalName || 'P').charAt(0).toUpperCase()}</span>
-                                )}
-                              </div>
-                              <div className="payments-professional-kpi__info">
-                                <h5>{base.professionalName || 'Profesional'}</h5>
-                                <span className="payments-professional-kpi__email">{owner?.email || base.professionalEmail || '—'}</span>
-                              </div>
-                            </div>
-                            <div className="payments-professional-kpi__metrics">
-                              <div className="payments-professional-kpi__metric">
-                                <span className="payments-professional-kpi__metric-label">Total</span>
-                                <strong className="payments-professional-kpi__metric-value">
-                                  {formatCurrency(filteredAmount, base.currency)}
-                                </strong>
-                              </div>
-                              <div className="payments-professional-kpi__metric">
-                                <span className="payments-professional-kpi__metric-label">Horas</span>
-                                <strong className="payments-professional-kpi__metric-value">
-                                  {(filteredHours || 0).toFixed(1)}h
-                                </strong>
-                              </div>
-                              <div className="payments-professional-kpi__metric">
-                                <span className="payments-professional-kpi__metric-label">Servicios</span>
-                                <strong className="payments-professional-kpi__metric-value">
-                                  {filteredEvents || 0}
-                                </strong>
-                              </div>
-                            </div>
-                            <div className={`payments-professional-kpi__alert payments-professional-kpi__alert--${alertType}`}>
-                              <span className="payments-professional-kpi__alert-icon">{alertIcon}</span>
-                              <span className="payments-professional-kpi__alert-text">{alertText}</span>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                    {displayStats.length > 12 && (
-                      <p className="payments-professional-kpis__more">
-                        Mostrando 12 de {displayStats.length} profesionales. Usa la lista lateral para ver todos.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </section>
-
-              {scheduledPayments.length > 0 && (
-                <section className="payments-scheduled">
-                  <div className="payments-scheduled__header">
-                    <div>
-                      <h3>Pagos programados</h3>
-                      <p>Próximos desembolsos según el tipo de pago configurado para cada profesional.</p>
-                    </div>
-                  </div>
-                  <div className="payments-scheduled__list">
-                    {scheduledPayments.slice(0, 8).map(item => (
-                      <article key={item.professionalId} className="payments-scheduled__item">
-                        <div className="payments-scheduled__top">
-                          <span className={`payments-payment-badge ${PAYMENT_TYPE_BADGE_CLASS[item.paymentType]}`}>
-                            {getPaymentTypeLabel(item.paymentType)}
-                          </span>
-                          <span className="payments-scheduled__date">
-                            {item.nextDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
-                          </span>
-                        </div>
-                        <h5>{item.professionalName}</h5>
-                        <p>{item.paymentDayLabel}</p>
-                        <div className="payments-scheduled__footer">
-                          <span>{item.relativeLabel}</span>
-                          <span>{getPaymentMethodLabel(item.paymentMethod)}</span>
-                        </div>
-                        <small
-                          style={{
-                            display: 'block',
-                            marginTop: '0.5rem',
-                            color: item.isPending ? '#dc2626' : '#059669',
-                            fontWeight: 500
+                            Registrar pago
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="financial-link financial-link--ghost"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedProfessionalId(stat.professionalId);
                           }}
                         >
-                          {item.isPending
-                            ? item.periodRangeLabel
-                              ? `Falta pagar del ${item.periodRangeLabel}${item.pendingAmount > 0 ? ` · ${formatCurrency(item.pendingAmount, item.currency)}` : ''}`
-                              : 'Pago pendiente'
-                            : `Periodo liquidado${item.periodRangeLabel ? ` (${item.periodRangeLabel})` : ''}`}
-                        </small>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {/* Alertas y conciliación */}
-              <section className="payments-card">
-                <div className="payments-card__section-header">
-                  <div>
-                    <h3 className="payments-card__section-title">Alertas y conciliación</h3>
-                    <p className="payments-card__subtitle">
-                      Revisión de pagos pendientes, servicios sin completar y estado financiero general
-                    </p>
-                  </div>
-                </div>
-
-                {/* Semáforo financiero */}
-                <div className="payments-alerts-traffic-light">
-                  <div className={`payments-traffic-light ${
-                    netProfit >= totalIncome * 0.2 ? 'payments-traffic-light--green' :
-                    netProfit >= 0 ? 'payments-traffic-light--yellow' :
-                    'payments-traffic-light--red'
-                  }`}>
-                    <div className="payments-traffic-light__indicator">
-                      {netProfit >= totalIncome * 0.2 ? '🟢' : netProfit >= 0 ? '🟡' : '🔴'}
+                          Ver detalle
+                        </button>
+                      </div>
                     </div>
-                    <div>
-                      <h4>Estado financiero</h4>
-                      <p>
-                        {netProfit >= totalIncome * 0.2
-                          ? 'Excelente - Margen saludable superior al 20%'
-                          : netProfit >= 0
-                            ? 'Aceptable - Margen positivo pero ajustado'
-                            : 'Alerta - Costes superan ingresos'}
-                      </p>
-                      <strong>
-                        Margen: {Number.isFinite(profitMargin) ? `${profitMargin.toFixed(1)}%` : '—'}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Alertas de pagos próximos */}
-                <div className="payments-alerts-section">
-                  <h4>Pagos próximos (7 días)</h4>
-                  {(() => {
-                    const upcomingPayments = scheduledPayments.filter(payment => {
-                      const daysUntil = Math.ceil((payment.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                      return daysUntil >= 0 && daysUntil <= 7;
-                    });
-
-                    return upcomingPayments.length > 0 ? (
-                      <ul className="payments-alerts-list">
-                        {upcomingPayments.map(payment => {
-                          const daysUntil = Math.ceil((payment.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                          const professional = displayStats.find(s => s.base.professionalId === payment.professionalId);
-                          return (
-                            <li key={payment.professionalId} className="payments-alert-item payments-alert-item--warning">
-                              <div className="payments-alert-item__icon">⚠️</div>
-                              <div className="payments-alert-item__content">
-                                <strong>{payment.professionalName}</strong>
-                                <span>Pago {payment.paymentType} programado {payment.relativeLabel.toLowerCase()}</span>
-                                {professional && (
-                                  <span className="text-sm">Monto pendiente: {formatCurrency(professional.filteredAmount, professional.base.currency)}</span>
-                                )}
-                              </div>
-                              <div className="payments-alert-item__badge">
-                                {daysUntil === 0 ? 'Hoy' : daysUntil === 1 ? 'Mañana' : `${daysUntil} días`}
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    ) : (
-                      <p className="payments-alerts-empty">No hay pagos programados en los próximos 7 días</p>
-                    );
-                  })()}
-                </div>
-
-                {/* Servicios pendientes de completar */}
-                <div className="payments-alerts-section">
-                  <h4>Servicios pendientes de completar</h4>
-                  {(() => {
-                    const professionalsWithPending = Object.entries(pendingServices)
-                      .filter(([_, data]) => data.count > 0)
-                      .map(([professionalId, data]) => {
-                        const professional = displayStats.find(s => s.base.professionalId === professionalId);
-                        return { professionalId, data, professional };
-                      });
-
-                    return professionalsWithPending.length > 0 ? (
-                      <ul className="payments-alerts-list">
-                        {professionalsWithPending.map(({ professionalId, data, professional }) => (
-                          <li key={professionalId} className="payments-alert-item payments-alert-item--info">
-                            <div className="payments-alert-item__icon">📋</div>
-                            <div className="payments-alert-item__content">
-                              <strong>{professional?.base.professionalName || 'Profesional'}</strong>
-                              <span>{data.count} servicios sin completar en el período actual</span>
-                              <span className="text-sm">Ejemplos: {data.examples.slice(0, 2).join(', ')}</span>
-                            </div>
-                            <div className="payments-alert-item__badge payments-alert-item__badge--count">
-                              {data.count}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="payments-alerts-empty">✅ Todos los servicios están completados</p>
-                    );
-                  })()}
-                </div>
-
-                {/* Profesionales sin pagar */}
-                <div className="payments-alerts-section">
-                  <h4>Profesionales pendientes de pago</h4>
-                  {(() => {
-                    const unpaidProfessionals = displayStats.filter(({ base }) => {
-                      const calendar = calendarMap.get(base.professionalId);
-                      const recordStatus = calendar?.payoutRecords?.[periodKey]?.status ?? 'pending';
-                      return recordStatus === 'pending' && base.filteredAmount > 0;
-                    });
-
-                    return unpaidProfessionals.length > 0 ? (
-                      <ul className="payments-alerts-list">
-                        {unpaidProfessionals.map(({ base }) => (
-                          <li key={base.professionalId} className="payments-alert-item payments-alert-item--error">
-                            <div className="payments-alert-item__icon">💰</div>
-                            <div className="payments-alert-item__content">
-                              <strong>{base.professionalName}</strong>
-                              <span>Pago pendiente del período {periodKey}</span>
-                              <span className="text-sm">Total adeudado: {formatCurrency(base.filteredAmount, base.currency)}</span>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="payments-alerts-empty">✅ Todos los profesionales están al día</p>
-                    );
-                  })()}
-                </div>
-
-                {/* Facturas vencidas */}
-                {invoices.some(inv => inv.status === 'overdue') && (
-                  <div className="payments-alerts-section">
-                    <h4>Facturas vencidas</h4>
-                    <ul className="payments-alerts-list">
-                      {invoices
-                        .filter(inv => inv.status === 'overdue')
-                        .map(invoice => (
-                          <li key={invoice.id} className="payments-alert-item payments-alert-item--error">
-                            <div className="payments-alert-item__icon">🚨</div>
-                            <div className="payments-alert-item__content">
-                              <strong>{invoice.clientName}</strong>
-                              <span>Factura vencida - {formatCurrency(invoice.amount, invoice.currency)}</span>
-                              {invoice.dueDate && (
-                                <span className="text-sm">Vencimiento: {invoice.dueDate.toLocaleDateString('es-ES')}</span>
-                              )}
-                            </div>
-                          </li>
-                        ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Resumen de conciliación */}
-                <div className="payments-alerts-summary">
-                  <h4>Resumen de conciliación</h4>
-                  <div className="payments-alerts-summary-grid">
-                    <div>
-                      <span>Total a pagar este período</span>
-                      <strong>{formatCurrency(currentTotalAmount, primaryCurrency)}</strong>
-                    </div>
-                    <div>
-                      <span>Profesionales pendientes</span>
-                      <strong>{displayStats.filter(({ base }) => {
-                        const calendar = calendarMap.get(base.professionalId);
-                        return (calendar?.payoutRecords?.[periodKey]?.status ?? 'pending') === 'pending';
-                      }).length}</strong>
-                    </div>
-                    <div>
-                      <span>Servicios sin completar</span>
-                      <strong>{Object.values(pendingServices).reduce((sum, data) => sum + data.count, 0)}</strong>
-                    </div>
-                    <div>
-                      <span>Pagos en 7 días</span>
-                      <strong>{scheduledPayments.filter(p => {
-                        const days = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                        return days >= 0 && days <= 7;
-                      }).length}</strong>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Panel de estadísticas */}
-              <section className="payments-card payments-card--stats">
-                <div className="payments-card__section-header">
-                  <div>
-                    <h3 className="payments-card__section-title">Estadísticas</h3>
-                    <p className="payments-card__subtitle">Visión consolidada de ingresos, nómina y salud financiera.</p>
-                  </div>
-                </div>
-                <div className="payments-stats-grid">
-                  <article className="payments-stats-card">
-                    <span>Ingresos totales</span>
-                    <strong>{formatCurrency(totalIncome, primaryCurrency)}</strong>
-                    <small>Netos plataforma + facturas cobradas</small>
-                  </article>
-                  <article className="payments-stats-card">
-                    <span>Nómina pagada</span>
-                    <strong>{formatCurrency(payrollPaid, primaryCurrency)}</strong>
-                    <small>Acumulado del período actual</small>
-                  </article>
-                  <article className="payments-stats-card">
-                    <span>Ganancia neta</span>
-                    <strong>{formatCurrency(netProfit, primaryCurrency)}</strong>
-                    <small>Diferencia entre ingresos y nómina</small>
-                  </article>
-                  <article className="payments-stats-card">
-                    <span>Margen</span>
-                    <strong>{Number.isFinite(profitMargin) ? `${profitMargin.toFixed(1)}%` : '—'}</strong>
-                    <small>{netProfit >= 0 ? 'Rentabilidad positiva' : 'Rentabilidad negativa'}</small>
-                  </article>
-                </div>
-                <div className="payments-stats-columns">
-                  <div className="payments-stats-column">
-                    <h4>Ingresos vs Nómina</h4>
-                    <ul className="payments-stats-list">
-                      <li>
-                        <span>Ingresos totales</span>
-                        <strong>{formatCurrency(totalIncome, primaryCurrency)}</strong>
-                      </li>
-                      <li>
-                        <span>Nómina actual</span>
-                        <strong>{formatCurrency(payrollPaid, primaryCurrency)}</strong>
-                      </li>
-                      <li>
-                        <span>Ganancia neta</span>
-                        <strong>{formatCurrency(netProfit, primaryCurrency)}</strong>
-                      </li>
-                      <li>
-                        <span>Variación nómina</span>
-                        <strong>{formatCurrency(payrollVariation, primaryCurrency)}</strong>
-                      </li>
-                    </ul>
-                  </div>
-                  <div className="payments-stats-column">
-                    <h4>Tipos de pago</h4>
-                    <ul className="payments-stats-list">
-                      {paymentTypeStats.map(item => (
-                        <li key={item.value}>
-                          <div className="payments-stats-list__row">
-                            <span>{item.label}</span>
-                            <strong>{item.count}</strong>
-                          </div>
-                          <div className="payments-stats-bar">
-                            <span style={{ width: `${item.percent}%` }} />
-                          </div>
-                          <small>{item.percent}% del equipo</small>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="payments-stats-column">
-                    <h4>Estado de facturas</h4>
-                    <ul className="payments-stats-list">
-                      {invoiceStatusStats.map(item => (
-                        <li key={item.value}>
-                          <div className="payments-stats-list__row">
-                            <span>{item.label}</span>
-                            <strong>{formatCurrency(item.amount, invoices[0]?.currency || primaryCurrency)}</strong>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </section>
-
-            </>
-          )
-        )}
-
-        {activeTab === 'income' && (
-          <section className="payments-card payments-card--income">
-            <div className="payments-card__section-header">
-              <div>
-                <h3 className="payments-card__section-title">Ingresos y facturación</h3>
-                <p className="payments-card__subtitle">
-                  Controla retiros de plataforma y facturas de clientes externos.
-                </p>
+                  );
+                })}
               </div>
-            </div>
-            <div className="payments-income-summary">
-              <article className="payments-summary-card">
-                <div className="payments-summary-card__icon">
+            ) : (
+              <p className="financial-empty">No hay profesionales para el filtro seleccionado.</p>
+            )}
+          </section>
+
+          <section className="financial-card">
+            <header className="financial-card__header">
+              <div>
+                <h2>Próximos desembolsos</h2>
+                <p>Pagos calendarizados con método preferido.</p>
+              </div>
+            </header>
+            {scheduledPayments.length ? (
+              <ul className="financial-list">
+                {scheduledPayments.slice(0, 8).map(item => (
+                  <li key={`${item.professionalId}-${item.nextDate.toISOString()}`} className={`financial-list__item ${item.isPending ? 'is-pending' : 'is-paid'}`}>
+                    <div>
+                      <strong>{item.professionalName}</strong>
+                      <small>{item.paymentDayLabel}</small>
+                    </div>
+                    <div>
+                      <span>{item.nextDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}</span>
+                      <small>{item.relativeLabel}</small>
+                    </div>
+                    <div className="financial-list__meta">
+                      <strong>{formatCurrency(item.pendingAmount, item.currency)}</strong>
+                      <small>{getPaymentMethodLabel(item.paymentMethod)}</small>
+                    </div>
+                    {item.isPending && (
+                      <button
+                        type="button"
+                        className="financial-link"
+                        onClick={() => openPaymentActionModal(item.professionalId, {
+                          amount: item.pendingAmount,
+                          method: item.paymentMethod,
+                          summary: item.periodRangeLabel ?? undefined
+                        })}
+                      >
+                        Registrar
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="financial-empty">No hay pagos programados para los próximos días.</p>
+            )}
+          </section>
+
+          <section className="financial-card">
+            <header className="financial-card__header">
+              <div>
+                <h2>Ingresos y facturación</h2>
+                <p>Retiros de plataforma y facturas manuales.</p>
+              </div>
+            </header>
+            <div className="financial-income-summary">
+              <article className="financial-summary-mini">
+                <div className="financial-summary-mini__icon">
                   <DollarSign size={18} />
                 </div>
-                <div className="payments-summary-card__content">
-                  <span className="payments-summary-card__label">Netos recibidos</span>
-                  <strong className="payments-summary-card__value">
-                    {formatCurrency(withdrawalSummary.totalNet, primaryCurrency)}
-                  </strong>
-                  <span className="payments-summary-card__meta">{withdrawals.length} retiros registrados</span>
+                <div>
+                  <span>Netos recibidos</span>
+                  <strong>{formatCurrency(withdrawalSummary.totalNet, primaryCurrency)}</strong>
+                  <small>{withdrawals.length} retiros registrados</small>
                 </div>
               </article>
-              <article className="payments-summary-card">
-                <div className="payments-summary-card__icon">
+              <article className="financial-summary-mini">
+                <div className="financial-summary-mini__icon">
                   <FileText size={18} />
                 </div>
-                <div className="payments-summary-card__content">
-                  <span className="payments-summary-card__label">Facturación externa</span>
-                  <strong className="payments-summary-card__value">
-                    {formatCurrency(invoiceSummary.total + externalClientsSummary.totalAmount, (invoices[0]?.currency || primaryCurrency))}
-                  </strong>
-                  <span className="payments-summary-card__meta">
-                    {invoices.length} facturas manuales · {externalClientsSummary.clientsCount} clientes CRM · {formatCurrency(invoiceSummary.byStatus['paid'] || 0, (invoices[0]?.currency || primaryCurrency))} cobradas
-                  </span>
+                <div>
+                  <span>Facturación externa</span>
+                  <strong>{formatCurrency(invoiceSummary.total + externalClientsSummary.totalAmount, invoices[0]?.currency || primaryCurrency)}</strong>
+                  <small>{invoices.length} facturas · {externalClientsSummary.clientsCount} clientes CRM</small>
                 </div>
               </article>
             </div>
-
-            <div className="payments-subtabs">
+            <div className="financial-segmented financial-segmented--secondary">
               <button
                 type="button"
-                className={`payments-subtab ${incomeTab === 'platform' ? 'is-active' : ''}`}
+                className={`financial-segmented__option ${incomeTab === 'platform' ? 'is-active' : ''}`}
                 onClick={() => setIncomeTab('platform')}
               >
                 Plataforma
               </button>
               <button
                 type="button"
-                className={`payments-subtab ${incomeTab === 'external' ? 'is-active' : ''}`}
+                className={`financial-segmented__option ${incomeTab === 'external' ? 'is-active' : ''}`}
                 onClick={() => setIncomeTab('external')}
               >
                 Clientes externos
               </button>
             </div>
-
             {incomeTab === 'platform' ? (
-              <div className="payments-income-grid">
-                <form className="payments-income-form" onSubmit={handleCreateWithdrawal}>
-                  <h4>Registrar retiro</h4>
-                  <div className="payments-income-form__row">
+              <div className="financial-income-grid">
+                <form className="financial-form" onSubmit={handleCreateWithdrawal}>
+                  <div className="financial-form__header">
+                    <h4>Registrar retiro</h4>
+                  </div>
+                  <div className="financial-form__row">
                     <label>
                       Fecha
                       <input
@@ -3551,8 +3704,8 @@ const DashboardStripe: React.FC = () => {
                       />
                     </label>
                   </div>
-                  <div className="payments-income-form__row">
-                    <label className="payments-income-form__wide">
+                  <div className="financial-form__row">
+                    <label className="financial-form__full">
                       Nota interna
                       <input
                         type="text"
@@ -3562,13 +3715,11 @@ const DashboardStripe: React.FC = () => {
                       />
                     </label>
                   </div>
-                  <div className="payments-income-form__footer">
-                    <span className="payments-income-form__preview">
-                      Neto estimado: <strong>{formatCurrency(withdrawalNetPreview, primaryCurrency)}</strong>
-                    </span>
+                  <div className="financial-form__footer">
+                    <span>Neto estimado: <strong>{formatCurrency(withdrawalNetPreview, primaryCurrency)}</strong></span>
                     <button
                       type="submit"
-                      className="payments-button payments-button--primary payments-button--with-icon"
+                      className="financial-button financial-button--primary"
                       disabled={createWithdrawal.isPending}
                     >
                       <PlusCircle size={16} />
@@ -3576,38 +3727,38 @@ const DashboardStripe: React.FC = () => {
                     </button>
                   </div>
                 </form>
-
-                <div className="payments-income-list">
-                  <header className="payments-income-list__header">
+                <div className="financial-list financial-list--vertical">
+                  <header className="financial-list__header">
                     <h4>Historial de retiros</h4>
                     <span>{withdrawals.length} registros</span>
                   </header>
                   {withdrawalsLoading ? (
-                    <div className="payments-income-list__loader">
+                    <div className="financial-list__loading">
                       <LoadingSpinner />
                     </div>
                   ) : withdrawals.length === 0 ? (
-                    <p className="payments-history__empty">Aún no has registrado retiros de plataforma.</p>
+                    <p className="financial-empty">Aún no registras retiros de plataforma.</p>
                   ) : (
                     <ul>
                       {withdrawals.map(withdrawal => (
-                        <li key={withdrawal.id} className="payments-income-list__item">
+                        <li key={withdrawal.id} className="financial-list__item">
                           <div>
                             <strong>{formatCurrency(withdrawal.netAmount, primaryCurrency)}</strong>
-                            <span>{withdrawal.date.toLocaleDateString('es-ES')}</span>
+                            <small>{withdrawal.date.toLocaleDateString('es-ES')}</small>
                           </div>
-                          <div>
-                            <small>Bruto {formatCurrency(withdrawal.grossAmount, primaryCurrency)}</small>
-                            <small>Comisión {formatCurrency(withdrawal.commission, primaryCurrency)}</small>
+                          <div className="financial-list__meta">
+                            <span>Bruto {formatCurrency(withdrawal.grossAmount, primaryCurrency)}</span>
+                            <span>Comisión {formatCurrency(withdrawal.commission, primaryCurrency)}</span>
                           </div>
                           {withdrawal.note && <p>{withdrawal.note}</p>}
                           <button
                             type="button"
-                            className="payments-income-list__delete"
+                            className="financial-link financial-link--danger"
                             onClick={() => handleDeleteWithdrawal(withdrawal.id)}
                             disabled={deleteWithdrawal.isPending}
                           >
                             <Trash2 size={14} />
+                            Eliminar
                           </button>
                         </li>
                       ))}
@@ -3616,96 +3767,45 @@ const DashboardStripe: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div className="payments-income-external">
-                {/* ✅ NUEVA SECCIÓN: Clientes CRM */}
-                <div className="payments-external-clients">
-                  <header className="payments-income-list__header">
-                    <div>
-                      <h4>Clientes CRM</h4>
-                      <p className="text-sm text-gray-600">Tracking automático de servicios completados</p>
-                    </div>
-                    <Link
-                      to="/dashboard/clientes"
-                      className="payments-button payments-button--ghost payments-button--with-icon payments-button--compact"
-                    >
-                      <Building2 size={14} />
-                      Gestionar clientes
-                      <ExternalLink size={12} />
-                    </Link>
+              <div className="financial-income-grid">
+                <div className="financial-list financial-list--vertical">
+                  <header className="financial-list__header">
+                    <h4>Clientes CRM</h4>
+                    <span>{externalClientsSummary.clientsCount} activos</span>
                   </header>
                   {externalClientsLoading ? (
-                    <div className="payments-income-list__loader">
+                    <div className="financial-list__loading">
                       <LoadingSpinner />
                     </div>
                   ) : externalClients.length === 0 ? (
-                    <div className="payments-empty-state">
-                      <Building2 size={32} className="text-gray-400" />
-                      <p>No tienes clientes externos registrados</p>
-                      <Link to="/dashboard/clientes" className="payments-button payments-button--primary payments-button--compact">
-                        Crear primer cliente
-                      </Link>
-                    </div>
+                    <p className="financial-empty">Sin clientes externos registrados.</p>
                   ) : (
-                    <div className="payments-clients-grid">
+                    <ul>
                       {externalClients.map(client => (
-                        <article key={client.id} className="payments-client-card">
-                          <div className="payments-client-card__header">
-                            <div>
-                              <h5>{client.name}</h5>
-                              {client.company && <span className="text-sm text-gray-600">{client.company}</span>}
-                            </div>
-                            <Link
-                              to={`/dashboard/clientes/${client.id}`}
-                              className="payments-client-card__link"
-                            >
-                              <ExternalLink size={14} />
-                            </Link>
+                        <li key={client.id} className="financial-list__item">
+                          <div>
+                            <strong>{client.name}</strong>
+                            <small>{formatCurrency(client.totalAmount ?? 0, client.currency || primaryCurrency)} · {(client.totalHours ?? 0).toFixed(1)} h</small>
                           </div>
-                          <div className="payments-client-card__stats">
-                            <div>
-                              <span>Total facturado</span>
-                              <strong>{formatCurrency(client.totalAmount || 0, client.currency)}</strong>
-                            </div>
-                            <div>
-                              <span>Horas trabajadas</span>
-                              <strong>{(client.totalHours || 0).toFixed(2)} h</strong>
-                            </div>
-                            <div>
-                              <span>Tarifa horaria</span>
-                              <strong>{formatCurrency(client.hourlyRate || 0, client.currency)}/h</strong>
-                            </div>
-                          </div>
-                          {client.lastServiceDate && (
-                            <div className="payments-client-card__footer">
-                              <span className="text-xs text-gray-500">
-                                Último servicio: {client.lastServiceDate instanceof Date
-                                  ? client.lastServiceDate.toLocaleDateString('es-ES')
-                                  : new Date((client.lastServiceDate as any).toDate()).toLocaleDateString('es-ES')}
-                              </span>
-                            </div>
-                          )}
-                        </article>
+                          <Link className="financial-link financial-link--ghost" to={client.url ?? '/dashboard/clientes'}>
+                            Ver cliente
+                          </Link>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   )}
                 </div>
-
-                {/* Separador */}
-                <div className="payments-divider"></div>
-
-                {/* Facturas manuales (original) */}
-                <div className="payments-income-grid">
-                <form className="payments-income-form" onSubmit={handleCreateInvoice}>
-                  <h4>Registrar factura manual</h4>
-                  <p className="text-sm text-gray-600 mb-3">Para clientes externos sin tracking automático</p>
-                  <div className="payments-income-form__row">
+                <form className="financial-form" onSubmit={handleCreateInvoice}>
+                  <div className="financial-form__header">
+                    <h4>Registrar factura manual</h4>
+                  </div>
+                  <div className="financial-form__row">
                     <label>
                       Cliente
                       <input
                         type="text"
                         value={invoiceForm.clientName}
                         onChange={(event) => setInvoiceForm(form => ({ ...form, clientName: event.target.value }))}
-                        placeholder="Nombre o empresa"
                         required
                       />
                     </label>
@@ -3720,31 +3820,10 @@ const DashboardStripe: React.FC = () => {
                         required
                       />
                     </label>
-                    <label>
-                      Moneda
-                      <input
-                        type="text"
-                        value={invoiceForm.currency}
-                        onChange={(event) => setInvoiceForm(form => ({ ...form, currency: event.target.value.toUpperCase() }))}
-                        maxLength={3}
-                        required
-                      />
-                    </label>
                   </div>
-                  <div className="payments-income-form__row">
+                  <div className="financial-form__row">
                     <label>
-                      Estado
-                      <select
-                        value={invoiceForm.status}
-                        onChange={(event) => setInvoiceForm(form => ({ ...form, status: event.target.value as InvoiceStatus }))}
-                      >
-                        {INVOICE_STATUS_OPTIONS.map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Fecha emisión
+                      Fecha de emisión
                       <input
                         type="date"
                         value={invoiceForm.issueDate}
@@ -3753,7 +3832,7 @@ const DashboardStripe: React.FC = () => {
                       />
                     </label>
                     <label>
-                      Vencimiento
+                      Fecha vencimiento
                       <input
                         type="date"
                         value={invoiceForm.dueDate}
@@ -3761,30 +3840,20 @@ const DashboardStripe: React.FC = () => {
                       />
                     </label>
                   </div>
-                  <div className="payments-income-form__row">
-                    <label>
-                      Referencia
-                      <input
-                        type="text"
-                        value={invoiceForm.reference}
-                        onChange={(event) => setInvoiceForm(form => ({ ...form, reference: event.target.value }))}
-                        placeholder="Ej. FAC-2025-001"
-                      />
-                    </label>
-                    <label className="payments-income-form__wide">
+                  <div className="financial-form__row">
+                    <label className="financial-form__full">
                       Notas
                       <input
                         type="text"
                         value={invoiceForm.notes}
                         onChange={(event) => setInvoiceForm(form => ({ ...form, notes: event.target.value }))}
-                        placeholder="Comentario interno opcional"
                       />
                     </label>
                   </div>
-                  <div className="payments-income-form__footer">
+                  <div className="financial-form__footer">
                     <button
                       type="submit"
-                      className="payments-button payments-button--primary payments-button--with-icon"
+                      className="financial-button financial-button--primary"
                       disabled={createInvoice.isPending}
                     >
                       <PlusCircle size={16} />
@@ -3792,601 +3861,130 @@ const DashboardStripe: React.FC = () => {
                     </button>
                   </div>
                 </form>
-
-                <div className="payments-income-list">
-                  <header className="payments-income-list__header">
-                    <h4>Facturas externas</h4>
-                    <span>{invoices.length} registros</span>
-                  </header>
-                  {invoicesLoading ? (
-                    <div className="payments-income-list__loader">
-                      <LoadingSpinner />
-                    </div>
-                  ) : invoices.length === 0 ? (
-                    <p className="payments-history__empty">Aún no registraste facturas de clientes externos.</p>
-                  ) : (
-                    <ul className="payments-invoices">
-                      {invoices.map(invoice => (
-                        <li key={invoice.id} className="payments-invoices__item">
-                          <div className="payments-invoices__top">
-                            <strong>{invoice.clientName}</strong>
-                            <span>{formatCurrency(invoice.amount, invoice.currency)}</span>
-                          </div>
-                          <div className="payments-invoices__meta">
-                            <span>Emitida: {invoice.issueDate.toLocaleDateString('es-ES')}</span>
-                            {invoice.dueDate && <span>Vence: {invoice.dueDate.toLocaleDateString('es-ES')}</span>}
-                            {invoice.reference && <span>Ref: {invoice.reference}</span>}
-                          </div>
-                          {invoice.notes && <p>{invoice.notes}</p>}
-                          <div className="payments-invoices__footer">
-                            <select
-                              value={invoice.status}
-                              onChange={(event) => handleInvoiceStatusChange(invoice.id, event.target.value as InvoiceStatus)}
-                              disabled={updateInvoiceStatus.isPending}
-                            >
-                              {INVOICE_STATUS_OPTIONS.map(option => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              className="payments-income-list__delete"
-                              onClick={() => handleDeleteInvoiceRecord(invoice.id)}
-                              disabled={deleteInvoice.isPending}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-                </div>
               </div>
-            )}
-          </section>
-        )}
-
-        {activeTab === 'export' && (
-          <section className="payments-card">
-            <div className="payments-card__section-header">
-              <div>
-                <h3 className="payments-card__section-title">Exportaciones</h3>
-                <p className="payments-card__subtitle">
-                  Descarga reportes completos de tus pagos, ingresos y transacciones
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-              {/* Exportar Pagos a Profesionales */}
-              <div className="payments-booking-card">
-                <div className="p-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="ios-app-icon !w-10 !h-10" style={{ background: '#007aff' }}>
-                      <Users size={18} className="text-white" />
-                    </div>
-                    <h4 className="text-lg font-semibold text-[#1d1d1f]">Pagos a Profesionales</h4>
-                  </div>
-                  <p className="text-sm text-[#8e8e93] mb-4">
-                    Exporta el resumen completo de pagos pendientes y realizados a profesionales del año {selectedYear}
-                  </p>
-                  <div className="space-y-2">
-                    <button
-                      onClick={exportToCSV}
-                      disabled={!stats.length}
-                      className="w-full payments-button payments-button--primary payments-button--with-icon"
-                    >
-                      <Download size={16} />
-                      Exportar resumen general ({selectedYear})
-                    </button>
-                    <button
-                      onClick={exportPendingToCSV}
-                      disabled={!statsForDisplay.some(({ base }) => isProfessionalPending(base.professionalId))}
-                      className="w-full payments-button payments-button--ghost payments-button--with-icon"
-                    >
-                      <Download size={16} />
-                      Exportar solo pendientes
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Exportar Ingresos de Plataforma */}
-              <div className="payments-booking-card">
-                <div className="p-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="ios-app-icon !w-10 !h-10" style={{ background: '#34c759' }}>
-                      <DollarSign size={18} className="text-white" />
-                    </div>
-                    <h4 className="text-lg font-semibold text-[#1d1d1f]">Ingresos de Plataforma</h4>
-                  </div>
-                  <p className="text-sm text-[#8e8e93] mb-4">
-                    Exporta el historial de retiros realizados desde la plataforma
-                  </p>
-                  <button
-                    onClick={exportWithdrawalsToCSV}
-                    disabled={!withdrawals.length}
-                    className="w-full payments-button payments-button--primary payments-button--with-icon"
-                  >
-                    <Download size={16} />
-                    Exportar retiros ({withdrawals.length})
-                  </button>
-                </div>
-              </div>
-
-              {/* Exportar Facturas Externas */}
-              <div className="payments-booking-card">
-                <div className="p-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="ios-app-icon !w-10 !h-10" style={{ background: '#ff9500' }}>
-                      <FileText size={18} className="text-white" />
-                    </div>
-                    <h4 className="text-lg font-semibold text-[#1d1d1f]">Facturas Externas</h4>
-                  </div>
-                  <p className="text-sm text-[#8e8e93] mb-4">
-                    Exporta tu registro de facturas emitidas a clientes externos
-                  </p>
-                  <button
-                    onClick={exportInvoicesToCSV}
-                    disabled={!invoices.length}
-                    className="w-full payments-button payments-button--primary payments-button--with-icon"
-                  >
-                    <Download size={16} />
-                    Exportar facturas ({invoices.length})
-                  </button>
-                </div>
-              </div>
-
-              {/* Exportar Reporte Detallado */}
-              <div className="payments-booking-card">
-                <div className="p-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="ios-app-icon !w-10 !h-10" style={{ background: '#5856d6' }}>
-                      <BarChart3 size={18} className="text-white" />
-                    </div>
-                    <h4 className="text-lg font-semibold text-[#1d1d1f]">Reporte Detallado</h4>
-                  </div>
-                  <p className="text-sm text-[#8e8e93] mb-4">
-                    Exporta un reporte completo con desglose mensual por profesional
-                  </p>
-                  <button
-                    onClick={exportDetailedReport}
-                    disabled={!stats.length}
-                    className="w-full payments-button payments-button--primary payments-button--with-icon"
-                  >
-                    <Download size={16} />
-                    Exportar reporte completo
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-semibold text-blue-900 mb-1">Información sobre exportaciones</h4>
-                  <p className="text-sm text-blue-700">
-                    Los archivos se exportan en formato CSV compatible con Excel, Google Sheets y software contable.
-                    Todos los datos respetan la configuración de moneda y formato de fecha regional.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-        </div>
-
-        {/* Sidebar unificado con dos columnas */}
-        <aside className={`payments-unified-sidebar ${isProfessionalsSidebarCollapsed ? 'professionals-collapsed' : ''}`}>
-          {/* Columna izquierda: Profesionales */}
-          <div className="payments-unified-sidebar__professionals">
-            <button
-              type="button"
-              className="payments-unified-sidebar__toggle"
-              onClick={() => setIsProfessionalsSidebarCollapsed(!isProfessionalsSidebarCollapsed)}
-              aria-label={isProfessionalsSidebarCollapsed ? 'Expandir profesionales' : 'Contraer profesionales'}
-            >
-              {isProfessionalsSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
-            </button>
-
-            <div className="payments-unified-sidebar__professionals-content">
-            {activeTab !== 'calendar' ? (
-              <div className="payments-professionals-sidebar__empty">
-                Selecciona la pestaña General para ver profesionales.
-              </div>
-            ) : !stats.length ? (
-              <div className="payments-professionals-sidebar__empty">
-                Aún no hay movimientos registrados en {selectedYear}.
-              </div>
-            ) : !displayStats.length ? (
-              <div className="payments-professionals-sidebar__empty">
-                No hay profesionales que coincidan con los filtros seleccionados.
-              </div>
-            ) : (
-              <>
-                <div className="payments-professionals-sidebar__header">
-                  <h3>Profesionales</h3>
-                  <span>{displayStats.length}</span>
-                </div>
-                <div className="payments-professionals-list">
-                  {displayStats.map(statContainer => {
-                    const { base, filteredAmount, filteredHours } = statContainer;
-                    const isActive = selectedProfessional?.base.professionalId === base.professionalId;
-                    const pending = isProfessionalPending(base.professionalId);
-                    const calendar = calendarMap.get(base.professionalId);
-                    const payoutDetails = ((calendar as any)?.payoutDetails ?? {}) as {
-                      paymentType?: PaymentFrequency;
-                      paymentDay?: number;
-                      paymentMethod?: PaymentMethod;
-                    };
-                    const paymentType: PaymentFrequency = payoutDetails.paymentType ?? 'monthly';
-                    const paymentDay = typeof payoutDetails.paymentDay === 'number' ? payoutDetails.paymentDay : null;
-                    const paymentMethod: PaymentMethod = payoutDetails.paymentMethod ?? 'transfer';
-                    const latestRecord = getLatestPaymentRecord(calendar?.payoutRecords);
-                    // Calcular próximo pago: si está PAGADO, usa la fecha real del pago
-                    let nextPaymentDate: Date | null = null;
-                    if (latestRecord?.status === 'paid' && latestRecord?.lastPaymentDate) {
-                      // Ya pagado: siguiente ciclo es desde la fecha real del pago
-                      const paidDate = new Date(latestRecord.lastPaymentDate);
-                      paidDate.setHours(0, 0, 0, 0);
-
-                      if (paymentType === 'weekly') {
-                        nextPaymentDate = new Date(paidDate);
-                        nextPaymentDate.setDate(nextPaymentDate.getDate() + 7);
-                      } else if (paymentType === 'biweekly') {
-                        nextPaymentDate = new Date(paidDate);
-                        nextPaymentDate.setDate(nextPaymentDate.getDate() + 14);
-                      } else if (paymentType === 'monthly') {
-                        nextPaymentDate = new Date(paidDate);
-                        nextPaymentDate.setDate(nextPaymentDate.getDate() + 29);
-                      } else {
-                        nextPaymentDate = new Date(paidDate);
-                        nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
-                      }
-                    } else if (latestRecord?.scheduledPaymentDate) {
-                      nextPaymentDate = new Date(latestRecord.scheduledPaymentDate);
-                    } else {
-                      nextPaymentDate = getNextPaymentDate(
-                        new Date(),
-                        paymentType,
-                        paymentDay,
-                        undefined,
-                        undefined
-                      );
-                    }
-                    const nextPaymentLabel = nextPaymentDate ? formatRelativeDate(nextPaymentDate) : 'Sin programar';
-                    const currency = (base.currency || 'EUR').toUpperCase();
-                    const amountLabel = formatCurrency(filteredAmount ?? 0, currency);
-                    const hoursValue = typeof filteredHours === 'number' ? filteredHours : 0;
-                    const owner = calendar?.members?.find(member => member.role === 'owner') ?? calendar?.members?.[0];
-
-                    return (
-                      <button
-                        type="button"
-                        key={base.professionalId}
-                        className={[
-                          'payments-professionals-list__item',
-                          isActive ? 'is-active' : '',
-                          pending ? 'is-pending' : ''
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        onClick={() => setSelectedProfessionalId(base.professionalId)}
-                        aria-pressed={isActive}
-                      >
-                        <div className="payments-professionals-list__avatar">
-                          {owner?.avatar ? (
-                            <img src={owner.avatar} alt={base.professionalName || 'Profesional'} />
-                          ) : (
-                            <span>{(base.professionalName || 'P').charAt(0).toUpperCase()}</span>
-                          )}
-                        </div>
-                        {!isProfessionalsSidebarCollapsed && (
-                          <>
-                            <div className="payments-professionals-list__content">
-                              <div className="payments-professionals-list__header">
-                                <span className="payments-professionals-list__name">
-                                  {base.professionalName || 'Profesional sin nombre'}
-                                </span>
-                                {pending && (
-                                  <span className="payments-professionals-list__badge payments-professionals-list__badge--pending">
-                                    Pendiente
-                                  </span>
-                                )}
-                              </div>
-                              {base.professionalEmail && (
-                                <span className="payments-professionals-list__email">{base.professionalEmail}</span>
-                              )}
-                              <div className="payments-professionals-list__meta">
-                                <span>{amountLabel}</span>
-                                <span>{hoursValue.toFixed(2)} h</span>
-                              </div>
-                              <div className="payments-professionals-list__footer">
-                                <span>
-                                  Próximo pago · {nextPaymentLabel}
-                                  {(() => {
-                                    const nextAmount = getNextPaymentPeriodAmount(base.professionalId) ?? 0;
-                                    return nextAmount > 0 ? ` · ${formatCurrency(nextAmount, currency)}` : '';
-                                  })()}
-                                </span>
-                                <span>{getPaymentMethodLabel(paymentMethod)}</span>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-            </div>
-          </div>
-
-          {/* Columna derecha: Filtros, calendario, notificaciones */}
-          <div className="payments-unified-sidebar__main">
-          {/* Botón de actualizar */}
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className={`payments-sidebar-refresh ${isRefreshing ? 'payments-sidebar-refresh--loading' : ''}`}
-          >
-            <RefreshCw size={18} />
-            {isRefreshing ? 'Actualizando...' : 'Actualizar datos'}
-          </button>
-
-          {/* Filtros */}
-          <div className="payments-sidebar-card">
-            <button
-              onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
-              className={`payments-collapsible-trigger ${isFiltersExpanded ? 'payments-collapsible-trigger--expanded' : ''}`}
-            >
-              <h3 className="payments-sidebar-card__title">
-                <Filter size={18} />
-                Filtros
-              </h3>
-              <ChevronDown size={18} />
-            </button>
-
-            <div className={`payments-collapsible-content ${!isFiltersExpanded ? 'payments-collapsible-content--collapsed' : ''}`}>
-            <div className="payments-sidebar-filters">
-              <div className="payments-sidebar-filter">
-                <label>Rango de fecha</label>
-                <select
-                  value={sidebarFilters.dateRange}
-                  onChange={(e) => setSidebarFilters({ ...sidebarFilters, dateRange: e.target.value as any })}
-                >
-                  <option value="all">Todos</option>
-                  <option value="week">Última semana</option>
-                  <option value="month">Último mes</option>
-                  <option value="year">Este año</option>
-                </select>
-              </div>
-
-              <div className="payments-sidebar-filter">
-                <label>Estado</label>
-                <select
-                  value={sidebarFilters.status}
-                  onChange={(e) => setSidebarFilters({ ...sidebarFilters, status: e.target.value as any })}
-                >
-                  <option value="all">Todos</option>
-                  <option value="pending">Pendientes</option>
-                  <option value="paid">Pagados</option>
-                </select>
-              </div>
-
-              <div className="payments-sidebar-filter">
-                <label>Método de pago</label>
-                <select
-                  value={sidebarFilters.paymentMethod}
-                  onChange={(e) => setSidebarFilters({ ...sidebarFilters, paymentMethod: e.target.value as any })}
-                >
-                  <option value="all">Todos</option>
-                  <option value="cash">Efectivo</option>
-                  <option value="transfer">Transferencia</option>
-                  <option value="bizum">Bizum</option>
-                  <option value="other">Otro</option>
-                </select>
-              </div>
-
-              <div className="payments-sidebar-filter">
-                <label>Buscar profesional</label>
-                <input
-                  type="text"
-                  placeholder="Nombre del profesional..."
-                  value={sidebarFilters.searchTerm}
-                  onChange={(e) => setSidebarFilters({ ...sidebarFilters, searchTerm: e.target.value })}
-                />
-              </div>
-            </div>
-            </div>
-          </div>
-
-          {/* Mini calendario */}
-          <div className="payments-sidebar-card">
-            <div className="payments-sidebar-card__header">
-              <h3 className="payments-sidebar-card__title">
-                <Calendar size={18} />
-                Calendario
-              </h3>
-            </div>
-
-            <div className="payments-mini-calendar">
-              <div className="payments-mini-calendar__header">
-                <button
-                  onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1))}
-                  className="payments-mini-calendar__nav"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <div className="payments-mini-calendar__month">
-                  {MONTH_LABELS[calendarDate.getMonth()]} {calendarDate.getFullYear()}
-                </div>
-                <button
-                  onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1))}
-                  className="payments-mini-calendar__nav"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-
-              <div className="payments-mini-calendar__weekdays">
-                {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((day, i) => (
-                  <div key={i} className="payments-mini-calendar__weekday">{day}</div>
-                ))}
-              </div>
-
-              <div className="payments-mini-calendar__days">
-                {(() => {
-                  const year = calendarDate.getFullYear();
-                  const month = calendarDate.getMonth();
-                  const firstDay = new Date(year, month, 1).getDay();
-                  const daysCount = new Date(year, month + 1, 0).getDate();
-                  const adjustedFirstDay = firstDay === 0 ? 6 : firstDay - 1; // Lunes = 0
-                  const today = new Date();
-                  today.setHours(0, 0, 0, 0);
-
-                  const days = [];
-
-                  // Días vacíos antes del primer día
-                  for (let i = 0; i < adjustedFirstDay; i++) {
-                    days.push(<div key={`empty-${i}`} className="payments-mini-calendar__day payments-mini-calendar__day--empty"></div>);
-                  }
-
-                  // Días del mes
-                  for (let day = 1; day <= daysCount; day++) {
-                    const date = new Date(year, month, day);
-                    date.setHours(0, 0, 0, 0);
-                    const isToday = date.getTime() === today.getTime();
-                    const hasPayment = scheduledPayments.some(p => {
-                      const pDate = new Date(p.nextDate);
-                      pDate.setHours(0, 0, 0, 0);
-                      return pDate.getTime() === date.getTime();
-                    });
-
-                    days.push(
-                      <div
-                        key={day}
-                        className={`payments-mini-calendar__day ${isToday ? 'payments-mini-calendar__day--today' : ''} ${hasPayment ? 'payments-mini-calendar__day--payment' : ''}`}
-                      >
-                        {day}
-                      </div>
-                    );
-                  }
-
-                  return days;
-                })()}
-              </div>
-            </div>
-          </div>
-
-          {/* Notificaciones importantes */}
-          <div className="payments-sidebar-card">
-            <div className="payments-sidebar-card__header">
-              <h3 className="payments-sidebar-card__title">
-                <Bell size={18} />
-                Notificaciones
-              </h3>
-            </div>
-
-            <div className="payments-notifications">
-              {/* Próximos pagos (7 días) */}
-              {(() => {
-                const upcomingPayments = scheduledPayments.filter(p => {
-                  const daysUntil = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                  return daysUntil >= 0 && daysUntil <= 7;
-                }).slice(0, 3);
-
-                return upcomingPayments.length > 0 ? (
-                  <div className="payments-notification-group">
-                    <h4 className="payments-notification-group__title">Próximos pagos</h4>
-                    {upcomingPayments.map(payment => (
-                      <div key={payment.professionalId} className="payments-notification-item payments-notification-item--warning">
-                        <div className="payments-notification-item__icon">⏰</div>
-                        <div className="payments-notification-item__content">
-                          <strong>{payment.professionalName}</strong>
-                          <span>{formatRelativeDate(payment.nextDate)} • {formatCurrency(payment.amount, 'EUR')}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null;
-              })()}
-
-              {/* Profesionales sin pagar */}
-              {(() => {
-                const unpaidCount = statsForDisplay.filter(stat => isProfessionalPending(stat.professionalId)).length;
-                return unpaidCount > 0 ? (
-                  <div className="payments-notification-group">
-                    <h4 className="payments-notification-group__title">Pendientes de pago</h4>
-                    <div className="payments-notification-item payments-notification-item--error">
-                      <div className="payments-notification-item__icon">⚠️</div>
-                      <div className="payments-notification-item__content">
-                        <strong>{unpaidCount} profesionales</strong>
-                        <span>Con pagos pendientes este periodo</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-
-              {/* Servicios sin completar */}
-              {(() => {
-                const pendingCount = Object.values(pendingServices).reduce((sum, data) => sum + data.count, 0);
-                return pendingCount > 0 ? (
-                  <div className="payments-notification-group">
-                    <h4 className="payments-notification-group__title">Servicios pendientes</h4>
-                    <div className="payments-notification-item payments-notification-item--info">
-                      <div className="payments-notification-item__icon">📋</div>
-                      <div className="payments-notification-item__content">
-                        <strong>{pendingCount} servicios</strong>
-                        <span>Esperando ser completados</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-
-              {/* Estado financiero general */}
-              <div className="payments-notification-group">
-                <h4 className="payments-notification-group__title">Resumen financiero</h4>
-                <div className="payments-notification-item">
-                  <div className="payments-notification-item__icon">💰</div>
-                  <div className="payments-notification-item__content">
-                    <strong>Ingresos totales</strong>
-                    <span>{formatCurrency(totalIncome, 'EUR')}</span>
-                  </div>
-                </div>
-                <div className="payments-notification-item">
-                  <div className="payments-notification-item__icon">💸</div>
-                  <div className="payments-notification-item__content">
-                    <strong>Nóminas pendientes</strong>
-                    <span>{formatCurrency(statsForDisplay.filter(s => isProfessionalPending(s.professionalId)).reduce((sum, s) => sum + s.totalAmount, 0), 'EUR')}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Si no hay notificaciones */}
-              {scheduledPayments.filter(p => {
-                const daysUntil = Math.ceil((p.nextDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                return daysUntil >= 0 && daysUntil <= 7;
-              }).length === 0 &&
-              statsForDisplay.filter(stat => isProfessionalPending(stat.professionalId)).length === 0 &&
-              Object.values(pendingServices).reduce((sum, data) => sum + data.count, 0) === 0 && (
-                <div className="payments-notifications-empty">
-                  <CheckCircle size={32} style={{ opacity: 0.3 }} />
-                  <p>Todo al día</p>
-                  <span>No hay notificaciones importantes</span>
-                </div>
-              )}
-            </div>
-          </div>
-          </div>
-        </aside>
+          )}
+        </section>
       </div>
+      <div
+        className={`financial-detail-overlay ${selectedProfessional ? 'is-visible' : ''}`}
+        onClick={() => setSelectedProfessionalId(null)}
+      />
+
+      <aside
+        className={`financial-detail-drawer ${selectedProfessional ? 'is-open' : ''}`}
+        aria-hidden={!selectedProfessional}
+        aria-label="Detalle profesional"
+      >
+        <button
+          type="button"
+          className="financial-detail-drawer__tag"
+          disabled
+        >
+          {selectedProfessional ? `Detalle · ${selectedProfessional.base.professionalName}` : 'Detalle profesional'}
+        </button>
+        <div className="financial-detail-drawer__body">
+          {selectedProfessional ? (
+            <div className="financial-detail__content">
+              {renderProfessionalDetail(selectedProfessional)}
+            </div>
+          ) : (
+            <p className="financial-empty">Selecciona un profesional en la tabla para ver su detalle.</p>
+          )}
+        </div>
+      </aside>
+      </div>
+
+      {paymentActionState.open && (
+        <div className="financial-action-modal">
+          <div
+            className="financial-action-modal__backdrop"
+            onClick={() => {
+              if (!modalLoading) {
+                closePaymentActionModal();
+              }
+            }}
+          />
+          <div className="financial-action-modal__content">
+            <header className="financial-action-modal__header">
+              <h3>Registrar pago</h3>
+              <p>
+                {actionPeriodLabel ? `Período ${actionPeriodLabel}` : 'Período actual'} ·{' '}
+                {actionDueDate ? `Día habitual ${actionDueLabel}` : 'Sin fecha programada'}
+              </p>
+            </header>
+            <div className="financial-action-modal__body">
+              <div className="financial-action-modal__info">
+                <div>
+                  <span className="financial-action-modal__label">Monto estimado</span>
+                  <strong>{actionAmountLabel ?? 'Calculamos cuando registres el pago'}</strong>
+                </div>
+                <div>
+                  <span className="financial-action-modal__label">Método preferido</span>
+                  <strong>{actionPaymentMethodLabel ?? 'Sin registrar'}</strong>
+                </div>
+              </div>
+              <div className="financial-action-modal__option">
+                <label className="financial-action-modal__checkbox">
+                  <input
+                    type="checkbox"
+                    checked={preserveScheduledDate}
+                    onChange={(event) => setPreserveScheduledDate(event.target.checked)}
+                  />
+                  <span>
+                    Mantener fecha habitual
+                    {maintainedNextStartLabel ? ` (próximo ciclo ${maintainedNextStartLabel})` : ''}
+                  </span>
+                </label>
+                <small className="financial-action-modal__hint">
+                  Si lo desmarcas, el siguiente ciclo comenzará el {adjustedNextStartLabel}.
+                </small>
+              </div>
+              <div className="financial-action-modal__actions">
+                <button
+                  type="button"
+                  className="financial-button financial-button--primary financial-button--with-icon"
+                  onClick={handleConfirmPaymentNow}
+                  disabled={modalLoading}
+                >
+                  <CheckCircle size={16} />
+                  {modalLoading ? 'Guardando...' : `Pagar hoy (${todayLabel})`}
+                </button>
+                <div className="financial-action-modal__schedule">
+                  <label htmlFor="financial-schedule-date">Programar para</label>
+                  <div className="financial-action-modal__schedule-input">
+                    <input
+                      id="financial-schedule-date"
+                      type="date"
+                      value={customPaymentDate}
+                      onChange={(event) => setCustomPaymentDate(event.target.value)}
+                      disabled={modalLoading}
+                    />
+                    <button
+                      type="button"
+                      className="financial-button financial-button--ghost"
+                      onClick={handleConfirmScheduledPayment}
+                      disabled={modalLoading}
+                    >
+                      {modalLoading ? 'Guardando...' : 'Guardar programación'}
+                    </button>
+                  </div>
+                  <small>El sistema notificará cuando llegue esta fecha.</small>
+                </div>
+              </div>
+            </div>
+            <footer className="financial-action-modal__footer">
+              <button
+                type="button"
+                className="financial-button financial-button--ghost"
+                onClick={closePaymentActionModal}
+                disabled={modalLoading}
+              >
+                Cancelar
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

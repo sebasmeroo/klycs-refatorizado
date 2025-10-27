@@ -48,6 +48,9 @@ export interface SharedCalendar {
     scheduledPaymentDate?: string; // Cuándo DEBERÍA pagarse (basado en frecuencia)
     actualPaymentDate?: string;    // Cuándo SE PAGÓ REALMENTE
     lastPaymentDate?: string;      // Mantener para compatibilidad retroactiva
+    cycleStart?: string;           // Inicio del ciclo contabilizado
+    cycleEnd?: string;             // Fin real del ciclo contabilizado
+    intervalDays?: number;         // Duración del ciclo en días
     // Metadata del pago
     lastPaymentBy?: string;
     note?: string;
