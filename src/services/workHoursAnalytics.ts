@@ -127,15 +127,20 @@ export class WorkHoursAnalyticsService {
       // ✅ Track lectura de Firebase
       costMonitoring.trackFirestoreRead(1);
 
+      const normalizedStart = new Date(startDate);
+      normalizedStart.setHours(0, 0, 0, 0);
+      const normalizedEnd = new Date(endDate);
+      normalizedEnd.setHours(23, 59, 59, 999);
+
       logger.log(`🔎 calculateWorkHours - BUSCANDO EVENTOS:`, {
         calendarId,
-        rango: `${startDate.toISOString().split('T')[0]} a ${endDate.toISOString().split('T')[0]}`,
+        rango: `${normalizedStart.toISOString().split('T')[0]} a ${normalizedEnd.toISOString().split('T')[0]}`,
         onlyCompleted
       });
 
       const { events, fetchedCount } = await CalendarEventService.getCalendarEvents([
         calendarId
-      ], startDate, endDate);
+      ], normalizedStart, normalizedEnd);
 
       // ✅ Track eventos leídos
       costMonitoring.trackFirestoreRead(fetchedCount);
@@ -149,11 +154,36 @@ export class WorkHoursAnalyticsService {
           fecha: e.startDate ? new Date(e.startDate).toISOString().split('T')[0] : 'N/A',
           duracion: e.duration,
           status: e.serviceStatus ?? 'completed (undefined)',
-          fuera_rango: e.startDate && (new Date(e.startDate) < startDate || new Date(e.startDate) > endDate) ? '⚠️ FUERA' : '✅'
+          fuera_rango: e.startDate && (new Date(e.startDate) < normalizedStart || new Date(e.startDate) > normalizedEnd) ? '⚠️ FUERA' : '✅'
         }))
       });
 
-      const filteredEvents = events.filter(event => {
+      const eventsInRange = events.filter(event => {
+        if (!event.startDate) {
+          logger.log(`  ⚠️ Evento sin fecha de inicio descartado: "${event.title}"`);
+          return false;
+        }
+        const eventDate = new Date(event.startDate);
+        eventDate.setSeconds(0, 0);
+        if (Number.isNaN(eventDate.getTime())) {
+          logger.log(`  ⚠️ Evento con fecha inválida descartado: "${event.title}" (${event.startDate})`);
+          return false;
+        }
+        const inRange = eventDate.getTime() >= normalizedStart.getTime() && eventDate.getTime() <= normalizedEnd.getTime();
+        if (!inRange) {
+          logger.log(`  ❌ Evento fuera de rango descartado: "${event.title}" (${eventDate.toISOString().split('T')[0]})`);
+        }
+        logger.log(`  ✅ Evento dentro de rango:`, {
+          titulo: event.title,
+          inicioISO: eventDate.toISOString(),
+          status: event.serviceStatus ?? 'completed',
+          duracionMin: event.duration ?? 0,
+          id: event.id ?? 'sin-id'
+        });
+        return inRange;
+      });
+
+      const filteredEvents = eventsInRange.filter(event => {
         // ✅ Tratar undefined como 'completed' (para compatibilidad con eventos antiguos)
         const serviceStatus = event.serviceStatus ?? 'completed';
         if (onlyCompleted && serviceStatus !== 'completed') {

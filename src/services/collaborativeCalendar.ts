@@ -1437,7 +1437,15 @@ export class CalendarEventService {
         events.push(...instances);
       });
 
-      const sortedEvents = events.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+      const uniqueEvents = new Map<string, CalendarEvent>();
+      events.forEach(event => {
+        const key = event.id ?? `${event.calendarId ?? 'unknown'}-${event.startDate.getTime()}`;
+        uniqueEvents.set(key, event);
+      });
+
+      const sortedEvents = Array.from(uniqueEvents.values()).sort(
+        (a, b) => a.startDate.getTime() - b.startDate.getTime()
+      );
 
       logger.log(
         `✅ Total eventos expandidos: ${sortedEvents.length} (${recurringParents.length} padres recurrentes generaron ${sortedEvents.length - snapshot.size} instancias)`

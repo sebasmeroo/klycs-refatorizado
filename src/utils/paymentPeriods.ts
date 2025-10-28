@@ -83,6 +83,7 @@ export const getCurrentPaymentPeriod = (
       // Si hay pago registrado, usarlo como punto de inicio. Si no, calcular desde hoy.
 
       let paymentStartDate: Date;
+      const normalizedNow = new Date(now);
 
       if (effectiveStartDate) {
         // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
@@ -103,6 +104,10 @@ export const getCurrentPaymentPeriod = (
         start.setDate(start.getDate() - daysSincePayday);
       }
 
+      if (start.getTime() > normalizedNow.getTime()) {
+        start.setDate(start.getDate() - 7);
+      }
+
       // El período termina 6 días después (7 días totales)
       end = new Date(start);
       end.setDate(end.getDate() + 6);
@@ -121,6 +126,7 @@ export const getCurrentPaymentPeriod = (
 
       let daysSincePay: number;
       let paymentStartDate: Date;
+      const normalizedNow = new Date(now);
 
       if (effectiveStartDate) {
         // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
@@ -149,9 +155,13 @@ export const getCurrentPaymentPeriod = (
         }
       }
 
+      if (start.getTime() > normalizedNow.getTime()) {
+        start.setDate(start.getDate() - 14);
+      }
+
       // El período termina 14 días después (15 días totales)
       end = new Date(start);
-      end.setDate(end.getDate() + 14);
+      end.setDate(end.getDate() + 13);
       end.setHours(23, 59, 59, 999);
 
       label = `${start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`;
@@ -168,6 +178,7 @@ export const getCurrentPaymentPeriod = (
 
       let daysSincePay: number;
       let paymentStartDate: Date;
+      const normalizedNow = new Date(now);
 
       if (effectiveStartDate) {
         // ✅ Hay pago registrado: usar esa fecha como inicio del período actual
@@ -197,12 +208,39 @@ export const getCurrentPaymentPeriod = (
       }
 
       // El período termina 29 días después (30 días totales)
-      end = new Date(start);
-      end.setDate(end.getDate() + 29);
+      const normalizedStartDay = normalizePaymentDay(paymentDay, 1);
+      const clampStartDay = clampDayOfMonth(normalizedStartDay, start.getFullYear(), start.getMonth());
+      start = new Date(start.getFullYear(), start.getMonth(), clampStartDay);
+      start.setHours(0, 0, 0, 0);
+
+      const nextMonthStart = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      let nextCycleStart = new Date(
+        nextMonthStart.getFullYear(),
+        nextMonthStart.getMonth(),
+        clampDayOfMonth(normalizedStartDay, nextMonthStart.getFullYear(), nextMonthStart.getMonth())
+      );
+      nextCycleStart.setHours(0, 0, 0, 0);
+
+      if (start.getTime() > normalizedNow.getTime()) {
+        const prevMonthStart = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+        const clampPrevDay = clampDayOfMonth(normalizedStartDay, prevMonthStart.getFullYear(), prevMonthStart.getMonth());
+        start = new Date(prevMonthStart.getFullYear(), prevMonthStart.getMonth(), clampPrevDay);
+        start.setHours(0, 0, 0, 0);
+
+        const adjustedNextMonthStart = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+        nextCycleStart = new Date(
+          adjustedNextMonthStart.getFullYear(),
+          adjustedNextMonthStart.getMonth(),
+          clampDayOfMonth(normalizedStartDay, adjustedNextMonthStart.getFullYear(), adjustedNextMonthStart.getMonth())
+        );
+        nextCycleStart.setHours(0, 0, 0, 0);
+      }
+
+      end = new Date(nextCycleStart);
+      end.setDate(end.getDate() - 1);
       end.setHours(23, 59, 59, 999);
 
       label = `${start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`;
-      // ✅ CLAVE: Usar fecha de inicio del período como periodKey, idéntico al semanal
       periodKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
       break;
     }

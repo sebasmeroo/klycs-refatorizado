@@ -53,6 +53,7 @@ import { convertPeriodKey, useMigrationCheck } from '@/utils/migratePayoutRecord
 import { useWorkHoursByPeriod, useWorkHoursByPeriodTotals } from '@/hooks/useWorkHoursByPeriod';
 import { useWorkHoursStats } from '@/hooks/useWorkHoursStats';
 import { getCurrentPaymentPeriod, PaymentPeriod } from '@/utils/paymentPeriods';
+import { buildPaymentContext, getLatestPaymentRecord, getLatestPaidRecord, buildPeriodFromRecord } from '@/utils/paymentCycleContext';
 
 type CurrencySummary = {
   currency: string;
@@ -189,50 +190,6 @@ const normalizePaymentDay = (paymentDay: number | null | undefined, fallback = 1
   return paymentDay;
 };
 
-const getLatestPaymentRecord = (payoutRecords?: Record<string, any>) => {
-  if (!payoutRecords) return null;
-  let latest: any = null;
-  Object.entries(payoutRecords).forEach(([periodKey, record]) => {
-    // ✅ Usar actualPaymentDate o lastPaymentDate como referencia
-    const dateToCheck = record?.actualPaymentDate || record?.lastPaymentDate;
-    if (!dateToCheck) return;
-    const currentDate = new Date(dateToCheck);
-    if (Number.isNaN(currentDate.getTime())) return;
-    if (!latest) {
-      latest = { periodKey, ...record };
-      return;
-    }
-    const latestDateToCheck = latest.actualPaymentDate || latest.lastPaymentDate;
-    const latestDate = new Date(latestDateToCheck);
-    if (currentDate.getTime() > latestDate.getTime()) {
-      latest = { periodKey, ...record };
-    }
-  });
-  return latest;
-};
-
-const getLatestPaidRecord = (payoutRecords?: Record<string, any>) => {
-  if (!payoutRecords) return null;
-  let latest: any = null;
-  Object.entries(payoutRecords).forEach(([periodKey, record]) => {
-    if (record?.status !== 'paid') return;
-    const dateToCheck = record?.actualPaymentDate || record?.lastPaymentDate || record?.cycleEnd;
-    if (!dateToCheck) return;
-    const currentDate = new Date(dateToCheck);
-    if (Number.isNaN(currentDate.getTime())) return;
-    if (!latest) {
-      latest = { periodKey, ...record };
-      return;
-    }
-    const latestDateToCheck = latest.actualPaymentDate || latest.lastPaymentDate || latest.cycleEnd;
-    const latestDate = new Date(latestDateToCheck);
-    if (currentDate.getTime() > latestDate.getTime()) {
-      latest = { periodKey, ...record };
-    }
-  });
-  return latest;
-};
-
 const formatRelativeDate = (date: Date, reference: Date = new Date()) => {
   const normalizedTarget = new Date(date);
   normalizedTarget.setHours(0, 0, 0, 0);
@@ -276,26 +233,20 @@ const getUpcomingPaymentPeriods = (
   count: number = 3
 ): Array<{ start: Date; date: Date; label: string }> => {
   const periods: Array<{ start: Date; date: Date; label: string }> = [];
-  const intervalDays = getIntervalDays(paymentType);
-
-  let nextCycleStart: Date;
-  if (currentCycleEnd) {
-    nextCycleStart = addDays(new Date(currentCycleEnd), 1);
-  } else {
-    const initial = getInitialCyclePeriod(new Date(), paymentType, paymentDay);
-    nextCycleStart = addDays(initial.end, 1);
-  }
+  let reference = currentCycleEnd
+    ? addDays(new Date(currentCycleEnd), 1)
+    : addDays(getInitialCyclePeriod(new Date(), paymentType, paymentDay).end, 1);
 
   for (let i = 0; i < count; i++) {
-    if (i > 0) {
-      nextCycleStart = addDays(periods[i - 1].date, 1);
-    }
-    const cycleEnd = addDays(nextCycleStart, intervalDays - 1);
+    const period = getCurrentPaymentPeriod(reference, paymentType, paymentDay);
+    const start = normalizeDate(period.start) ?? period.start;
+    const end = normalizeDate(period.end) ?? period.end;
     periods.push({
-      start: new Date(nextCycleStart),
-      date: cycleEnd,
-      label: cycleEnd.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+      start,
+      date: end,
+      label: end.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
     });
+    reference = addDays(end, 1);
   }
 
   return periods;
@@ -375,37 +326,6 @@ const getInitialCyclePeriod = (
 
 const createPeriodLabel = (start: Date, end: Date) => {
   return `${start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`;
-};
-
-const buildPeriodFromRecord = (
-  recordKey: string,
-  record: any,
-  paymentType: PaymentFrequency,
-  paymentDay: number | null | undefined,
-  intervalDays: number
-): PaymentPeriod => {
-  const defaultStart = normalizeDate(new Date(recordKey)) ?? new Date(recordKey);
-  const cycleStart = record?.cycleStart
-    ? normalizeDate(new Date(record.cycleStart)) ?? defaultStart
-    : defaultStart;
-
-  let cycleEnd: Date;
-  if (record?.cycleEnd) {
-    cycleEnd = normalizeDate(new Date(record.cycleEnd)) ?? addDays(cycleStart, intervalDays - 1);
-  } else if (record?.scheduledPaymentDate) {
-    cycleEnd = normalizeDate(new Date(record.scheduledPaymentDate)) ?? addDays(cycleStart, intervalDays - 1);
-  } else {
-    cycleEnd = addDays(cycleStart, intervalDays - 1);
-  }
-
-  return {
-    start: cycleStart,
-    end: cycleEnd,
-    label: createPeriodLabel(cycleStart, cycleEnd),
-    periodKey: record?.cycleStart
-      ? normalizeDate(new Date(record.cycleStart))?.toISOString().split('T')[0] ?? recordKey
-      : recordKey
-  };
 };
 
 const formatDateLabel = (date: Date | null): string => {
@@ -701,98 +621,17 @@ const DashboardStripe: React.FC = () => {
     const calendar = calendarMap.get(calendarId);
     if (!calendar) return null;
 
-    const details = (calendar as any)?.payoutDetails ?? {};
-    const paymentType: PaymentFrequency = details?.paymentType ?? 'monthly';
-    const paymentDay = typeof details?.paymentDay === 'number' ? details.paymentDay : null;
-    const preferredMethod: PaymentMethod = details?.paymentMethod ?? 'transfer';
-    const intervalDays = getIntervalDays(paymentType);
+    const context = buildPaymentContext(calendar, { today: new Date() });
+    if (!context) return null;
 
-    const payoutRecords = calendar.payoutRecords ?? {};
-    const latestRecord = getLatestPaymentRecord(payoutRecords);
-    const latestPaidRecord = getLatestPaidRecord(payoutRecords);
-
-    let cycleStart: Date | null = null;
-    let projectedCycleEnd: Date | null = null;
-
-    if (
-      latestRecord?.status === 'pending' &&
-      latestRecord?.cycleStart
-    ) {
-      cycleStart = normalizeDate(new Date(latestRecord.cycleStart));
-      const scheduled = latestRecord?.scheduledPaymentDate
-        ? normalizeDate(new Date(latestRecord.scheduledPaymentDate))
-        : null;
-      projectedCycleEnd = scheduled ?? (cycleStart ? addDays(cycleStart, intervalDays - 1) : null);
-    } else {
-      const basePaidRecord = latestRecord?.status === 'paid' ? latestRecord : latestPaidRecord;
-      if (basePaidRecord) {
-        const recordedNextCycleStart = basePaidRecord.nextCycleStart
-          ? normalizeDate(new Date(basePaidRecord.nextCycleStart))
-          : null;
-        const recordedNextCycleEnd = basePaidRecord.nextCycleEnd
-          ? normalizeDate(new Date(basePaidRecord.nextCycleEnd))
-          : null;
-        const recordedCycleEnd = basePaidRecord.cycleEnd
-          ? normalizeDate(new Date(basePaidRecord.cycleEnd))
-          : null;
-
-        if (recordedNextCycleStart) {
-          cycleStart = recordedNextCycleStart;
-          projectedCycleEnd = recordedNextCycleEnd ?? addDays(recordedNextCycleStart, intervalDays - 1);
-        } else if (recordedCycleEnd) {
-          cycleStart = addDays(recordedCycleEnd, 1);
-          projectedCycleEnd = addDays(cycleStart, intervalDays - 1);
-        }
-      }
-    }
-
-    if (!cycleStart || !projectedCycleEnd) {
-      const referenceDate = latestRecord?.actualPaymentDate
-        ? new Date(latestRecord.actualPaymentDate)
-        : new Date();
-      const initial = getInitialCyclePeriod(
-        referenceDate,
-        paymentType,
-        paymentDay,
-        latestRecord?.lastPaymentDate,
-        latestRecord?.scheduledPaymentDate
-      );
-      cycleStart = normalizeDate(initial.start) ?? initial.start;
-      projectedCycleEnd = normalizeDate(initial.end) ?? initial.end;
-    }
-
-    const periodKey = cycleStart.toISOString().split('T')[0];
-    const currentRecord = payoutRecords?.[periodKey];
-    if (currentRecord?.status === 'pending' && currentRecord?.scheduledPaymentDate) {
-      projectedCycleEnd = normalizeDate(new Date(currentRecord.scheduledPaymentDate)) ?? projectedCycleEnd;
-    } else if (currentRecord?.status === 'paid') {
-      const recordEnd = currentRecord?.nextCycleEnd
-        ? normalizeDate(new Date(currentRecord.nextCycleEnd))
-        : currentRecord?.cycleEnd
-          ? normalizeDate(new Date(currentRecord.cycleEnd))
-          : null;
-      projectedCycleEnd = recordEnd ?? projectedCycleEnd;
-    }
-
-    const currentPeriod: PaymentPeriod = {
-      start: cycleStart,
-      end: projectedCycleEnd,
-      label: formatPeriodRange({ start: cycleStart, end: projectedCycleEnd }),
-      periodKey
-    };
-
+    const { currentPeriod } = context;
     const periodStats = statsByPeriodMap.get(calendarId);
-
-    // Buscar los datos específicos del período actual
     let amountForCurrentPeriod: number | undefined;
     let hoursForCurrentPeriod: number | undefined;
 
     if (periodStats) {
       const allStatsData = Array.isArray(periodStats) ? periodStats : [periodStats];
-      const currentPeriodData = allStatsData.find(item => {
-        return item?.period?.periodKey === currentPeriod?.periodKey;
-      });
-
+      const currentPeriodData = allStatsData.find(item => item?.period?.periodKey === currentPeriod.periodKey);
       if (currentPeriodData) {
         amountForCurrentPeriod = currentPeriodData.stats?.totalAmount;
         hoursForCurrentPeriod = currentPeriodData.stats?.totalHours;
@@ -802,41 +641,12 @@ const DashboardStripe: React.FC = () => {
       }
     }
 
-    let nextCycleStartRaw: Date;
-    if (currentRecord?.nextCycleStart) {
-      nextCycleStartRaw = normalizeDate(new Date(currentRecord.nextCycleStart)) ?? addDays(projectedCycleEnd, 1);
-    } else if (currentRecord?.status === 'paid' && currentRecord?.cycleEnd) {
-      nextCycleStartRaw = addDays(new Date(currentRecord.cycleEnd), 1);
-    } else {
-      nextCycleStartRaw = addDays(projectedCycleEnd, 1);
-    }
-    const nextCycleStart = normalizeDate(nextCycleStartRaw) ?? nextCycleStartRaw;
-    const nextCycleEndRaw = currentRecord?.nextCycleEnd
-      ? normalizeDate(new Date(currentRecord.nextCycleEnd)) ?? addDays(nextCycleStart, intervalDays - 1)
-      : addDays(nextCycleStart, intervalDays - 1);
-    const nextCycleEnd = normalizeDate(nextCycleEndRaw) ?? nextCycleEndRaw;
-
-    const nextPeriod: PaymentPeriod = {
-      start: nextCycleStart,
-      end: nextCycleEnd,
-      label: createPeriodLabel(nextCycleStart, nextCycleEnd),
-      periodKey: nextCycleStart.toISOString().split('T')[0]
-    };
-
     return {
       calendar,
-      paymentType,
-      paymentDay,
-      preferredMethod,
-      currentPeriod,
-      latestRecord,
-      latestPaidRecord,
+      ...context,
       amountForPeriod: amountForCurrentPeriod,
       hoursForPeriod: hoursForCurrentPeriod,
-      intervalDays,
-      nextCycleStart,
-      nextCycleEnd,
-      nextPeriod
+      currentPeriod
     };
   }, [calendarMap, statsByPeriodMap]);
 
@@ -2225,7 +2035,7 @@ const DashboardStripe: React.FC = () => {
       const sortedRecords = Object.entries(records)
         .filter(([key]) => key !== currentPeriod.periodKey)
         .map(([key, record]) => {
-          const periodFromRecord = buildPeriodFromRecord(key, record, paymentType, paymentDay, intervalDays);
+          const periodFromRecord = buildPeriodFromRecord(key, record, paymentType, paymentDay);
           if (
             !periodFromRecord ||
             Number.isNaN(periodFromRecord.start.getTime()) ||
@@ -3525,6 +3335,17 @@ const DashboardStripe: React.FC = () => {
                       <div className="financial-table__cell financial-table__cell--name">
                         <strong>{stat.professionalName || 'Profesional'}</strong>
                         <small>{owner?.email || stat.professionalEmail || 'Sin email'}</small>
+                        <div className="financial-chip-group">
+                          <span className="financial-chip">
+                            {getPaymentTypeLabel(context.paymentType)}
+                          </span>
+                          <span className="financial-chip financial-chip--muted">
+                            {context.currentPeriod?.label ?? paymentPeriod?.label ?? 'Sin período'}
+                          </span>
+                          <span className="financial-chip financial-chip--outline">
+                            Próximo {relativeDue.toLowerCase()}
+                          </span>
+                        </div>
                       </div>
                       <div className="financial-table__cell">
                         <span>{context.currentPeriod?.label ?? paymentPeriod?.label ?? 'Sin período'}</span>
@@ -3592,9 +3413,12 @@ const DashboardStripe: React.FC = () => {
                       <strong>{item.professionalName}</strong>
                       <small>{item.paymentDayLabel}</small>
                     </div>
-                    <div>
+                    <div className="financial-list__date">
                       <span>{item.nextDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}</span>
                       <small>{item.relativeLabel}</small>
+                      {item.periodRangeLabel && (
+                        <small className="financial-list__period">{item.periodRangeLabel}</small>
+                      )}
                     </div>
                     <div className="financial-list__meta">
                       <strong>{formatCurrency(item.pendingAmount, item.currency)}</strong>

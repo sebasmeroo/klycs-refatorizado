@@ -7,6 +7,7 @@ import { logger } from '@/utils/logger';
 import { PaymentPeriod } from '@/utils/paymentPeriods';
 import { PersistentCache } from '@/utils/persistentCache';
 import { costMonitoring } from '@/utils/costMonitoring';
+import { buildCurrentCycle, buildPeriodFromRecord, getRecordReferenceDate } from '@/utils/paymentCycleContext';
 
 interface PeriodStats {
   stats: WorkHoursStats;
@@ -23,121 +24,6 @@ interface WorkHoursByPeriod {
 
 type PaymentFrequency = import('@/types/calendar').PaymentFrequency;
 
-const DAY_IN_MS = 24 * 60 * 60 * 1000;
-
-const normalizeDate = (value: Date | null | undefined): Date | null => {
-  if (!value) return null;
-  const normalized = new Date(value);
-  normalized.setHours(0, 0, 0, 0);
-  return normalized;
-};
-
-const addDays = (date: Date, days: number): Date => {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  result.setHours(0, 0, 0, 0);
-  return result;
-};
-
-const getIntervalDays = (paymentType: PaymentFrequency): number => {
-  switch (paymentType) {
-    case 'daily':
-      return 1;
-    case 'weekly':
-      return 7;
-    case 'biweekly':
-      return 15;
-    case 'monthly':
-    default:
-      return 30;
-  }
-};
-
-const getLatestPaidRecord = (payoutRecords?: Record<string, any>) => {
-  if (!payoutRecords) return null;
-  let latest: any = null;
-  Object.entries(payoutRecords).forEach(([periodKey, record]) => {
-    if (record?.status !== 'paid') return;
-    const dateToCheck = record?.actualPaymentDate || record?.cycleEnd || record?.lastPaymentDate;
-    if (!dateToCheck) return;
-    const currentDate = new Date(dateToCheck);
-    if (Number.isNaN(currentDate.getTime())) return;
-    if (!latest) {
-      latest = { periodKey, ...record };
-      return;
-    }
-    const latestDateToCheck = latest.actualPaymentDate || latest.cycleEnd || latest.lastPaymentDate;
-    const latestDate = new Date(latestDateToCheck);
-    if (currentDate.getTime() > latestDate.getTime()) {
-      latest = { periodKey, ...record };
-    }
-  });
-  return latest;
-};
-
-const buildCurrentCycle = (
-  now: Date,
-  paymentType: PaymentFrequency,
-  paymentDay: number | null | undefined,
-  payoutRecords?: Record<string, any>
-): { period: PaymentPeriod; recordKey: string } => {
-  const intervalDays = getIntervalDays(paymentType);
-  const latestPaidRecord = getLatestPaidRecord(payoutRecords);
-
-  let cycleStart: Date;
-  let projectedCycleEnd: Date;
-
-  if (latestPaidRecord?.cycleEnd) {
-    const previousCycleEnd = normalizeDate(new Date(latestPaidRecord.cycleEnd));
-    cycleStart = previousCycleEnd ? addDays(previousCycleEnd, 1) : normalizeDate(now) ?? now;
-    projectedCycleEnd = addDays(cycleStart, intervalDays - 1);
-  } else {
-    cycleStart = normalizeDate(now) ?? now;
-    projectedCycleEnd = addDays(cycleStart, intervalDays - 1);
-  }
-
-  const periodKey = cycleStart.toISOString().split('T')[0];
-  const currentRecord = payoutRecords?.[periodKey];
-  if (currentRecord?.cycleStart) {
-    cycleStart = normalizeDate(new Date(currentRecord.cycleStart)) ?? cycleStart;
-  }
-  if (currentRecord?.status === 'paid' && currentRecord?.cycleEnd) {
-    projectedCycleEnd = normalizeDate(new Date(currentRecord.cycleEnd)) ?? projectedCycleEnd;
-  } else if (currentRecord?.scheduledPaymentDate) {
-    const scheduled = normalizeDate(new Date(currentRecord.scheduledPaymentDate));
-    if (scheduled) {
-      projectedCycleEnd = scheduled;
-    }
-  }
-
-  return {
-    period: {
-      start: cycleStart,
-      end: projectedCycleEnd,
-      label: `${cycleStart.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${projectedCycleEnd.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`,
-      periodKey
-    },
-    recordKey: periodKey
-  };
-};
-
-const recordToPeriod = (key: string, record: any, intervalDays: number): PaymentPeriod => {
-  const start = record?.cycleStart
-    ? normalizeDate(new Date(record.cycleStart)) ?? new Date()
-    : normalizeDate(record?.actualPaymentDate ? new Date(record.actualPaymentDate) : record?.scheduledPaymentDate ? new Date(record.scheduledPaymentDate) : new Date()) ?? new Date();
-  const end = record?.cycleEnd
-    ? normalizeDate(new Date(record.cycleEnd)) ?? addDays(start, intervalDays - 1)
-    : record?.scheduledPaymentDate
-      ? normalizeDate(new Date(record.scheduledPaymentDate)) ?? addDays(start, intervalDays - 1)
-      : addDays(start, intervalDays - 1);
-
-  return {
-    start,
-    end,
-    label: `${start.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`,
-    periodKey: key
-  };
-};
 
 /**
  * Hook para obtener estadísticas de horas trabajadas filtradas por periodo de pago actual
@@ -171,52 +57,65 @@ export const useWorkHoursByPeriod = (
   return useQuery({
     queryKey: ['workHoursByPeriod', userId, onlyCompleted],
     queryFn: async (): Promise<WorkHoursByPeriod[]> => {
-      if (!calendars || calendars.length === 0) {
-        logger.info('No hay calendarios disponibles para estadísticas por periodo');
-        return [];
-      }
+      try {
+        if (!calendars || calendars.length === 0) {
+          logger.info('No hay calendarios disponibles para estadísticas por periodo');
+          return [];
+        }
 
-      // ✅ LAYER 2: Intentar obtener del PersistentCache primero (30 min para datos por período)
-      const cacheKey = `workHoursByPeriod:${userId}:${onlyCompleted}` as const;
-      const cachedData = PersistentCache.get<WorkHoursByPeriod[]>(cacheKey);
+        const cacheKey = `workHoursByPeriod:${userId}:${onlyCompleted}` as const;
+        const cachedData = PersistentCache.get<WorkHoursByPeriod[]>(cacheKey);
 
-      if (cachedData) {
-        logger.log('✅ Estadísticas por período obtenidas de localStorage (0 lecturas Firebase)');
-        logger.log('📊 Datos cacheados:', cachedData.map(d => ({
-          profesional: d.professionalName,
-          horas: d.stats.totalHours,
-          periodo: d.period.label
-        })));
-        return cachedData;
-      }
+        if (cachedData && cachedData.length > 0) {
+          logger.log('✅ Estadísticas por período obtenidas de localStorage (0 lecturas Firebase)');
+          logger.log('📊 Datos cacheados:', cachedData.map(d => ({
+            profesional: d.professionalName,
+            horas: d.stats.totalHours,
+            periodo: d.period.label
+          })));
+          return cachedData;
+        }
 
-      logger.log('🔄 Calculando estadísticas por periodo de pago (lectura en vivo)...');
-      logger.log('⚠️ NO había caché - forzando recálculo desde Firestore');
+        if (cachedData && cachedData.length === 0) {
+          logger.log('ℹ️ Caché encontrado vacío - se recalcula para evitar resultados obsoletos.');
+        }
 
-      const now = new Date();
-      const results: WorkHoursByPeriod[] = [];
+        logger.log('🔄 Calculando estadísticas por periodo de pago (lectura en vivo)...');
+        logger.log('⚠️ NO había caché - forzando recálculo desde Firestore');
 
-      const MAX_HISTORY_PERIODS = 1; // ⚠️ REDUCIDO de 3 a 1 para ahorrar lecturas
+        const now = new Date();
+        const results: WorkHoursByPeriod[] = [];
 
-      for (const calendar of calendars) {
-        const paymentType = (calendar.payoutDetails?.paymentType || 'monthly') as PaymentFrequency;
-        const paymentDay = calendar.payoutDetails?.paymentDay;
-        const payoutRecords = calendar.payoutRecords || {};
-        const customHourlyRate = typeof calendar.payoutDetails?.customHourlyRate === 'number'
-          ? calendar.payoutDetails.customHourlyRate
+        const MAX_HISTORY_PERIODS = 1; // ⚠️ REDUCIDO de 3 a 1 para ahorrar lecturas
+
+        for (const calendar of calendars) {
+          logger.log(`➡️ Procesando calendario ${calendar.name} (${calendar.id})`);
+
+          const paymentType = (calendar.payoutDetails?.paymentType || 'monthly') as PaymentFrequency;
+          const paymentDay = calendar.payoutDetails?.paymentDay;
+          const payoutRecords = calendar.payoutRecords || {};
+          const customHourlyRate = typeof calendar.payoutDetails?.customHourlyRate === 'number'
+            ? calendar.payoutDetails.customHourlyRate
           : null;
         const baseHourlyRate = typeof calendar.hourlyRate === 'number' ? calendar.hourlyRate : 0;
         const effectiveHourlyRate = customHourlyRate ?? baseHourlyRate;
         const currency = calendar.hourlyRateCurrency || 'EUR';
-        const intervalDays = getIntervalDays(paymentType);
-
-        const { period, recordKey } = buildCurrentCycle(now, paymentType, paymentDay, payoutRecords);
+        const { period, recordKey, intervalDays } = buildCurrentCycle(now, paymentType, paymentDay, payoutRecords);
 
         logger.log(`📅 Periodo para ${calendar.name}: ${period.label} (${period.start.toISOString()} - ${period.end.toISOString()})`);
 
         const buildStatsForPeriod = async (targetPeriod: PaymentPeriod) => {
           // Track cada lectura
           costMonitoring.trackFirestoreRead(1);
+
+          logger.log(`🧪 buildStatsForPeriod INPUT`, {
+            calendar: calendar.name,
+            periodKey: targetPeriod.periodKey,
+            startISO: targetPeriod.start?.toISOString?.(),
+            endISO: targetPeriod.end?.toISOString?.(),
+            startTime: targetPeriod.start?.getTime?.(),
+            endTime: targetPeriod.end?.getTime?.()
+          });
 
           logger.log(`🔍 buildStatsForPeriod - ${calendar.name}:`, {
             periodKey: targetPeriod.periodKey,
@@ -225,12 +124,44 @@ export const useWorkHoursByPeriod = (
             fin: targetPeriod.end.toISOString().split('T')[0]
           });
 
-          const { hours, events } = await WorkHoursAnalyticsService.calculateWorkHours(
-            calendar.id,
-            targetPeriod.start,
-            targetPeriod.end,
-            onlyCompleted
-          );
+          let hours = 0;
+          let events: any[] = [];
+
+          try {
+            const result = await WorkHoursAnalyticsService.calculateWorkHours(
+              calendar.id,
+              targetPeriod.start,
+              targetPeriod.end,
+              onlyCompleted
+            );
+            hours = result.hours;
+            events = result.events;
+          } catch (error) {
+            logger.error('❌ Error en calculateWorkHours', {
+              calendar: calendar.name,
+              periodKey: targetPeriod.periodKey,
+              message: (error as Error)?.message,
+              stack: (error as Error)?.stack
+            });
+            throw error;
+          }
+
+          logger.log('🧾 Reservas incluidas en cálculo de horas:', {
+            calendario: calendar.name,
+            periodo: targetPeriod.label,
+            periodKey: targetPeriod.periodKey,
+            rango: {
+              inicio: targetPeriod.start.toISOString(),
+              fin: targetPeriod.end.toISOString()
+            },
+            eventos: events.map(event => ({
+              titulo: event.title,
+              id: event.id,
+              fecha: event.startDate ? new Date(event.startDate).toISOString() : null,
+              duracionMin: event.duration ?? 0,
+              estado: event.serviceStatus ?? 'completed'
+            }))
+          });
 
           logger.log(`✅ Resultados de calculateWorkHours - ${calendar.name}:`, {
             periodKey: targetPeriod.periodKey,
@@ -271,8 +202,8 @@ export const useWorkHoursByPeriod = (
         const orderedPaidRecords = Object.entries(payoutRecords)
           .filter(([, record]) => record?.status === 'paid')
           .sort((a, b) => {
-            const dateA = normalizeDate(new Date(a[1].cycleEnd ?? a[1].actualPaymentDate ?? a[1].lastPaymentDate ?? Date.now()))!;
-            const dateB = normalizeDate(new Date(b[1].cycleEnd ?? b[1].actualPaymentDate ?? b[1].lastPaymentDate ?? Date.now()))!;
+            const dateA = getRecordReferenceDate(a[1], a[0]) ?? new Date(0);
+            const dateB = getRecordReferenceDate(b[1], b[0]) ?? new Date(0);
             return dateB.getTime() - dateA.getTime();
           });
 
@@ -280,7 +211,7 @@ export const useWorkHoursByPeriod = (
         for (const [key, record] of orderedPaidRecords) {
           if (historyCount >= MAX_HISTORY_PERIODS) break;
           if (key === recordKey) continue;
-          const periodFromRecord = recordToPeriod(key, record, intervalDays);
+          const periodFromRecord = buildPeriodFromRecord(key, record, paymentType, paymentDay);
           const stats = await buildStatsForPeriod(periodFromRecord);
           history.push(stats);
           historyCount += 1;
@@ -305,19 +236,28 @@ export const useWorkHoursByPeriod = (
         periodKey: r.period.periodKey
       })));
 
+      if (results.length === 0) {
+        logger.warn('⚠️ No se obtuvieron resultados para workHoursByPeriod a pesar de completar la consulta.');
+      }
+
       // ✅ Guardar en PersistentCache (30 minutos)
       logger.log('💾 Guardando en localStorage con TTL de 30 min...');
       PersistentCache.set(cacheKey, results, 30);
       logger.log('✅ Guardado en localStorage - próximas cargas usarán caché');
 
-      return results;
+        return results;
+      } catch (error) {
+        logger.error('❌ Error calculando estadísticas por periodo', error as Error);
+        throw error;
+      }
     },
     staleTime: 15 * 60 * 1000, // 15 minutos - React Query cache
     gcTime: 30 * 60 * 1000, // 30 minutos en memoria (React Query v5)
     enabled: !!calendars && calendars.length > 0 && !calendarsLoading && !!userId,
     refetchOnWindowFocus: false,
     refetchOnMount: false, // ⚠️ CAMBIO: No recargar automáticamente al montar
-    placeholderData: (previousData) => previousData // React Query v5: Mantener datos anteriores
+    placeholderData: (previousData) => previousData, // React Query v5: Mantener datos anteriores
+    retry: false
   });
 };
 

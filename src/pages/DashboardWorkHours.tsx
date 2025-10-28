@@ -14,6 +14,42 @@ import { getCurrentPaymentPeriod } from '@/utils/paymentPeriods';
 import type { PaymentFrequency } from '@/types/calendar';
 import { PersistentCache } from '@/utils/persistentCache';
 
+const PAYMENT_TYPE_LABELS: Record<PaymentFrequency, string> = {
+  daily: 'Diario',
+  weekly: 'Semanal',
+  biweekly: 'Quincenal',
+  monthly: 'Mensual'
+};
+
+const describePaymentDay = (paymentType: PaymentFrequency, paymentDay: number | null | undefined): string => {
+  if (paymentType === 'daily') {
+    return 'Cada día laboral configurado';
+  }
+
+  if (paymentType === 'weekly') {
+    const weekdays = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const normalized = typeof paymentDay === 'number' ? paymentDay : 5;
+    return `Cada ${weekdays[(normalized + 7) % 7]}`;
+  }
+
+  if (paymentType === 'biweekly') {
+    const base = typeof paymentDay === 'number' ? paymentDay : 1;
+    return `Cada 14 días (día de referencia ${base})`;
+  }
+
+  const normalized = typeof paymentDay === 'number' ? paymentDay : 1;
+  return `Cada mes (día ${normalized})`;
+};
+
+const formatRange = (start: Date, end: Date): string => {
+  const formatter = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short' });
+  return `${formatter.format(start)} – ${formatter.format(end)}`;
+};
+
+const formatFullDate = (value: Date) => {
+  return value.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
 export const DashboardWorkHours: React.FC = () => {
   const { user } = useAuth();
   const { planName, isLoading: planLoading } = useSubscriptionStatus();
@@ -51,10 +87,17 @@ export const DashboardWorkHours: React.FC = () => {
     logger.log('📊 ============ DASHBOARDWORKHOURS PERÍODO STATS ============');
     logger.log('📊 Total profesionales:', statsByPeriod.length);
 
-    // ✅ Convertir statsByPeriod al formato esperado por el componente
     return statsByPeriod.map((periodStat, idx) => {
       const stat = periodStat.stats;
       const period = periodStat.period;
+      const calendar = calendars.find(cal => cal.id === periodStat.professionalId);
+      const paymentType: PaymentFrequency = (calendar?.payoutDetails?.paymentType ?? 'monthly') as PaymentFrequency;
+      const paymentDay = typeof calendar?.payoutDetails?.paymentDay === 'number' ? calendar.payoutDetails.paymentDay : null;
+      const paymentTypeLabel = PAYMENT_TYPE_LABELS[paymentType];
+      const paymentDayLabel = describePaymentDay(paymentType, paymentDay);
+      const paymentRangeLabel = formatRange(period.start, period.end);
+      const expectedPaymentDate = period.end;
+      const expectedPaymentLabel = formatFullDate(expectedPaymentDate);
 
       logger.log(`\n📋 Profesional ${idx + 1}: ${periodStat.professionalName}`);
       logger.log('🔑 Período:', {
@@ -71,7 +114,6 @@ export const DashboardWorkHours: React.FC = () => {
         currency: stat.currency
       });
 
-      // Mostrar desglose detallado de monthlyBreakdown
       if (stat.monthlyBreakdown && stat.monthlyBreakdown.length > 0) {
         logger.log('📈 Desglose por mes en monthlyBreakdown:');
         stat.monthlyBreakdown.forEach((month, i) => {
@@ -85,16 +127,10 @@ export const DashboardWorkHours: React.FC = () => {
         logger.log('⚠️ monthlyBreakdown VACIO - No hay datos para este período');
       }
 
-      // Obtener tipo de pago del período
-      const periodTypeLabel = period.periodKey.includes('-W') ? 'Semanal' :
-                              period.periodKey.includes('-Q') ? 'Quincenal' :
-                              period.periodKey.split('-').length === 3 ? 'Diario' :
-                              'Mensual';
-
       logger.log('✅ Resultado final para pantalla:', {
         profesional: periodStat.professionalName,
-        tipo: periodTypeLabel,
-        periodo: period.label,
+        tipo: paymentTypeLabel,
+        periodo: paymentRangeLabel,
         horas: stat.totalHours,
         eventos: stat.monthlyBreakdown.reduce((sum, m) => sum + m.events, 0),
         monto: stat.totalAmount
@@ -102,18 +138,24 @@ export const DashboardWorkHours: React.FC = () => {
 
       return {
         ...stat,
-        // Los datos ya están filtrados por período exacto
         monthlyBreakdown: stat.monthlyBreakdown,
         totalHours: stat.totalHours,
         totalAmount: stat.totalAmount,
         averagePerMonth: stat.totalHours,
-        // Agregar información del período
-        paymentPeriodLabel: `${periodTypeLabel} (${period.label})`,
+        professionalId: periodStat.professionalId,
+        professionalName: periodStat.professionalName,
+        paymentPeriodLabel: `${paymentTypeLabel} · ${paymentRangeLabel}`,
         paymentPeriodStart: period.start,
-        paymentPeriodEnd: period.end
+        paymentPeriodEnd: period.end,
+        paymentType,
+        paymentTypeLabel,
+        paymentDayLabel,
+        expectedPaymentDate,
+        expectedPaymentLabel,
+        paymentRangeLabel
       };
     });
-  }, [statsByPeriod]);
+  }, [statsByPeriod, calendars]);
 
   // ✅ Calcular totales automáticamente con datos filtrados
   const totals = useWorkHoursTotals(filteredStats);
@@ -335,11 +377,17 @@ export const DashboardWorkHours: React.FC = () => {
               <p className="mt-4 text-gray-600 dark:text-gray-400">Cargando estadísticas...</p>
             </div>
           ) : filteredStats.length === 0 ? (
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-12 text-center">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-12 text-center space-y-4">
               <Clock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600 dark:text-gray-400">
                 No hay datos de horas trabajadas para este período
               </p>
+              <Link
+                to="/dashboard/bookings"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+              >
+                Revisar reservas en curso →
+              </Link>
             </div>
           ) : (
             filteredStats.map((stat) => (
@@ -349,23 +397,31 @@ export const DashboardWorkHours: React.FC = () => {
               >
                 {/* Header del profesional */}
                 <div className="flex items-center justify-between mb-6">
-                  <div>
+                  <div className="space-y-2">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                       {stat.professionalName}
                     </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Promedio: {WorkHoursAnalyticsService.formatHours(stat.averagePerMonth)}/mes
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200 text-xs font-medium">
+                        {stat.paymentTypeLabel}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200 text-xs font-medium">
+                        {stat.paymentRangeLabel}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 text-xs font-medium">
+                        Próximo {stat.expectedPaymentLabel}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Día habitual: {stat.paymentDayLabel} · Promedio ciclo: {WorkHoursAnalyticsService.formatHours(stat.averagePerMonth)}
                     </p>
                   </div>
                   <div className="text-right space-y-1">
                     <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                       {WorkHoursAnalyticsService.formatCurrency(stat.totalAmount, stat.currency)}
                     </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {(stat as any).paymentPeriodLabel || `Total ${selectedYear}`}
-                    </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {WorkHoursAnalyticsService.formatHours(stat.totalHours)} • Tarifa {WorkHoursAnalyticsService.formatCurrency(stat.hourlyRate ?? 0, stat.currency)}/h
+                      {WorkHoursAnalyticsService.formatHours(stat.totalHours)} · Tarifa {WorkHoursAnalyticsService.formatCurrency(stat.hourlyRate ?? 0, stat.currency)}/h
                     </p>
                   </div>
                 </div>
@@ -376,34 +432,41 @@ export const DashboardWorkHours: React.FC = () => {
                     Desglose Mensual
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {stat.monthlyBreakdown.map((month) => (
-                      <div
-                        key={month.month}
-                        className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
-                              {new Date(month.month + '-01').toLocaleDateString('es-ES', {
-                                month: 'short',
-                                year: 'numeric'
-                              })}
-                            </p>
-                            <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
-                              {WorkHoursAnalyticsService.formatHours(month.hours)}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {month.events} servicios
-                            </p>
-                            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-1">
-                              {WorkHoursAnalyticsService.formatCurrency(month.amount, stat.currency)}
-                            </p>
+                    {stat.monthlyBreakdown.map(month => {
+                      const parsed = new Date(month.month);
+                      const displayLabel = Number.isNaN(parsed.getTime())
+                        ? month.month
+                        : parsed.toLocaleDateString('es-ES', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric'
+                          });
+                      return (
+                        <div
+                          key={month.month}
+                          className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
+                                {displayLabel}
+                              </p>
+                              <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
+                                {WorkHoursAnalyticsService.formatHours(month.hours)}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {month.events} servicios
+                              </p>
+                              <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-1">
+                                {WorkHoursAnalyticsService.formatCurrency(month.amount, stat.currency)}
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex justify-end mt-4">
