@@ -3,15 +3,43 @@ import { getCurrentPaymentPeriod, PaymentPeriod } from '@/utils/paymentPeriods';
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
-const normalizeDate = (value: Date | null | undefined): Date | null => {
+const normalizeDate = (value: Date | string | null | undefined): Date | null => {
   if (!value) return null;
-  const normalized = new Date(value);
+  let normalized: Date | null = null;
+
+  if (value instanceof Date) {
+    normalized = new Date(value.getTime());
+  } else if (typeof value === 'string') {
+    const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const year = Number(isoMatch[1]);
+      const month = Number(isoMatch[2]) - 1;
+      const day = Number(isoMatch[3]);
+      normalized = new Date(year, month, day);
+    } else {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        normalized = parsed;
+      }
+    }
+  }
+
+  if (!normalized) {
+    return null;
+  }
+
   normalized.setHours(0, 0, 0, 0);
   return normalized;
 };
 
-const addDays = (date: Date, days: number): Date => {
-  const result = new Date(date);
+const addDays = (date: Date | string, days: number): Date => {
+  const base = normalizeDate(date);
+  if (!base) {
+    const fallback = new Date();
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
+  }
+  const result = new Date(base.getTime());
   result.setDate(result.getDate() + days);
   result.setHours(0, 0, 0, 0);
   return result;
@@ -96,20 +124,28 @@ export const getLatestPaidRecord = (payoutRecords?: Record<string, any>) => {
   return latest;
 };
 
-const resolveCandidateDate = (value: string | null | undefined, today: Date): string | undefined => {
+const resolveCandidateDate = (
+  value: string | null | undefined,
+  today: Date,
+  allowFuture: boolean = false
+): string | undefined => {
   if (!value) return undefined;
   const parsed = normalizeDate(new Date(value));
   if (!parsed) return undefined;
-  if (parsed.getTime() > today.getTime()) return undefined;
+  if (!allowFuture && parsed.getTime() > today.getTime()) return undefined;
   return toISODate(parsed);
 };
 
-const resolveStartFromRecord = (record: any, today: Date): string | undefined => {
+const resolveStartFromRecord = (
+  record: any,
+  today: Date,
+  allowFuture: boolean = false
+): string | undefined => {
   if (!record) return undefined;
   return (
-    resolveCandidateDate(record.cycleStart, today) ??
-    resolveCandidateDate(record.periodKey, today) ??
-    resolveCandidateDate(record.scheduledPaymentDate, today)
+    resolveCandidateDate(record.cycleStart, today, allowFuture) ??
+    resolveCandidateDate(record.periodKey, today, allowFuture) ??
+    resolveCandidateDate(record.scheduledPaymentDate, today, allowFuture)
   );
 };
 
@@ -117,7 +153,8 @@ export const buildCurrentCycle = (
   now: Date,
   paymentType: PaymentFrequency,
   paymentDay: number | null | undefined,
-  payoutRecords?: Record<string, any>
+  payoutRecords?: Record<string, any>,
+  options: { allowFutureStart?: boolean } = {}
 ): {
   period: PaymentPeriod;
   recordKey: string;
@@ -127,18 +164,37 @@ export const buildCurrentCycle = (
   latestPaidRecord?: any;
 } => {
   const today = normalizeDate(now) ?? new Date(now);
+  const baseIntervalDays = getIntervalDays(paymentType);
   const latestRecord = getLatestPaymentRecord(payoutRecords);
   const latestPaidRecord = getLatestPaidRecord(payoutRecords);
+  const allowFutureStart = options.allowFutureStart ?? false;
 
   const cycleStartOverride = (() => {
     if (latestRecord?.status === 'pending') {
-      const candidate = resolveStartFromRecord(latestRecord, today);
-      if (candidate) return candidate;
+      const candidateDate =
+        normalizeDate(latestRecord.cycleStart)
+        ?? normalizeDate(latestRecord.periodKey)
+        ?? normalizeDate(latestRecord.scheduledPaymentDate);
+      if (candidateDate) {
+        const diffDays = Math.round((candidateDate.getTime() - today.getTime()) / DAY_IN_MS);
+        if (
+          candidateDate.getTime() <= today.getTime()
+          || allowFutureStart
+          || (diffDays >= 0 && diffDays <= baseIntervalDays)
+        ) {
+          return toISODate(candidateDate);
+        }
+      }
     }
 
-    const nextCycleCandidate = resolveCandidateDate(latestPaidRecord?.nextCycleStart, today);
-    if (nextCycleCandidate) {
-      return nextCycleCandidate;
+    if (latestPaidRecord?.nextCycleStart) {
+      const nextStartDate = normalizeDate(new Date(latestPaidRecord.nextCycleStart));
+      if (nextStartDate) {
+        const diffDays = Math.round((nextStartDate.getTime() - today.getTime()) / DAY_IN_MS);
+        if (nextStartDate.getTime() <= today.getTime() || allowFutureStart || (diffDays > 0 && diffDays <= baseIntervalDays)) {
+          return toISODate(nextStartDate);
+        }
+      }
     }
 
     if (latestPaidRecord?.cycleEnd) {
@@ -151,7 +207,11 @@ export const buildCurrentCycle = (
       }
     }
 
-    const fallbackFromLatestRecord = resolveStartFromRecord(latestRecord, today);
+    const fallbackFromLatestRecord = resolveStartFromRecord(
+      latestRecord,
+      today,
+      allowFutureStart || latestRecord?.status === 'pending'
+    );
     if (fallbackFromLatestRecord) {
       return fallbackFromLatestRecord;
     }
@@ -170,13 +230,24 @@ export const buildCurrentCycle = (
   let cycleStart = normalizeDate(currentPeriodBase.start) ?? currentPeriodBase.start;
   let projectedCycleEnd = normalizeDate(currentPeriodBase.end) ?? currentPeriodBase.end;
 
-  const currentRecord = payoutRecords?.[currentPeriodBase.periodKey]
-    ?? (latestRecord?.periodKey === currentPeriodBase.periodKey ? latestRecord : undefined);
+  let derivedKey = currentPeriodBase.periodKey;
+
+  let currentRecord = payoutRecords?.[derivedKey]
+    ?? (latestRecord?.periodKey === derivedKey ? latestRecord : undefined);
 
   if (currentRecord?.cycleStart) {
     const recordStart = normalizeDate(new Date(currentRecord.cycleStart));
-    if (recordStart && recordStart.getTime() <= today.getTime()) {
-      cycleStart = recordStart;
+    if (recordStart) {
+      const diffDays = Math.round((recordStart.getTime() - today.getTime()) / DAY_IN_MS);
+      if (
+        recordStart.getTime() <= today.getTime()
+        || allowFutureStart
+        || (diffDays >= 0 && diffDays <= baseIntervalDays)
+      ) {
+        cycleStart = recordStart;
+        derivedKey = recordStart.toISOString().split('T')[0];
+        currentRecord = payoutRecords?.[derivedKey] ?? currentRecord;
+      }
     }
   }
 
@@ -202,9 +273,9 @@ export const buildCurrentCycle = (
       start: cycleStart,
       end: projectedCycleEnd,
       label: `${cycleStart.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - ${projectedCycleEnd.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}`,
-      periodKey: currentPeriodBase.periodKey
+      periodKey: derivedKey
     },
-    recordKey: currentPeriodBase.periodKey,
+    recordKey: derivedKey,
     intervalDays,
     currentRecord,
     latestRecord,
@@ -254,6 +325,7 @@ export const buildPeriodFromRecord = (
 
 export interface PaymentContextOptions {
   today?: Date;
+  allowFutureStart?: boolean;
 }
 
 export interface PaymentContext {
@@ -284,6 +356,8 @@ export const buildPaymentContext = (
   const payoutRecords = calendar.payoutRecords ?? {};
   const today = normalizeDate(options.today ?? new Date()) ?? new Date();
 
+  const allowFutureStart = options.allowFutureStart ?? true;
+
   const {
     period: currentPeriod,
     recordKey,
@@ -291,7 +365,7 @@ export const buildPaymentContext = (
     currentRecord,
     latestRecord,
     latestPaidRecord
-  } = buildCurrentCycle(today, paymentType, paymentDay, payoutRecords);
+  } = buildCurrentCycle(today, paymentType, paymentDay, payoutRecords, { allowFutureStart });
 
   const currentPeriodRecord = payoutRecords?.[recordKey] ?? currentRecord;
   const effectiveIntervalDays = Math.max(

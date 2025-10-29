@@ -7,7 +7,8 @@ import { logger } from '@/utils/logger';
 import { PaymentPeriod } from '@/utils/paymentPeriods';
 import { PersistentCache } from '@/utils/persistentCache';
 import { costMonitoring } from '@/utils/costMonitoring';
-import { buildCurrentCycle, buildPeriodFromRecord, getRecordReferenceDate } from '@/utils/paymentCycleContext';
+import { buildPeriodFromRecord, getRecordReferenceDate } from '@/utils/paymentCycleContext';
+import { computeScheduleFromCalendar } from '@/services/paymentSchedule';
 
 interface PeriodStats {
   stats: WorkHoursStats;
@@ -100,9 +101,20 @@ export const useWorkHoursByPeriod = (
         const baseHourlyRate = typeof calendar.hourlyRate === 'number' ? calendar.hourlyRate : 0;
         const effectiveHourlyRate = customHourlyRate ?? baseHourlyRate;
         const currency = calendar.hourlyRateCurrency || 'EUR';
-        const { period, recordKey, intervalDays } = buildCurrentCycle(now, paymentType, paymentDay, payoutRecords);
+        const schedule = computeScheduleFromCalendar(calendar, {
+          referenceDate: now,
+          allowFutureStart: true
+        });
+        const currentPeriod = schedule?.current;
 
-        logger.log(`📅 Periodo para ${calendar.name}: ${period.label} (${period.start.toISOString()} - ${period.end.toISOString()})`);
+        if (!currentPeriod) {
+          logger.log(`⚠️ No se encontró período activo para ${calendar.name}, se omite.`);
+          continue;
+        }
+
+        logger.log(`📅 Periodo para ${calendar.name}: ${currentPeriod.label} (${currentPeriod.start.toISOString()} - ${currentPeriod.end.toISOString()})`);
+
+        const recordKey = currentPeriod.periodKey;
 
         const buildStatsForPeriod = async (targetPeriod: PaymentPeriod) => {
           // Track cada lectura
@@ -196,7 +208,12 @@ export const useWorkHoursByPeriod = (
           };
         };
 
-        const current = await buildStatsForPeriod(period);
+        const current = await buildStatsForPeriod({
+          periodKey: currentPeriod.periodKey,
+          start: currentPeriod.start,
+          end: currentPeriod.end,
+          label: currentPeriod.label
+        });
 
         const history: PeriodStats[] = [];
         const orderedPaidRecords = Object.entries(payoutRecords)

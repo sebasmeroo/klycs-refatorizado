@@ -53,7 +53,8 @@ import { convertPeriodKey, useMigrationCheck } from '@/utils/migratePayoutRecord
 import { useWorkHoursByPeriod, useWorkHoursByPeriodTotals } from '@/hooks/useWorkHoursByPeriod';
 import { useWorkHoursStats } from '@/hooks/useWorkHoursStats';
 import { getCurrentPaymentPeriod, PaymentPeriod } from '@/utils/paymentPeriods';
-import { buildPaymentContext, getLatestPaymentRecord, getLatestPaidRecord, buildPeriodFromRecord } from '@/utils/paymentCycleContext';
+import { computeScheduleFromCalendar, markPaymentPaid } from '@/services/paymentSchedule';
+import { getLatestPaymentRecord, buildPeriodFromRecord } from '@/utils/paymentCycleContext';
 
 type CurrencySummary = {
   currency: string;
@@ -621,17 +622,25 @@ const DashboardStripe: React.FC = () => {
     const calendar = calendarMap.get(calendarId);
     if (!calendar) return null;
 
-    const context = buildPaymentContext(calendar, { today: new Date() });
-    if (!context) return null;
+    const referenceDate = new Date();
+    referenceDate.setHours(0, 0, 0, 0);
 
-    const { currentPeriod } = context;
+    const schedule = computeScheduleFromCalendar(calendar, {
+      referenceDate,
+      allowFutureStart: true
+    });
+
+    if (!schedule || !schedule.current) {
+      return null;
+    }
+
     const periodStats = statsByPeriodMap.get(calendarId);
     let amountForCurrentPeriod: number | undefined;
     let hoursForCurrentPeriod: number | undefined;
 
     if (periodStats) {
       const allStatsData = Array.isArray(periodStats) ? periodStats : [periodStats];
-      const currentPeriodData = allStatsData.find(item => item?.period?.periodKey === currentPeriod.periodKey);
+      const currentPeriodData = allStatsData.find(item => item?.period?.periodKey === schedule.current?.periodKey);
       if (currentPeriodData) {
         amountForCurrentPeriod = currentPeriodData.stats?.totalAmount;
         hoursForCurrentPeriod = currentPeriodData.stats?.totalHours;
@@ -641,12 +650,44 @@ const DashboardStripe: React.FC = () => {
       }
     }
 
+    const intervalDays = schedule.intervalDays > 0
+      ? schedule.intervalDays
+      : getIntervalDays(schedule.paymentType);
+
+    const nextCycleStart = schedule.nextCycleStart
+      ?? (schedule.next?.start
+        ? normalizeDate(schedule.next.start)
+        : schedule.current
+          ? addDays(schedule.current.end, 1)
+          : null);
+
+    const nextCycleEnd = schedule.nextCycleEnd
+      ?? (schedule.next?.end
+        ? normalizeDate(schedule.next.end)
+        : nextCycleStart
+          ? addDays(nextCycleStart, intervalDays - 1)
+          : null);
+
+    const currentRecord = schedule.currentRecord
+      ?? (schedule.current ? schedule.payoutRecords?.[schedule.current.periodKey] : null);
+
     return {
       calendar,
-      ...context,
+      paymentType: schedule.paymentType,
+      paymentDay: schedule.paymentDay,
+      preferredMethod: schedule.preferredMethod,
+      currentPeriod: schedule.current,
+      nextPeriod: schedule.next,
+      previousPeriod: schedule.previous,
+      intervalDays,
+      nextCycleStart,
+      nextCycleEnd,
+      currentRecord,
+      latestRecord: schedule.latestRecord ?? getLatestPaymentRecord(schedule.payoutRecords),
+      latestPaidRecord: schedule.latestPaidRecord ?? null,
+      payoutRecords: schedule.payoutRecords,
       amountForPeriod: amountForCurrentPeriod,
-      hoursForPeriod: hoursForCurrentPeriod,
-      currentPeriod
+      hoursForPeriod: hoursForCurrentPeriod
     };
   }, [calendarMap, statsByPeriodMap]);
 
@@ -1164,11 +1205,36 @@ const DashboardStripe: React.FC = () => {
       ?? preferredMethod;
     const amountValue = options?.amount;
     const hasAmount = typeof amountValue === 'number' && !Number.isNaN(amountValue);
+
+    const fallbackComputedAmount = (() => {
+      if (typeof context.amountForPeriod === 'number') {
+        return Number(context.amountForPeriod.toFixed(2));
+      }
+      if (typeof context.hoursForPeriod === 'number') {
+        const explicitRate = typeof (calendar as any)?.payoutDetails?.customHourlyRate === 'number'
+          ? (calendar as any).payoutDetails.customHourlyRate
+          : typeof calendar.hourlyRate === 'number'
+            ? calendar.hourlyRate
+            : null;
+        if (typeof explicitRate === 'number') {
+          return Number((context.hoursForPeriod * explicitRate).toFixed(2));
+        }
+      }
+      return undefined;
+    })();
+
     const normalizedAmount = hasAmount
       ? Number(amountValue.toFixed(2))
       : typeof draftRecord?.amountPaid === 'number'
         ? draftRecord.amountPaid
-        : existingRecord?.amountPaid;
+        : typeof existingRecord?.amountPaid === 'number'
+          ? existingRecord.amountPaid
+          : fallbackComputedAmount;
+    const resolvedAmount = typeof normalizedAmount === 'number'
+      ? normalizedAmount
+      : typeof fallbackComputedAmount === 'number'
+        ? fallbackComputedAmount
+        : undefined;
 
     const cycleStartDate = normalizeDate(currentPeriod.start) ?? new Date(today);
     const paymentDateObj = normalizeDate(new Date(today)) ?? new Date(today);
@@ -1195,7 +1261,7 @@ const DashboardStripe: React.FC = () => {
       lastPaymentBy: user?.displayName || user?.email || 'Equipo',
       note: draftRecord?.note ?? existingRecord?.note,
       paymentMethod,
-      amountPaid: typeof normalizedAmount === 'number' ? normalizedAmount : undefined,
+      amountPaid: typeof resolvedAmount === 'number' ? resolvedAmount : undefined,
       earlyPaymentDays: earlyPaymentDays > 0 ? earlyPaymentDays : undefined,
       cycleStart: cycleStartDate.toISOString().split('T')[0],
       cycleEnd: cycleEndDate.toISOString().split('T')[0],
@@ -1229,6 +1295,7 @@ const DashboardStripe: React.FC = () => {
         periodKey: targetPeriodKey,
         paymentType: normalizedDetails.paymentType,
         amount: normalizedRecord.amountPaid,
+        montoCalculadoPeriodo: typeof context.amountForPeriod === 'number' ? context.amountForPeriod : null,
         status: normalizedRecord.status,
         fechaPago: normalizedRecord.actualPaymentDate,
         fechaProgramada: normalizedRecord.scheduledPaymentDate

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { WorkHoursAnalyticsService } from '@/services/workHoursAnalytics';
+import { markPaymentPaid } from '@/services/paymentSchedule';
 import { CalendarEventService } from '@/services/collaborativeCalendar';
 import { WorkHoursStats } from '@/types/calendar';
 import { costMonitoring } from '@/utils/costMonitoring';
@@ -271,9 +272,23 @@ export const useUpdatePayoutComplete = () => {
         actualPaymentDate?: string | null;
         scheduledPaymentDate?: string | null;
         earlyPaymentDays?: number | null;
+        preserveScheduledDate?: boolean | null;
       };
     }) => {
       costMonitoring.trackFirestoreWrite(1);
+
+      if (payoutRecord.status === 'paid') {
+        await markPaymentPaid({
+          calendarId,
+          periodKey,
+          amount: typeof payoutRecord.amountPaid === 'number' ? payoutRecord.amountPaid : undefined,
+          paymentMethod: payoutRecord.paymentMethod ?? undefined,
+          maintainSchedule: Boolean(payoutRecord.preserveScheduledDate),
+          note: payoutRecord.note ?? undefined,
+          payoutDetails
+        });
+        return;
+      }
 
       const { CollaborativeCalendarService } = await import('@/services/collaborativeCalendar');
 
